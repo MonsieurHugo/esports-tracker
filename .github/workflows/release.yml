@@ -52,7 +52,7 @@ jobs:
       # Trigger deployment on new release
       - name: Trigger Deployment
         if: ${{ steps.release.outputs.release_created }}
-        uses: peter-evans/repository-dispatch@v3
+        uses: peter-evans/repository-dispatch@v4
         with:
           event-type: new-release
           client-payload: '{"tag": "${{ steps.release.outputs.tag_name }}"}'
