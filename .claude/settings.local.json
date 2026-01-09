@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ssh root@148.230.71.240 \"cd /root/esports-tracker && cp deploy/generated/.env .env && echo ''.env copie avec succes''\")",
+      "Bash(ssh root@148.230.71.240 \"cd /root/esports-tracker && chmod +x install.sh && echo ''install.sh est maintenant executable''\")",
+      "Bash(ssh root@148.230.71.240 \"cd /root/esports-tracker && ./install.sh\")",
+      "Bash(ssh root@148.230.71.240 \"cd /root/esports-tracker && source .env && echo ''DOMAIN=$DOMAIN'' && echo ''DB_USER=$DB_USER'' && echo ''DB_DATABASE=$DB_DATABASE''\")",
+      "Bash(ssh root@148.230.71.240 \"cd /root/esports-tracker && sed -i ''1s/^\\\\xEF\\\\xBB\\\\xBF//'' .env && head -5 .env\")",
+      "Bash(ssh root@148.230.71.240 \"ls -la /root/esports-tracker/ | head -20\")",
+      "Bash(ssh root@148.230.71.240 \"grep -E ''^\\(DOMAIN|DB_USER|DB_PASSWORD|DB_DATABASE\\)='' /root/esports-tracker/.env\")",
+      "Bash(ssh root@148.230.71.240 \"docker --version && docker compose version\")",
+      "Bash(ssh root@148.230.71.240 \"mkdir -p /var/lib/esports-tracker/{postgres,redis,backups} && chmod 700 /var/lib/esports-tracker/postgres && echo ''Dossiers crees''\")",
+      "Bash(ssh root@148.230.71.240 \"cd /root/esports-tracker && docker compose -f docker-compose.db.yml up -d\")",
+      "Bash(ssh root@148.230.71.240 \"ss -tlnp | grep 5432 || netstat -tlnp | grep 5432\")",
+      "Bash(ssh root@148.230.71.240 \"docker exec -i esports-postgres psql -U monsieuryordle -d esports < /root/esports-tracker/scripts/schema.sql 2>&1 | tail -20\")",
+      "Bash(ssh root@148.230.71.240:*)",
+      "Bash(nslookup:*)",
+      "Bash(dig +short:*)",
+      "Bash(gh auth status:*)"
+    ]
+  }
+}

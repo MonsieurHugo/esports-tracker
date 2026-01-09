@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 Discussions
+    url: https://github.com/YOUR_USERNAME/esports-tracker/discussions
+    about: Ask questions and discuss ideas
+  - name: 📚 Documentation
+    url: https://github.com/YOUR_USERNAME/esports-tracker#readme
+    about: Read the documentation
+  - name: 🎮 Riot Games Developer Portal
+    url: https://developer.riotgames.com/
+    about: Get your Riot API key
