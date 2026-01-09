@@ -1,5 +1,7 @@
 'use client'
 
+export const dynamic = 'force-dynamic'
+
 import { useEffect, useState, useCallback } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
@@ -668,7 +670,7 @@ function getChampionName(championId: number): string {
     517: 'Sylas', 518: 'Neeko', 523: 'Aphelios', 526: 'Rell', 555: 'Pyke',
     711: 'Vex', 777: 'Yone', 799: 'Ambessa', 875: 'Sett', 876: 'Lillia',
     887: 'Gwen', 888: 'Renata', 895: 'Nilah', 897: 'KSante', 901: 'Smolder',
-    902: 'Milio', 910: 'Hwei', 950: 'Naafiri', 902: 'Milio', 893: 'Aurora',
+    902: 'Milio', 910: 'Hwei', 950: 'Naafiri', 893: 'Aurora',
   }
   return champions[championId] || `Champion${championId}`
 }
