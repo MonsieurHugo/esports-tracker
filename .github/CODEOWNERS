@@ -1,0 +1,37 @@
+# ============================================
+# CODEOWNERS - Esports Tracker
+# ============================================
+# These owners will be requested for review
+# when someone opens a pull request.
+
+# Default owner for everything
+*                       @your-username
+
+# Frontend
+/frontend/              @your-username
+/frontend/src/components/  @your-username
+/frontend/src/app/      @your-username
+
+# Backend
+/backend/               @your-username
+/backend/app/controllers/  @your-username
+/backend/app/models/    @your-username
+/backend/database/      @your-username
+
+# Worker
+/worker/                @your-username
+/worker/src/services/   @your-username
+/worker/src/jobs/       @your-username
+
+# Infrastructure & DevOps
+/docker-compose*.yml    @your-username
+/.github/               @your-username
+/scripts/               @your-username
+
+# Documentation
+*.md                    @your-username
+/docs/                  @your-username
+
+# Configuration
+/.env*                  @your-username
+/*/Dockerfile           @your-username

@@ -1,0 +1,96 @@
+@import "tailwindcss";
+
+:root {
+  /* Background colors - Terminal theme (default) */
+  --bg-primary: #07070a;
+  --bg-secondary: #0c0c0f;
+  --bg-card: #101014;
+  --bg-hover: #16161c;
+  --bg-accordion: #0a0a0d;
+
+  /* Border */
+  --border: #1e1e24;
+
+  /* Text colors */
+  --text-primary: #f0f0f0;
+  --text-secondary: #b0b0b8;
+  --text-muted: #8a8a94;
+
+  /* Accent colors */
+  --accent: #00dc82;
+  --accent-hover: #00c974;
+  --lol: #c89b3c;
+  --positive: #00dc82;
+  --negative: #ff4757;
+
+  /* Legacy variables (for compatibility) */
+  --background: var(--bg-primary);
+  --foreground: var(--text-primary);
+  --card: var(--bg-card);
+  --card-hover: var(--bg-hover);
+  --primary: var(--accent);
+  --primary-hover: var(--accent-hover);
+  --success: var(--positive);
+  --danger: var(--negative);
+  --warning: #f59e0b;
+  --muted: var(--text-muted);
+}
+
+body {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-inter), system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+}
+
+.font-mono {
+  font-family: var(--font-mono), monospace;
+}
+
+@layer components {
+  .card {
+    background-color: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 0.75rem;
+    padding: 1.5rem;
+  }
+
+  .card:hover {
+    background-color: var(--card-hover);
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.5rem 1rem;
+    border-radius: 0.5rem;
+    font-weight: 500;
+    transition: all 0.2s;
+    cursor: pointer;
+  }
+
+  .btn-primary {
+    background-color: var(--primary);
+    color: white;
+  }
+
+  .btn-primary:hover {
+    background-color: var(--primary-hover);
+  }
+
+  .animate-fade-in {
+    animation: fadeIn 0.3s ease-out;
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
