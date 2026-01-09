@@ -1,5 +1,4 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
 
 export type ThemeKey = 'terminal' | 'emerald' | 'mint' | 'obsidian' | 'arctic' | 'amber'
 
@@ -140,14 +139,7 @@ interface ThemeState {
   setTheme: (theme: ThemeKey) => void
 }
 
-export const useThemeStore = create<ThemeState>()(
-  persist(
-    (set) => ({
-      currentTheme: 'terminal',
-      setTheme: (theme) => set({ currentTheme: theme }),
-    }),
-    {
-      name: 'theme-storage',
-    }
-  )
-)
+export const useThemeStore = create<ThemeState>()((set) => ({
+  currentTheme: 'terminal',
+  setTheme: (theme) => set({ currentTheme: theme }),
+}))

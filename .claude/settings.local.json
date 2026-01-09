@@ -16,7 +16,21 @@
       "Bash(ssh root@148.230.71.240:*)",
       "Bash(nslookup:*)",
       "Bash(dig +short:*)",
-      "Bash(gh auth status:*)"
+      "Bash(gh auth status:*)",
+      "Bash(powershell.exe -Command \"cd ''C:\\\\Users\\\\hugot\\\\Documents\\\\Site\\\\esports-tracker\\\\frontend''; npm run build 2>&1\")",
+      "Bash(powershell.exe -Command \"Remove-Item -Path ''C:\\\\Users\\\\hugot\\\\Documents\\\\Site\\\\esports-tracker\\\\frontend\\\\.next'' -Recurse -Force -ErrorAction SilentlyContinue; Write-Host ''Cleaned .next folder''\")",
+      "Bash(powershell.exe -Command \"echo $env:NODE_ENV\")",
+      "Bash(powershell.exe -Command \"Get-ChildItem -Path ''C:\\\\Users\\\\hugot\\\\Documents\\\\Site\\\\esports-tracker\\\\frontend'' -Directory -Recurse | Where-Object { $_Name -eq ''pages'' } | Select-Object -ExpandProperty FullName\")",
+      "Bash(powershell.exe -Command \"cd ''C:\\\\Users\\\\hugot\\\\Documents\\\\Site\\\\esports-tracker\\\\frontend''; Remove-Item -Recurse -Force node_modules -ErrorAction SilentlyContinue; Remove-Item -Force package-lock.json -ErrorAction SilentlyContinue; Remove-Item -Recurse -Force .next -ErrorAction SilentlyContinue; Write-Host ''Cleaned''\")",
+      "Bash(powershell.exe -Command \"cd ''C:\\\\Users\\\\hugot\\\\Documents\\\\Site\\\\esports-tracker\\\\frontend''; $env:NODE_ENV=''production''; npm install 2>&1\")",
+      "Bash(powershell.exe -Command \"cd ''C:\\\\Users\\\\hugot\\\\Documents\\\\Site\\\\esports-tracker\\\\frontend''; $env:NODE_ENV=''production''; npm run build 2>&1\")",
+      "Bash(powershell.exe -Command \"npm view next versions --json 2>&1 | Select-String ''14\\\\.2\\\\.'' | Select-Object -Last 10\")",
+      "Bash(powershell.exe -Command \"cd ''C:\\\\Users\\\\hugot\\\\Documents\\\\Site\\\\esports-tracker\\\\frontend''; npm install next@14.2.35 2>&1\")",
+      "Bash(powershell.exe -Command \"cd ''C:\\\\Users\\\\hugot\\\\Documents\\\\Site\\\\esports-tracker\\\\frontend''; Remove-Item -Recurse -Force .next -ErrorAction SilentlyContinue; npm run build 2>&1\")",
+      "Bash(powershell.exe -Command \"cd ''C:\\\\Users\\\\hugot\\\\Documents\\\\Site\\\\esports-tracker\\\\frontend''; npm install --save-dev cross-env 2>&1\")",
+      "Bash(powershell.exe -Command \"cd ''C:\\\\Users\\\\hugot\\\\Documents\\\\Site\\\\esports-tracker''; git diff --name-only HEAD 2>&1\")",
+      "Bash(powershell.exe -Command \"cd ''C:\\\\Users\\\\hugot\\\\Documents\\\\Site\\\\esports-tracker''; git checkout HEAD -- ''frontend/src/app/\\(lol\\)/lol/page.tsx'' 2>&1\")",
+      "Bash(powershell.exe -Command:*)"
     ]
   }
 }
