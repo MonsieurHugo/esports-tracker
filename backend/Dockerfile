@@ -4,13 +4,12 @@
 
 # Base image
 FROM node:20-alpine AS base
-RUN corepack enable && corepack prepare pnpm@latest --activate
 WORKDIR /app
 
 # Dependencies
 FROM base AS deps
-COPY package.json pnpm-lock.yaml* ./
-RUN pnpm install --frozen-lockfile
+COPY package.json package-lock.json* ./
+RUN npm ci
 
 # Development
 FROM base AS development
@@ -36,7 +35,7 @@ RUN adduser --system --uid 1001 adonisjs
 WORKDIR /app
 
 COPY --from=builder --chown=adonisjs:adonisjs /app/build ./
-RUN pnpm install --prod --frozen-lockfile
+RUN npm ci --omit=dev
 
 USER adonisjs
 EXPOSE 3333

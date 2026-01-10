@@ -1,0 +1,27 @@
+# Dependencies
+node_modules
+
+# Build output
+build
+tmp
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+logs
+
+# IDE
+.vscode
+.idea
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Lock files (keep package-lock.json)
+pnpm-lock.yaml
+yarn.lock

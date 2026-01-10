@@ -1,0 +1,64 @@
+{
+  "name": "esports-tracker-backend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "license": "UNLICENSED",
+  "scripts": {
+    "start": "node bin/server.js",
+    "dev": "node --import=tsx bin/server.ts",
+    "dev:watch": "node --import=tsx ace.js serve --watch",
+    "build": "node --import=tsx ace.js build",
+    "test": "node --import=tsx ace.js test",
+    "ace": "node --import=tsx ace.js",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "typecheck": "tsc --noEmit"
+  },
+  "imports": {
+    "#controllers/*": "./app/controllers/*.ts",
+    "#models/*": "./app/models/*.ts",
+    "#services/*": "./app/services/*.ts",
+    "#validators/*": "./app/validators/*.ts",
+    "#exceptions/*": "./app/exceptions/*.ts",
+    "#middleware/*": "./app/middleware/*.ts",
+    "#config/*": "./config/*.ts",
+    "#start/*": "./start/*.ts",
+    "#commands/*": "./commands/*.ts"
+  },
+  "devDependencies": {
+    "@adonisjs/assembler": "^7.8.2",
+    "@adonisjs/eslint-config": "^2.0.0-beta.7",
+    "@adonisjs/prettier-config": "^1.4.0",
+    "@adonisjs/tsconfig": "^1.4.0",
+    "@japa/api-client": "^3.2.1",
+    "@japa/assert": "^4.2.0",
+    "@japa/plugin-adonisjs": "^3.0.1",
+    "@japa/runner": "^3.1.4",
+    "@swc/core": "^1.7.26",
+    "@types/luxon": "^3.4.2",
+    "@types/node": "^22.7.5",
+    "eslint": "^9.12.0",
+    "pino-pretty": "^11.2.2",
+    "prettier": "^3.3.3",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.19.0",
+    "typescript": "~5.6.3"
+  },
+  "dependencies": {
+    "@adonisjs/auth": "^9.5.1",
+    "@adonisjs/core": "^6.14.1",
+    "@adonisjs/cors": "^2.2.1",
+    "@adonisjs/lucid": "^21.3.0",
+    "@adonisjs/session": "^7.7.1",
+    "@vinejs/vine": "^2.1.0",
+    "luxon": "^3.5.0",
+    "pg": "^8.13.0",
+    "reflect-metadata": "^0.2.2"
+  },
+  "prettier": "@adonisjs/prettier-config",
+  "eslintConfig": {
+    "extends": "@adonisjs/eslint-config/app"
+  },
+  "packageManager": "npm"
+}
