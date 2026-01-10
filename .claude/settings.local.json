@@ -30,7 +30,73 @@
       "Bash(powershell.exe -Command \"cd ''C:\\\\Users\\\\hugot\\\\Documents\\\\Site\\\\esports-tracker\\\\frontend''; npm install --save-dev cross-env 2>&1\")",
       "Bash(powershell.exe -Command \"cd ''C:\\\\Users\\\\hugot\\\\Documents\\\\Site\\\\esports-tracker''; git diff --name-only HEAD 2>&1\")",
       "Bash(powershell.exe -Command \"cd ''C:\\\\Users\\\\hugot\\\\Documents\\\\Site\\\\esports-tracker''; git checkout HEAD -- ''frontend/src/app/\\(lol\\)/lol/page.tsx'' 2>&1\")",
-      "Bash(powershell.exe -Command:*)"
+      "Bash(powershell.exe -Command:*)",
+      "Bash(npx claude-code-templates@latest --agent=database/database-architect --yes)",
+      "Bash(dir \"C:\\\\Users\\\\hugot\\\\Documents\\\\Site\\\\esports-tracker\\\\backend\\\\database\\\\migrations\" /b)",
+      "Bash(dir:*)",
+      "Bash(powershell.exe -NoProfile -Command \"New-Item -ItemType Directory -Path \\(Join-Path $env:USERPROFILE ''.claude''\\) -Force | Out-Null; Write-Host ''Dossier créé: '' \\(Join-Path $env:USERPROFILE ''.claude''\\)\")",
+      "Bash(ssh root@monsieuryordle.com \"ls -la /root/esports-tracker/backend/\")",
+      "Bash(ssh root@monsieuryordle.com \"cat /root/esports-tracker/docker-compose.db.yml\")",
+      "Bash(ssh root@monsieuryordle.com \"cd /root/esports-tracker && docker compose -f docker-compose.db.yml up -d\")",
+      "Bash(ssh root@monsieuryordle.com \"docker ps\")",
+      "Bash(ssh root@monsieuryordle.com \"cd /root/esports-tracker && docker compose -f docker-compose.db.yml up -d && docker ps\")",
+      "Bash(npx claude-code-templates@latest --agent=development-team/backend-architect --yes)",
+      "Bash(npx tsc --noEmit)",
+      "WebSearch",
+      "Bash(ssh:*)",
+      "Bash(powershell -Command:*)",
+      "Bash(npx tsx:*)",
+      "Bash(del \"C:\\\\Users\\\\hugot\\\\Documents\\\\Site\\\\esports-tracker\\\\backend\\\\config\\\\app.ts\")",
+      "Bash(psql:*)",
+      "Bash(taskkill //F //PID 704740)",
+      "Bash(netstat:*)",
+      "Bash(taskkill //F //PID 709892)",
+      "Bash(taskkill //F //PID 714388)",
+      "Bash(taskkill //F //PID 719932)",
+      "Bash(nvm list:*)",
+      "Bash(where:*)",
+      "Bash(winget install:*)",
+      "Bash(cmd /c \"set PATH=%USERPROFILE%\\\\AppData\\\\Local\\\\fnm;%PATH% && fnm install 20\")",
+      "Bash(cmd /c \"where fnm 2>nul || dir /s /b C:\\\\Users\\\\hugot\\\\AppData\\\\*fnm.exe 2>nul\")",
+      "Bash(cmd /c \"dir /s /b C:\\\\Users\\\\hugot\\\\*fnm.exe 2>nul\")",
+      "Bash(powershell -NoProfile -Command \"[System.Environment]::GetEnvironmentVariable\\(''Path'',''User''\\)\")",
+      "Bash(\"C:/Users/hugot/AppData/Local/Microsoft/WinGet/Packages/Schniz.fnm_Microsoft.Winget.Source_8wekyb3d8bbwe/fnm.exe\" install 20)",
+      "Bash(\"C:/Users/hugot/AppData/Local/Microsoft/WinGet/Packages/Schniz.fnm_Microsoft.Winget.Source_8wekyb3d8bbwe/fnm.exe\" default 20)",
+      "Bash(\"C:/Users/hugot/AppData/Local/Microsoft/WinGet/Packages/Schniz.fnm_Microsoft.Winget.Source_8wekyb3d8bbwe/fnm.exe\" exec --using=20 node --version)",
+      "Bash(\"C:/Users/hugot/AppData/Local/Microsoft/WinGet/Packages/Schniz.fnm_Microsoft.Winget.Source_8wekyb3d8bbwe/fnm.exe\" exec --using=20 -- node C:/Users/hugot/Documents/Site/esports-tracker/backend/ace.js serve --watch)",
+      "Bash(\"C:/Users/hugot/AppData/Local/Microsoft/WinGet/Packages/Schniz.fnm_Microsoft.Winget.Source_8wekyb3d8bbwe/fnm.exe\" exec --using=20 -- npm install)",
+      "Bash(\"C:/Users/hugot/AppData/Local/Microsoft/WinGet/Packages/Schniz.fnm_Microsoft.Winget.Source_8wekyb3d8bbwe/fnm.exe\" list)",
+      "Bash(powershell:*)",
+      "Bash(\"C:/Users/hugot/AppData/Local/Microsoft/WinGet/Packages/Schniz.fnm_Microsoft.Winget.Source_8wekyb3d8bbwe/fnm.exe\" env)",
+      "Bash(\"C:/Users/hugot/AppData/Roaming/fnm/node-versions/v20.19.6/installation/node.exe\" \"C:/Users/hugot/AppData/Roaming/fnm/node-versions/v20.19.6/installation/node_modules/npm/bin/npm-cli.js\" install)",
+      "Bash(\"C:/Users/hugot/AppData/Roaming/fnm/node-versions/v20.19.6/installation/node.exe\" ace.js serve --watch)",
+      "Bash(\"C:/Users/hugot/AppData/Roaming/fnm/node-versions/v20.19.6/installation/node.exe\" \"C:/Users/hugot/AppData/Roaming/fnm/node-versions/v20.19.6/installation/node_modules/npm/bin/npm-cli.js\" run dev:watch)",
+      "Bash(\"C:/Users/hugot/AppData/Local/Microsoft/WinGet/Packages/Schniz.fnm_Microsoft.Winget.Source_8wekyb3d8bbwe/fnm.exe\" install 22)",
+      "Bash(\"C:/Users/hugot/AppData/Roaming/fnm/node-versions/v22.21.1/installation/node.exe\" \"C:/Users/hugot/AppData/Roaming/fnm/node-versions/v22.21.1/installation/node_modules/npm/bin/npm-cli.js\" run dev:watch)",
+      "Bash(\"C:/Users/hugot/AppData/Roaming/fnm/node-versions/v22.21.1/installation/node.exe\" \"C:/Users/hugot/AppData/Roaming/fnm/node-versions/v22.21.1/installation/node_modules/npm/bin/npm-cli.js\" ls tsx @adonisjs/assembler)",
+      "Bash(\"C:/Users/hugot/AppData/Roaming/fnm/node-versions/v22.21.1/installation/node.exe\" \"C:/Users/hugot/AppData/Roaming/fnm/node-versions/v22.21.1/installation/node_modules/npm/bin/npm-cli.js\" show tsx version)",
+      "Bash(\"C:/Users/hugot/AppData/Roaming/fnm/node-versions/v22.21.1/installation/node.exe\" \"C:/Users/hugot/AppData/Roaming/fnm/node-versions/v22.21.1/installation/node_modules/npm/bin/npm-cli.js\" show @adonisjs/assembler version)",
+      "Bash(\"C:/Users/hugot/AppData/Roaming/fnm/node-versions/v22.21.1/installation/node.exe\" \"C:/Users/hugot/AppData/Roaming/fnm/node-versions/v22.21.1/installation/node_modules/npm/bin/npm-cli.js\" show @adonisjs/ace version)",
+      "Bash(\"C:/Users/hugot/AppData/Roaming/fnm/node-versions/v22.21.1/installation/node.exe\" --import=tsx bin/server.ts)",
+      "Bash(psql:*)",
+      "Bash(findstr:*)"
     ]
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell.exe -NoProfile -Command \"[System.Media.SystemSounds]::Asterisk.Play()\""
+          }
+        ]
+      }
+    ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "python .claude/scripts/context-monitor.py"
   }
 }
