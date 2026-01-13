@@ -17,7 +17,7 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NODE_ENV=development
 EXPOSE 3333
-CMD ["node", "ace", "serve", "--watch"]
+CMD ["node", "--import=tsx", "ace.js", "serve", "--watch"]
 
 # Builder
 FROM base AS builder
