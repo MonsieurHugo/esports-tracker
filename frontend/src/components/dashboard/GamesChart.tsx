@@ -6,8 +6,8 @@ import {
   YAxis,
   Tooltip,
   ResponsiveContainer,
-  Area,
-  ComposedChart,
+  Bar,
+  BarChart,
 } from 'recharts'
 import type { GamesPerDayData } from '@/lib/types'
 
@@ -42,27 +42,33 @@ function GamesChart({ teams }: GamesChartProps) {
     })
 
     if (hasLabelDuplicates) {
-      // Vue année: agréger par label (mois)
-      const labelMap = new Map<string, { label: string; minDate: string; teamGames: number[] }>()
+      // Vue année: agréger par label (mois) avec wins pour le winrate
+      const labelMap = new Map<string, { label: string; minDate: string; teamGames: number[]; teamWins: number[] }>()
 
       teams.forEach((team, teamIndex) => {
         team.data.forEach((d) => {
           if (!labelMap.has(d.label)) {
-            labelMap.set(d.label, { label: d.label, minDate: d.date, teamGames: new Array(teams.length).fill(0) })
+            labelMap.set(d.label, {
+              label: d.label,
+              minDate: d.date,
+              teamGames: new Array(teams.length).fill(0),
+              teamWins: new Array(teams.length).fill(0),
+            })
           }
           const entry = labelMap.get(d.label)!
           entry.teamGames[teamIndex] = (entry.teamGames[teamIndex] || 0) + (d.games || 0)
+          entry.teamWins[teamIndex] = (entry.teamWins[teamIndex] || 0) + (d.wins || 0)
           if (d.date < entry.minDate) entry.minDate = d.date
         })
       })
 
       return Array.from(labelMap.values())
         .sort((a, b) => a.minDate.localeCompare(b.minDate))
-        .map(({ label, minDate, teamGames }) => {
+        .map(({ label, minDate, teamGames, teamWins }) => {
           const result: Record<string, string | number> = { label, date: minDate }
           teamGames.forEach((games, index) => {
-            // Si pas de données, mettre 0
             result[`team${index}Games`] = games || 0
+            result[`team${index}Winrate`] = games > 0 ? Math.round((teamWins[index] / games) * 100) : 0
           })
           return result
         })
@@ -85,8 +91,8 @@ function GamesChart({ teams }: GamesChartProps) {
 
         teams.forEach((team, index) => {
           const point = team.data.find((d) => d.date === date)
-          // Si pas de données pour cette date, mettre 0
           result[`team${index}Games`] = point?.games ?? 0
+          result[`team${index}Winrate`] = point?.winrate ?? 0
         })
 
         return result
@@ -133,6 +139,17 @@ function GamesChart({ teams }: GamesChartProps) {
 
   const hasData = teams.length > 0 && teams.some((t) => t.data.length > 0)
 
+  // Calculer la taille dynamique des barres
+  const barSize = useMemo(() => {
+    const maxBarWidth = 20
+    const minBarWidth = 4
+    const chartWidth = 280 // Largeur approximative du graphique
+    const totalBars = displayedData.length * teams.length
+    if (totalBars === 0) return maxBarWidth
+    const calculated = (chartWidth / totalBars) * 0.7
+    return Math.max(minBarWidth, Math.min(maxBarWidth, calculated))
+  }, [displayedData.length, teams.length])
+
   // Calculer les ticks de l'axe Y pour avoir des valeurs régulières
   const yAxisTicks = useMemo(() => {
     if (displayedData.length === 0) return [0, 5, 10, 15, 20]
@@ -171,30 +188,30 @@ function GamesChart({ teams }: GamesChartProps) {
 
   if (!hasData) {
     return (
-      <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg overflow-hidden">
-        <div className="px-3.5 py-2.5 border-b border-[var(--border)] text-[11px] font-semibold text-[var(--text-secondary)]">
+      <div className="bg-(--bg-card) border border-(--border) rounded-lg overflow-hidden">
+        <div className="px-3.5 py-2.5 border-b border-(--border) text-[11px] font-semibold text-(--text-secondary)">
           Games par jour
         </div>
         <div className="p-3 h-[180px] flex items-center justify-center">
-          <div className="text-[var(--text-muted)] text-sm">Sélectionnez une équipe</div>
+          <div className="text-(--text-muted) text-sm">Sélectionnez une équipe</div>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg overflow-hidden">
-      <div className="px-3.5 py-2.5 border-b border-[var(--border)] flex items-center gap-3">
-        <span className="text-[11px] font-semibold text-[var(--text-secondary)] flex-shrink-0">Games par jour</span>
+    <div className="bg-(--bg-card) border border-(--border) rounded-lg overflow-hidden">
+      <div className="px-3.5 py-2.5 border-b border-(--border) flex items-center gap-3">
+        <span className="text-[11px] font-semibold text-(--text-secondary) shrink-0">Games par jour</span>
         {/* Légende des équipes */}
         <div className="flex items-center gap-2 min-w-0 overflow-hidden">
           {teams.map((team, index) => (
             <div key={team.teamName} className="flex items-center gap-1 min-w-0">
               <div
-                className="w-2 h-2 rounded-full flex-shrink-0"
+                className="w-2 h-2 rounded-full shrink-0"
                 style={{ backgroundColor: index === 0 ? 'var(--accent)' : 'var(--lol)' }}
               />
-              <span className="text-[9px] text-[var(--text-muted)] truncate max-w-[80px]">
+              <span className="text-[9px] text-(--text-muted) truncate max-w-[80px]">
                 {team.teamName}
               </span>
             </div>
@@ -204,7 +221,7 @@ function GamesChart({ teams }: GamesChartProps) {
       <div className="p-3 h-[180px] relative">
         {/* Background watermark */}
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none select-none">
-          <span className="text-[56px] font-black text-[var(--text-muted)] opacity-[0.07] tracking-wider">
+          <span className="text-[56px] font-black text-(--text-muted) opacity-[0.07] tracking-wider">
             GAMES
           </span>
         </div>
@@ -217,7 +234,7 @@ function GamesChart({ teams }: GamesChartProps) {
           }}
         >
           <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={displayedData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
+            <BarChart data={displayedData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }} barCategoryGap="15%" barGap={2}>
               <XAxis
                 dataKey="label"
                 axisLine={false}
@@ -241,33 +258,31 @@ function GamesChart({ teams }: GamesChartProps) {
                 }}
                 labelStyle={{ color: 'var(--text-primary)', fontSize: 11 }}
                 itemStyle={{ fontSize: 10 }}
-                formatter={(value: number, name: string) => {
-                  if (name.startsWith('team') && name.endsWith('Games')) {
+                formatter={(value, name, props) => {
+                  if (typeof value !== 'number') return ['', '']
+                  if (typeof name === 'string' && name.startsWith('team') && name.endsWith('Games')) {
                     const index = parseInt(name.replace('team', '').replace('Games', ''), 10)
                     const teamName = teams[index]?.teamName || `Équipe ${index + 1}`
-                    return [`${value} games`, teamName]
+                    const winrate = props.payload[`team${index}Winrate`] as number
+                    return [`${value} games (${winrate}% WR)`, teamName]
                   }
-                  return [`${value} games`, name]
+                  return [`${value} games`, String(name)]
                 }}
               />
               {teams.map((team, index) => (
-                <Area
+                <Bar
                   key={`${team.teamName}-${animationKey}`}
-                  type="monotone"
                   dataKey={`team${index}Games`}
-                  stroke={TEAM_COLORS[index].stroke}
-                  strokeWidth={2}
                   fill={TEAM_COLORS[index].fill}
-                  fillOpacity={0.15}
-                  dot={{ fill: TEAM_COLORS[index].stroke, strokeWidth: 2, stroke: 'var(--bg-card)', r: 3 }}
-                  activeDot={{ r: 5 }}
-                  connectNulls
+                  fillOpacity={index === 0 ? 0.9 : 0.7}
+                  radius={[3, 3, 0, 0]}
+                  maxBarSize={barSize}
                   isAnimationActive={true}
                   animationDuration={DRAW_DURATION}
                   animationEasing="ease-out"
                 />
               ))}
-            </ComposedChart>
+            </BarChart>
           </ResponsiveContainer>
         </div>
       </div>

@@ -25,7 +25,8 @@ const corsConfig = defineConfig({
       if (allowedOriginsEnv) {
         devOrigins.push(...allowedOriginsEnv.split(',').map((o) => o.trim()))
       }
-      return devOrigins.includes(requestOrigin) || !requestOrigin
+      // Only allow requests from known dev origins (reject requests without Origin header)
+      return devOrigins.includes(requestOrigin)
     }
 
     // In production, strictly check against allowed origins

@@ -50,7 +50,6 @@ const bodyParserConfig = defineConfig({
   raw: {
     encoding: 'utf-8',
     limit: '1mb',
-    queryString: {},
     types: ['text/plain'],
   },
 })

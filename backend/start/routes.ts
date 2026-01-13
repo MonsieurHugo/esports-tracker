@@ -146,6 +146,8 @@ router
         router.get('/players/search', [WorkerController, 'searchPlayers'])
         router.get('/daily-coverage', [WorkerController, 'dailyCoverage'])
         router.get('/accounts', [WorkerController, 'accounts'])
+        router.get('/accounts/list', [WorkerController, 'accountsList'])
+        router.get('/coverage-stats', [WorkerController, 'coverageStats'])
       })
       .prefix('/worker')
 

@@ -1,3 +1,10 @@
+export interface LeagueInfo {
+  leagueId: number
+  name: string
+  shortName: string
+  region: string
+}
+
 export interface Game {
   gameId: number
   slug: string
@@ -89,14 +96,13 @@ export interface LolDailyStat {
   date: string
   gamesPlayed: number
   wins: number
-  soloqGames: number
-  flexGames: number
   totalKills: number
   totalDeaths: number
   totalAssists: number
-  totalCs: number
-  totalDamage: number
   totalGameDuration?: number
+  tier?: string
+  rank?: string
+  lp: number
 }
 
 export interface LolCurrentRank {
@@ -211,6 +217,7 @@ export interface TeamLeaderboardEntry {
     shortName: string
     logoUrl?: string
     region: string
+    league?: string
   }
   games: number
   gamesChange: number
@@ -250,6 +257,7 @@ export interface PlayerLeaderboardEntry {
     shortName: string
     logoUrl?: string
     region: string
+    league?: string
   } | null
   role: string
   games: number
@@ -306,6 +314,25 @@ export interface StreakEntry {
     slug: string
   }
   streak: number // positive = wins
+}
+
+// LP Change leaderboard entry (for top LP gainers/losers)
+export interface LpChangeEntry {
+  rank: number
+  entity: {
+    id: number
+    slug: string
+    name: string
+    shortName?: string
+    logoUrl?: string
+  }
+  entityType: 'team' | 'player'
+  team?: {
+    shortName: string
+    slug: string
+  }
+  lpChange: number // positive = gained, negative = lost
+  games: number
 }
 
 // Split and league types
@@ -575,4 +602,147 @@ export interface PlayerChampionStats {
     avgKp: number | null
     avgDmgShare: number | null
   }[]
+}
+
+// Admin Types
+
+export const PLAYER_ROLES = ['Top', 'Jungle', 'Mid', 'ADC', 'Support'] as const
+export type PlayerRole = (typeof PLAYER_ROLES)[number]
+
+export interface AdminPlayer {
+  playerId: number
+  slug: string
+  currentPseudo: string
+  firstName: string | null
+  lastName: string | null
+  nationality: string | null
+  twitter: string | null
+  twitch: string | null
+  contract: {
+    contractId: number
+    teamId: number
+    teamName: string
+    teamShortName: string
+    teamRegion: string | null
+    role: string | null
+    isStarter: boolean
+    startDate: string | null
+    endDate: string | null
+  } | null
+  accounts: {
+    puuid: string
+    gameName: string | null
+    tagLine: string | null
+    region: string
+  }[]
+}
+
+export interface AdminTeam {
+  teamId: number
+  slug: string
+  currentName: string
+  shortName: string
+  region: string | null
+  league: string | null
+}
+
+export interface UpdatePlayerPayload {
+  currentPseudo?: string
+  firstName?: string | null
+  lastName?: string | null
+  nationality?: string | null
+  twitter?: string | null
+  twitch?: string | null
+}
+
+export interface UpsertContractPayload {
+  teamId: number
+  role?: string | null
+  isStarter: boolean
+  startDate?: string | null
+  endDate?: string | null
+}
+
+export interface AdminPlayersResponse {
+  data: AdminPlayer[]
+  teams: AdminTeam[]
+  meta: {
+    total: number
+    perPage: number
+    currentPage: number
+    lastPage: number
+  }
+}
+
+// Admin User Management Types
+
+export interface AdminUser {
+  id: number
+  email: string
+  fullName: string | null
+  role: 'user' | 'admin'
+  emailVerified: boolean
+  twoFactorEnabled: boolean
+  createdAt: string
+  lastLoginAt: string | null
+  lockedUntil: string | null
+  failedLoginAttempts: number
+}
+
+export interface CreateUserPayload {
+  email: string
+  password: string
+  fullName?: string
+  role?: 'user' | 'admin'
+}
+
+export type UserRoleFilter = 'all' | 'user' | 'admin'
+
+// Enhanced Worker Monitoring Types
+
+export type AccountHealthStatus = 'fresh' | 'normal' | 'stale' | 'critical'
+
+export interface EnhancedWorkerAccountInfo extends WorkerAccountInfo {
+  health_status: AccountHealthStatus
+}
+
+export interface WorkerAccountsListResponse {
+  data: EnhancedWorkerAccountInfo[]
+  meta: {
+    total: number
+    perPage: number
+    currentPage: number
+    lastPage: number
+  }
+  summary: {
+    fresh: number
+    normal: number
+    stale: number
+    critical: number
+  }
+}
+
+export interface DailyCoverageEntry {
+  date: string
+  accountsUpdated: number
+  coverage: number
+}
+
+export interface CoverageStatsData {
+  todayCoverage: number
+  weeklyAvgCoverage: number
+  accountsWithActivityToday: number
+  totalAccounts: number
+  trend: 'up' | 'down' | 'stable'
+  trendValue: number
+  dailyUpdateCoverage: number
+  accountsUpdatedToday: number
+  dailyCoverage: DailyCoverageEntry[]
+}
+
+export interface ProcessingTimelineEntry {
+  timestamp: string
+  label: string
+  accountsProcessed: number
+  matchesAdded: number
 }

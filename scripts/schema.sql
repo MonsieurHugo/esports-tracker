@@ -191,19 +191,14 @@ CREATE TABLE IF NOT EXISTS lol_daily_stats (
     date DATE NOT NULL,
     games_played INTEGER DEFAULT 0,
     wins INTEGER DEFAULT 0,
-    soloq_games INTEGER DEFAULT 0,
-    flex_games INTEGER DEFAULT 0,
     total_kills INTEGER DEFAULT 0,
     total_deaths INTEGER DEFAULT 0,
     total_assists INTEGER DEFAULT 0,
-    total_cs INTEGER DEFAULT 0,
-    total_damage INTEGER DEFAULT 0,
     total_game_duration INTEGER DEFAULT 0, -- en secondes
-    lp_start INTEGER, -- LP au début de la journée
-    lp_end INTEGER, -- LP à la fin de la journée
-    tier_start VARCHAR(20),
-    tier_end VARCHAR(20),
-    
+    tier VARCHAR(20),
+    rank VARCHAR(5),
+    lp INTEGER DEFAULT 0,
+
     UNIQUE(puuid, date)
 );
 

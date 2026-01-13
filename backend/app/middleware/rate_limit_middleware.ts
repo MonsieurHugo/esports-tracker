@@ -1,6 +1,7 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import type { NextFn } from '@adonisjs/core/types/http'
 import { DateTime } from 'luxon'
+import redis from '@adonisjs/redis/services/main'
 
 interface RateLimitConfig {
   maxAttempts: number
@@ -13,9 +14,6 @@ interface RateLimitEntry {
   firstAttempt: number
   blockedUntil?: number
 }
-
-// In-memory store for rate limiting (use Redis in production for multi-instance)
-const rateLimitStore = new Map<string, RateLimitEntry>()
 
 // Default configurations for different endpoints
 const RATE_LIMIT_CONFIGS: Record<string, RateLimitConfig> = {
@@ -46,17 +44,86 @@ const RATE_LIMIT_CONFIGS: Record<string, RateLimitConfig> = {
   },
 }
 
-// Clean up old entries periodically
+// Fallback in-memory store when Redis is unavailable
+const memoryStore = new Map<string, RateLimitEntry>()
+
+// Clean up old entries periodically (for memory fallback)
 setInterval(() => {
   const now = Date.now()
-  for (const [key, entry] of rateLimitStore.entries()) {
+  for (const [key, entry] of memoryStore.entries()) {
     if (entry.blockedUntil && entry.blockedUntil < now) {
-      rateLimitStore.delete(key)
+      memoryStore.delete(key)
     } else if (now - entry.firstAttempt > RATE_LIMIT_CONFIGS.default.windowMs * 2) {
-      rateLimitStore.delete(key)
+      memoryStore.delete(key)
     }
   }
-}, 60 * 1000) // Clean up every minute
+}, 60 * 1000)
+
+/**
+ * Rate limit store abstraction - uses Redis with memory fallback
+ */
+class RateLimitStore {
+  private prefix = 'ratelimit:'
+
+  async get(key: string): Promise<RateLimitEntry | null> {
+    try {
+      const data = await redis.get(`${this.prefix}${key}`)
+      return data ? JSON.parse(data) : null
+    } catch {
+      // Fallback to memory on Redis error
+      return memoryStore.get(key) || null
+    }
+  }
+
+  async set(key: string, entry: RateLimitEntry, ttlMs: number): Promise<void> {
+    try {
+      await redis.set(`${this.prefix}${key}`, JSON.stringify(entry), 'PX', ttlMs)
+    } catch {
+      // Fallback to memory on Redis error
+      memoryStore.set(key, entry)
+    }
+  }
+
+  async delete(key: string): Promise<void> {
+    try {
+      await redis.del(`${this.prefix}${key}`)
+    } catch {
+      // Fallback to memory on Redis error
+      memoryStore.delete(key)
+    }
+  }
+
+  async getStats(): Promise<{ total: number; blocked: number }> {
+    try {
+      const keys = await redis.keys(`${this.prefix}*`)
+      let blocked = 0
+      const now = Date.now()
+
+      for (const key of keys) {
+        const data = await redis.get(key)
+        if (data) {
+          const entry: RateLimitEntry = JSON.parse(data)
+          if (entry.blockedUntil && entry.blockedUntil > now) {
+            blocked++
+          }
+        }
+      }
+      return { total: keys.length, blocked }
+    } catch {
+      // Fallback to memory on Redis error
+      const now = Date.now()
+      let blocked = 0
+      for (const entry of memoryStore.values()) {
+        if (entry.blockedUntil && entry.blockedUntil > now) {
+          blocked++
+        }
+      }
+      return { total: memoryStore.size, blocked }
+    }
+  }
+}
+
+const store = new RateLimitStore()
 
 export default class RateLimitMiddleware {
   /**
@@ -73,18 +140,14 @@ export default class RateLimitMiddleware {
   /**
    * Handle rate limiting
    */
-  async handle(
-    ctx: HttpContext,
-    next: NextFn,
-    options?: { type?: string }
-  ) {
+  async handle(ctx: HttpContext, next: NextFn, options?: { type?: string }) {
     const type = options?.type || 'default'
     const config = RATE_LIMIT_CONFIGS[type] || RATE_LIMIT_CONFIGS.default
     const ip = this.getClientIp(ctx)
     const key = `${type}:${ip}`
     const now = Date.now()
 
-    let entry = rateLimitStore.get(key)
+    let entry = await store.get(key)
 
     // Check if currently blocked
     if (entry?.blockedUntil && entry.blockedUntil > now) {
@@ -114,7 +177,7 @@ export default class RateLimitMiddleware {
     // Check if should be blocked
     if (entry.attempts > config.maxAttempts) {
       entry.blockedUntil = now + config.blockDurationMs
-      rateLimitStore.set(key, entry)
+      await store.set(key, entry, config.blockDurationMs + config.windowMs)
 
       const retryAfter = Math.ceil(config.blockDurationMs / 1000)
       const blockedUntilDate = DateTime.fromMillis(entry.blockedUntil)
@@ -132,7 +195,7 @@ export default class RateLimitMiddleware {
         })
     }
 
-    rateLimitStore.set(key, entry)
+    await store.set(key, entry, config.windowMs * 2)
 
     // Set rate limit headers
     const remaining = Math.max(0, config.maxAttempts - entry.attempts)
@@ -150,21 +213,14 @@ export default class RateLimitMiddleware {
 /**
  * Reset rate limit for a specific key (useful after successful auth)
  */
-export function resetRateLimit(type: string, ip: string): void {
+export async function resetRateLimit(type: string, ip: string): Promise<void> {
   const key = `${type}:${ip}`
-  rateLimitStore.delete(key)
+  await store.delete(key)
 }
 
 /**
  * Get rate limit status for monitoring
  */
-export function getRateLimitStatus(): { total: number; blocked: number } {
-  const now = Date.now()
-  let blocked = 0
-  for (const entry of rateLimitStore.values()) {
-    if (entry.blockedUntil && entry.blockedUntil > now) {
-      blocked++
-    }
-  }
-  return { total: rateLimitStore.size, blocked }
+export async function getRateLimitStatus(): Promise<{ total: number; blocked: number }> {
+  return store.getStats()
 }

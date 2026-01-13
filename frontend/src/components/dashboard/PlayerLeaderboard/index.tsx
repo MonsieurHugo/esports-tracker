@@ -25,6 +25,8 @@ interface PlayerLeaderboardProps {
   lockedPlayerIds: number[]
   onToggleLock: (playerId: number) => void
   leagueFilter?: React.ReactNode
+  roleFilter?: React.ReactNode
+  gamesFilter?: React.ReactNode
   leaderboardView: LeaderboardView
   onViewChange: (view: LeaderboardView) => void
 }
@@ -93,12 +95,12 @@ function PlayerRow({ entry, sortBy, selectionIndex, isExpanded, onSelect, onTogg
       <div
         onClick={handleRowClick}
         className={`
-          flex items-center px-2 sm:px-3 py-1.5 border-b border-[var(--border)] cursor-pointer transition-colors duration-150
-          ${selectionIndex === 0 ? 'bg-[var(--accent)]/10 border-l-2 border-l-[var(--accent)]' : ''}
-          ${selectionIndex === 1 ? 'bg-[var(--lol)]/10 border-l-2 border-l-[var(--lol)]' : ''}
-          ${selectionIndex === null ? 'hover:bg-[var(--bg-hover)]' : ''}
-          ${isPinned && selectionIndex === 0 ? 'bg-[var(--accent)]/15 border-b-2 border-b-[var(--accent)]/30' : ''}
-          ${isPinned && selectionIndex === 1 ? 'bg-[var(--lol)]/15 border-b-2 border-b-[var(--lol)]/30' : ''}
+          flex items-center px-2 sm:px-3 py-1.5 border-b border-(--border) cursor-pointer transition-colors duration-150
+          ${selectionIndex === 0 ? 'bg-(--accent)/10 border-l-2 border-l-(--accent)' : ''}
+          ${selectionIndex === 1 ? 'bg-(--lol)/10 border-l-2 border-l-(--lol)' : ''}
+          ${selectionIndex === null ? 'hover:bg-(--bg-hover)' : ''}
+          ${isPinned && selectionIndex === 0 ? 'bg-(--accent)/15 border-b-2 border-b-(--accent)/30' : ''}
+          ${isPinned && selectionIndex === 1 ? 'bg-(--lol)/15 border-b-2 border-b-(--lol)/30' : ''}
         `}
       >
         {/* Rank */}
@@ -115,11 +117,11 @@ function PlayerRow({ entry, sortBy, selectionIndex, isExpanded, onSelect, onTogg
               alt={entry.team?.shortName || ''}
               width={20}
               height={20}
-              className="w-4 h-4 sm:w-5 sm:h-5 object-contain flex-shrink-0"
+              className="w-4 h-4 sm:w-5 sm:h-5 object-contain shrink-0"
               onError={() => setLogoError(true)}
             />
           ) : entry.team ? (
-            <div className="w-4 h-4 sm:w-5 sm:h-5 bg-[var(--bg-secondary)] rounded flex-shrink-0 flex items-center justify-center text-[6px] sm:text-[7px] font-semibold text-[var(--text-muted)]">
+            <div className="w-4 h-4 sm:w-5 sm:h-5 bg-(--bg-secondary) rounded-sm shrink-0 flex items-center justify-center text-[6px] sm:text-[7px] font-semibold text-(--text-muted)">
               {entry.team.shortName.substring(0, 2)}
             </div>
           ) : null}
@@ -128,7 +130,7 @@ function PlayerRow({ entry, sortBy, selectionIndex, isExpanded, onSelect, onTogg
           <Link
             href={`/lol/player/${entry.player.slug}`}
             onClick={(e) => e.stopPropagation()}
-            className="font-medium text-[11px] sm:text-xs truncate hover:text-[var(--accent)] hover:underline transition-colors"
+            className="font-medium text-[11px] sm:text-xs truncate hover:text-(--accent) hover:underline transition-colors"
           >
             {entry.player.pseudo}
           </Link>
@@ -140,19 +142,19 @@ function PlayerRow({ entry, sortBy, selectionIndex, isExpanded, onSelect, onTogg
               alt={entry.role}
               width={16}
               height={16}
-              className="w-3.5 h-3.5 sm:w-4 sm:h-4 object-contain flex-shrink-0 opacity-70"
+              className="w-3.5 h-3.5 sm:w-4 sm:h-4 object-contain shrink-0 opacity-70"
               onError={() => setRoleError(true)}
             />
           ) : (
-            <span className="text-[8px] sm:text-[9px] px-1 py-0.5 bg-[var(--bg-secondary)] text-[var(--text-muted)] rounded flex-shrink-0">
+            <span className="text-[8px] sm:text-[9px] px-1 py-0.5 bg-(--bg-secondary) text-(--text-muted) rounded-sm shrink-0">
               {entry.role}
             </span>
           )}
 
           {/* League tag */}
-          {entry.team && (
-            <span className={`hidden sm:inline text-[9px] px-1.5 py-0.5 rounded flex-shrink-0 ${getLeagueTagClasses(entry.team.region)}`}>
-              {entry.team.region}
+          {entry.team?.league && (
+            <span className={`hidden sm:inline text-[9px] px-1.5 py-0.5 rounded-sm shrink-0 ${getLeagueTagClasses(entry.team.league)}`}>
+              {entry.team.league}
             </span>
           )}
           {/* Lock button - only visible for selected players */}
@@ -160,10 +162,10 @@ function PlayerRow({ entry, sortBy, selectionIndex, isExpanded, onSelect, onTogg
             <button
               onClick={handleLockClick}
               className={`
-                w-5 h-5 sm:w-6 sm:h-6 flex items-center justify-center rounded-md transition-all duration-200 flex-shrink-0
+                w-5 h-5 sm:w-6 sm:h-6 flex items-center justify-center rounded-md transition-all duration-200 shrink-0
                 ${isLocked
-                  ? 'text-[var(--accent)]'
-                  : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]'
+                  ? 'text-(--accent)'
+                  : 'text-(--text-muted) hover:text-(--text-secondary) hover:bg-(--bg-secondary)'
                 }
               `}
               title={isLocked ? 'Désépingler' : 'Épingler en haut'}
@@ -195,22 +197,22 @@ function PlayerRow({ entry, sortBy, selectionIndex, isExpanded, onSelect, onTogg
               onError={() => setRankError(true)}
             />
           ) : (
-            <span className="text-[9px] text-[var(--text-muted)]">-</span>
+            <span className="text-[9px] text-(--text-muted)">-</span>
           )}
         </div>
 
         {/* LP */}
-        <span className={`font-mono font-semibold text-[10px] sm:text-[11px] w-14 sm:w-16 text-right pr-3 ${sortBy === 'lp' ? 'text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'}`}>
+        <span className={`font-mono font-semibold text-[10px] sm:text-[11px] w-16 sm:w-20 text-right pr-4 ${sortBy === 'lp' ? 'text-(--text-primary)' : 'text-(--text-secondary)'}`}>
           {entry.totalLp > 0 ? entry.totalLp.toLocaleString() : '-'}
         </span>
 
         {/* Games */}
-        <span className={`font-mono font-semibold text-[10px] sm:text-[11px] w-10 sm:w-14 text-right pr-3 ${sortBy === 'games' ? 'text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'}`}>
+        <span className={`font-mono font-semibold text-[10px] sm:text-[11px] w-14 sm:w-16 text-right pr-4 ${sortBy === 'games' ? 'text-(--text-primary)' : 'text-(--text-secondary)'}`}>
           {entry.games}
         </span>
 
         {/* Winrate */}
-        <span className={`font-mono font-semibold text-[10px] sm:text-[11px] w-12 sm:w-14 text-right ${sortBy === 'winrate' ? 'text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'}`}>
+        <span className={`font-mono font-semibold text-[10px] sm:text-[11px] w-[4.5rem] sm:w-20 text-right pr-4 ${sortBy === 'winrate' ? 'text-(--text-primary)' : 'text-(--text-secondary)'}`}>
           {entry.games > 0 ? `${entry.winrate.toFixed(0)}%` : '-'}
         </span>
 
@@ -218,7 +220,7 @@ function PlayerRow({ entry, sortBy, selectionIndex, isExpanded, onSelect, onTogg
         <button
           onClick={handleToggleClick}
           className={`
-            w-7 h-7 sm:w-8 sm:h-8 -my-1 flex items-center justify-center rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] ml-2 transition-all duration-200
+            w-7 h-7 sm:w-8 sm:h-8 -my-1 flex items-center justify-center rounded-md text-(--text-muted) hover:text-(--text-primary) hover:bg-(--bg-secondary) ml-2 transition-all duration-200
           `}
           title={isExpanded ? 'Masquer les comptes' : 'Afficher les comptes'}
         >
@@ -255,6 +257,8 @@ export default function PlayerLeaderboard({
   lockedPlayerIds,
   onToggleLock,
   leagueFilter,
+  roleFilter,
+  gamesFilter,
   leaderboardView,
   onViewChange,
 }: PlayerLeaderboardProps) {
@@ -304,37 +308,39 @@ export default function PlayerLeaderboard({
   }, [])
 
   return (
-    <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg overflow-hidden">
+    <div className="bg-(--bg-card) border border-(--border) rounded-lg overflow-hidden">
       {/* Header */}
       <LeaderboardHeader
         view={leaderboardView}
         onViewChange={onViewChange}
         leagueFilter={leagueFilter}
+        roleFilter={roleFilter}
+        gamesFilter={gamesFilter}
       />
 
       {/* Table Header */}
-      <div className="bg-[var(--bg-secondary)]">
-        <div className="flex items-center px-2 sm:px-3 py-2 text-[10px] sm:text-[11px] uppercase tracking-wider text-[var(--text-muted)] font-medium">
+      <div className="bg-(--bg-secondary)">
+        <div className="flex items-center px-2 sm:px-3 py-2 text-[10px] sm:text-[11px] uppercase tracking-wider text-(--text-muted) font-medium">
           <span className="w-6 sm:w-7">#</span>
           <span className="flex-1 min-w-0">Joueur</span>
           <span className="hidden sm:block w-12 pr-2 text-right">Rang</span>
           <span
             onClick={() => onSortChange('lp')}
-            className={`w-14 sm:w-16 pr-3 text-right cursor-pointer hover:text-[var(--text-primary)] transition-colors ${sortBy === 'lp' ? 'text-[var(--text-primary)]' : ''}`}
+            className={`w-16 sm:w-20 pr-4 text-right whitespace-nowrap cursor-pointer hover:text-(--text-primary) transition-colors ${sortBy === 'lp' ? 'text-(--text-primary)' : ''}`}
           >
             LP<SortIcon active={sortBy === 'lp'} />
           </span>
           <span
             onClick={() => onSortChange('games')}
-            className={`w-10 sm:w-14 pr-3 text-right cursor-pointer hover:text-[var(--text-primary)] transition-colors ${sortBy === 'games' ? 'text-[var(--text-primary)]' : ''}`}
+            className={`w-14 sm:w-16 pr-4 text-right whitespace-nowrap cursor-pointer hover:text-(--text-primary) transition-colors ${sortBy === 'games' ? 'text-(--text-primary)' : ''}`}
           >
             Games<SortIcon active={sortBy === 'games'} />
           </span>
           <span
             onClick={() => onSortChange('winrate')}
-            className={`w-12 sm:w-14 text-right cursor-pointer hover:text-[var(--text-primary)] transition-colors ${sortBy === 'winrate' ? 'text-[var(--text-primary)]' : ''}`}
+            className={`w-[4.5rem] sm:w-20 pr-4 text-right whitespace-nowrap cursor-pointer hover:text-(--text-primary) transition-colors ${sortBy === 'winrate' ? 'text-(--text-primary)' : ''}`}
           >
-            WR<SortIcon active={sortBy === 'winrate'} />
+            Winrate<SortIcon active={sortBy === 'winrate'} />
           </span>
           <span className="w-7 sm:w-8 ml-2"></span>
         </div>
@@ -345,12 +351,12 @@ export default function PlayerLeaderboard({
         {/* Loading/Empty overlay */}
         <div
           className={`
-            absolute inset-0 bg-[var(--bg-card)] z-10 flex items-center justify-center
+            absolute inset-0 bg-(--bg-card) z-10 flex items-center justify-center
             transition-opacity duration-200
             ${isLoading || data.length === 0 ? 'opacity-100' : 'opacity-0 pointer-events-none'}
           `}
         >
-          <div className="text-[var(--text-muted)] text-sm">
+          <div className="text-(--text-muted) text-sm">
             {isLoading ? 'Chargement...' : 'Aucune donnée'}
           </div>
         </div>

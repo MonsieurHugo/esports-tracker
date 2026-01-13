@@ -29,7 +29,7 @@ export default class Team extends BaseModel {
   declare region: string | null
 
   @column()
-  declare division: string | null
+  declare league: string | null
 
   @column()
   declare isActive: boolean

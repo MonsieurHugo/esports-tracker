@@ -6,7 +6,7 @@ const Skeleton = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
     return (
       <div
         ref={ref}
-        className={cn('animate-pulse rounded-md bg-[var(--card)]', className)}
+        className={cn('animate-pulse rounded-md bg-(--card)', className)}
         {...props}
       />
     )

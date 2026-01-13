@@ -131,6 +131,7 @@ services:
     container_name: esports-worker
     restart: unless-stopped
     environment:
+      PYTHONUNBUFFERED: 1
       DATABASE_URL: postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@postgres:5432/${DB_DATABASE:-esports_tracker}
       REDIS_URL: redis://redis:6379
       RIOT_API_KEY: ${RIOT_API_KEY}

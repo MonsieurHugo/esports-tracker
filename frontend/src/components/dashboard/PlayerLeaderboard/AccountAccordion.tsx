@@ -19,14 +19,14 @@ function AccountAccordion({ accounts, isOpen }: AccountAccordionProps) {
 
   return (
     <div
-      className="grid transition-[grid-template-rows] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]"
+      className="grid transition-[grid-template-rows] duration-300 ease-in-out"
       style={{ gridTemplateRows: isOpen ? '1fr' : '0fr' }}
     >
       <div className="overflow-hidden">
         <div
           className={`
-            py-1.5 px-2 sm:px-3 bg-[var(--bg-accordion)] border-b border-[var(--border)]
-            transition-opacity duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]
+            py-1.5 px-2 sm:px-3 bg-(--bg-accordion) border-b border-(--border)
+            transition-opacity duration-300 ease-in-out
             ${isOpen ? 'opacity-100' : 'opacity-0'}
           `}
         >
@@ -37,7 +37,7 @@ function AccountAccordion({ accounts, isOpen }: AccountAccordionProps) {
                 key={account.puuid}
                 className={`
                   flex items-center py-[5px]
-                  ${index !== accounts.length - 1 ? 'border-b border-[var(--border)]' : ''}
+                  ${index !== accounts.length - 1 ? 'border-b border-(--border)' : ''}
                 `}
               >
                 {/* Spacer pour aligner avec le rank */}
@@ -45,14 +45,14 @@ function AccountAccordion({ accounts, isOpen }: AccountAccordionProps) {
                 {/* Account name */}
                 <span className="text-[10px] sm:text-[11px] font-medium flex-1 min-w-0 truncate">
                   {account.gameName}
-                  <span className="text-[var(--text-muted)]">#{account.tagLine}</span>
+                  <span className="text-(--text-muted)">#{account.tagLine}</span>
                 </span>
                 {/* Region */}
-                <span className="text-[8px] sm:text-[9px] px-1.5 py-0.5 bg-[var(--bg-secondary)] text-[var(--text-muted)] rounded flex-shrink-0 mr-2 uppercase">
+                <span className="text-[8px] sm:text-[9px] px-1.5 py-0.5 bg-(--bg-secondary) text-(--text-muted) rounded-sm shrink-0 mr-2 uppercase">
                   {account.region}
                 </span>
                 {/* Rank image + LP */}
-                <span className="font-mono text-[10px] sm:text-[11px] text-[var(--text-secondary)] w-16 sm:w-20 text-right pr-3 flex items-center justify-end gap-1">
+                <span className="font-mono text-[10px] sm:text-[11px] text-(--text-secondary) w-16 sm:w-20 text-right pr-4 flex items-center justify-end gap-1">
                   {rankImage && !rankErrors.has(account.puuid) && (
                     <Image
                       src={rankImage}
@@ -66,11 +66,11 @@ function AccountAccordion({ accounts, isOpen }: AccountAccordionProps) {
                   {formatLp(account.tier, account.lp)}
                 </span>
                 {/* Games */}
-                <span className="font-mono text-[10px] sm:text-[11px] text-[var(--text-secondary)] w-10 sm:w-14 text-right pr-3">
+                <span className="font-mono text-[10px] sm:text-[11px] text-(--text-secondary) w-14 sm:w-16 text-right pr-4">
                   {account.games}
                 </span>
                 {/* Winrate */}
-                <span className="font-mono text-[10px] sm:text-[11px] text-[var(--text-secondary)] w-12 sm:w-14 text-right">
+                <span className="font-mono text-[10px] sm:text-[11px] text-(--text-secondary) w-[4.5rem] sm:w-20 text-right pr-4">
                   {account.games > 0 ? `${account.winrate.toFixed(0)}%` : '-'}
                 </span>
                 {/* Spacer pour aligner avec le bouton expand */}

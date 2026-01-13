@@ -24,8 +24,8 @@ export default function LeagueChips({
           px-2 py-[3px] rounded text-[10px] font-medium cursor-pointer transition-all duration-150 border
           ${
             isAllSelected
-              ? 'bg-[var(--accent)] border-[var(--accent)] text-white'
-              : 'bg-[var(--bg-secondary)] border-[var(--border)] text-[var(--text-muted)] hover:border-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+              ? 'bg-(--accent) border-(--accent) text-white'
+              : 'bg-(--bg-secondary) border-(--border) text-(--text-muted) hover:border-(--text-muted) hover:text-(--text-secondary)'
           }
         `}
       >
@@ -39,8 +39,8 @@ export default function LeagueChips({
             px-2 py-[3px] rounded text-[10px] font-medium cursor-pointer transition-all duration-150 border
             ${
               selected.includes(league) && !isAllSelected
-                ? 'bg-[var(--accent)] border-[var(--accent)] text-white'
-                : 'bg-[var(--bg-secondary)] border-[var(--border)] text-[var(--text-muted)] hover:border-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+                ? 'bg-(--accent) border-(--accent) text-white'
+                : 'bg-(--bg-secondary) border-(--border) text-(--text-muted) hover:border-(--text-muted) hover:text-(--text-secondary)'
             }
           `}
         >

@@ -79,7 +79,18 @@
       "Bash(\"C:/Users/hugot/AppData/Roaming/fnm/node-versions/v22.21.1/installation/node.exe\" \"C:/Users/hugot/AppData/Roaming/fnm/node-versions/v22.21.1/installation/node_modules/npm/bin/npm-cli.js\" show @adonisjs/ace version)",
       "Bash(\"C:/Users/hugot/AppData/Roaming/fnm/node-versions/v22.21.1/installation/node.exe\" --import=tsx bin/server.ts)",
       "Bash(psql:*)",
-      "Bash(findstr:*)"
+      "Bash(findstr:*)",
+      "Bash(cmd /c \"cd /d C:\\\\Users\\\\hugot\\\\Documents\\\\Site\\\\esports-tracker\\\\frontend && npm run dev\")",
+      "Bash(cmd /c \"cd /d C:\\\\Users\\\\hugot\\\\Documents\\\\Site\\\\esports-tracker\\\\backend && npm run dev\")",
+      "Bash(npm.cmd run dev:*)",
+      "Bash(taskkill //F //PID 264164)",
+      "Bash(taskkill //F //PID 154512)",
+      "Bash(timeout:*)",
+      "Bash(tasklist:*)",
+      "Bash(wmic process:*)",
+      "Bash(kill:*)",
+      "Bash(npx tsc:*)",
+      "Bash(PGPASSWORD=kDwWgxgAOu9gntM6uFFNtNnx psql:*)"
     ]
   },
   "hooks": {

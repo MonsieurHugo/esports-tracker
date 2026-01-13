@@ -1,5 +1,4 @@
 import { test } from '@japa/runner'
-import vine from '@vinejs/vine'
 import {
   registerValidator,
   loginValidator,

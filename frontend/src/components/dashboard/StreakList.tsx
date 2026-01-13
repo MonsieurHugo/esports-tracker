@@ -17,7 +17,7 @@ function StreakList({ entries, type, isLoading, sortDirection, onSortChange }: S
   const isWins = type === 'wins'
   const title = isWins ? 'Win Streaks' : 'Loss Streaks'
   const sortLabel = isWins ? 'Wins' : 'Losses'
-  const colorClass = isWins ? 'text-[var(--positive)]' : 'text-[var(--negative)]'
+  const colorClass = isWins ? 'text-(--positive)' : 'text-(--negative)'
   const prefix = isWins ? '+' : '-'
 
   const toggleSort = () => {
@@ -25,12 +25,12 @@ function StreakList({ entries, type, isLoading, sortDirection, onSortChange }: S
   }
 
   return (
-    <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg overflow-hidden">
-      <div className="px-3.5 py-2.5 border-b border-[var(--border)] flex items-center justify-between">
+    <div className="bg-(--bg-card) border border-(--border) rounded-lg overflow-hidden">
+      <div className="px-3.5 py-2.5 border-b border-(--border) flex items-center justify-between">
         <span className="text-xs font-semibold">{title}</span>
         <button
           onClick={toggleSort}
-          className="flex items-center gap-1 text-[10px] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+          className="flex items-center gap-1 text-[10px] text-(--text-muted) hover:text-(--text-primary) transition-colors"
         >
           {sortLabel}
           <SortIcon direction={sortDirection} />
@@ -38,13 +38,13 @@ function StreakList({ entries, type, isLoading, sortDirection, onSortChange }: S
       </div>
 
       {isLoading ? (
-        <div className="p-4 text-center text-[var(--text-muted)] text-sm">Chargement...</div>
+        <div className="p-4 text-center text-(--text-muted) text-sm">Chargement...</div>
       ) : (
         <>
           {entries.map((entry) => (
             <div
               key={entry.rank}
-              className="flex items-center px-2 sm:px-3 py-1.5 border-b border-[var(--border)] last:border-b-0 hover:bg-[var(--bg-hover)]"
+              className="flex items-center px-2 sm:px-3 py-1.5 border-b border-(--border) last:border-b-0 hover:bg-(--bg-hover)"
             >
               <span className={`font-mono font-semibold text-[10px] sm:text-[11px] w-6 sm:w-7 ${getRankTextClass(entry.rank)}`}>
                 {entry.rank}
@@ -53,7 +53,7 @@ function StreakList({ entries, type, isLoading, sortDirection, onSortChange }: S
                 <TeamLogo slug={entry.team.slug} shortName={entry.team.shortName} />
                 <Link
                   href={`/lol/player/${entry.player.slug}`}
-                  className="font-medium text-[11px] sm:text-xs truncate hover:text-[var(--accent)] hover:underline transition-colors"
+                  className="font-medium text-[11px] sm:text-xs truncate hover:text-(--accent) hover:underline transition-colors"
                 >
                   {entry.player.pseudo}
                 </Link>

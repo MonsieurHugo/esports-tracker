@@ -1,0 +1,696 @@
+{
+  "timestamp": "2026-01-13T15:40:34.962735",
+  "stats": {
+    "leagues": 8,
+    "organizations": 45,
+    "teams": 46,
+    "players": 178,
+    "contracts": 234,
+    "accounts_created": 362,
+    "accounts_updated": 101,
+    "accounts_failed": 78,
+    "errors": [
+      {
+        "type": "riot_api",
+        "player": "SkewMond",
+        "account": "G2 Hydreigon#9452",
+        "platform": "NA1",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "BrokenBlade",
+        "account": "G2 BrokenBlade#1819",
+        "platform": "NA1",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Labrov",
+        "account": "G2 Labrov#ltyol",
+        "platform": "NA1",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Vladi",
+        "account": "KC Vladi#000",
+        "platform": "KR",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Vladi",
+        "account": "Jjimdak#000",
+        "platform": "KR",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Lospa",
+        "account": "FUT Lospa#FUT",
+        "platform": "EUW1",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Caliste",
+        "account": "KC Caliste#0001",
+        "platform": "KR",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Busio",
+        "account": "MADHATTER#HAT",
+        "platform": "KR",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Busio",
+        "account": "Fly Busio#lalu",
+        "platform": "KR",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Elyoya",
+        "account": "Dani Flow#myrwn",
+        "platform": "NA1",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Myrwn",
+        "account": "Bb trickz#Tipz",
+        "platform": "NA1",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Alvaro",
+        "account": "Articuno#sup",
+        "platform": "NA1",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Supa",
+        "account": "Tukaan#tuknn",
+        "platform": "NA1",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Jojopyun",
+        "account": "jojooooooo#1234",
+        "platform": "KR",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Jojopyun",
+        "account": "torontoooooooo#1234",
+        "platform": "NA1",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Trymbi",
+        "account": "TRYMBOLONA#KoxPL",
+        "platform": "NA1",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Stend",
+        "account": "TH Stend#kr2",
+        "platform": "KR",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Jopa",
+        "account": "Jopa#KR3",
+        "platform": "KR",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "SamD",
+        "account": "Kimchi sama#123",
+        "platform": "EUW1",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Crownie",
+        "account": "Yveltal#ADC",
+        "platform": "EUW1",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Nemesis",
+        "account": "Alexander Duggan#Red",
+        "platform": "EUW1",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Rekkles",
+        "account": "Latias#SUP",
+        "platform": "EUW1",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Baus",
+        "account": "Dangerous Dork#Lick",
+        "platform": "EUW1",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Baus",
+        "account": "e7c3c0fd-cee3-4399-877b-baf89c9f6f46#EUW",
+        "platform": "EUW1",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Kamiloo",
+        "account": "?N ?N ?N#NIKA",
+        "platform": "KR",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Haetae",
+        "account": "IG Nuguri#IGG",
+        "platform": "KR",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Painter",
+        "account": "Ning#KR33",
+        "platform": "KR",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Canyon",
+        "account": "???#123",
+        "platform": "NA1",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Duro",
+        "account": "?? ???#캐나다",
+        "platform": "NA1",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Vincenzo",
+        "account": "meitianfankun#kr2",
+        "platform": "KR",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Andil",
+        "account": "? ?#kr07",
+        "platform": "KR",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Clozer",
+        "account": "?????#인천사람",
+        "platform": "KR",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Diable",
+        "account": "ad1top#CN1",
+        "platform": "KR",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Taeyoon",
+        "account": "? ?#0602",
+        "platform": "KR",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Kamiloo",
+        "account": "?N ?N ?N#NIKA",
+        "platform": "KR",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Piero",
+        "account": "Cola#4463",
+        "platform": "EUW1",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Vizzpers",
+        "account": "KLIK FREMAD NU#1996",
+        "platform": "EUW1",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Vizzpers",
+        "account": "Lee Young Ho#KR3",
+        "platform": "KR",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Vertigo",
+        "account": "Vertigo#KR3",
+        "platform": "KR",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Szygenda",
+        "account": "Champugugu#Champ",
+        "platform": "EUW1",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Rest",
+        "account": "dsfsqw#123",
+        "platform": "NA1",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Doggo",
+        "account": "gougoujingzhang#KR1",
+        "platform": "KR",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Doggo",
+        "account": "fish0il#hongq",
+        "platform": "NA1",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Artemis",
+        "account": "zxcvbnmmnbvcx#99999",
+        "platform": "NA1",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Aress",
+        "account": "Banhmi HuynhHoa#2004",
+        "platform": "NA1",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Draktharr",
+        "account": "tonton??#2110",
+        "platform": "VN2",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Kiaya",
+        "account": "thieuemtuisobovo#sang1",
+        "platform": "NA1",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Gury",
+        "account": "8?? ??#KR1",
+        "platform": "KR",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Elio",
+        "account": "Abel Tesfaye#KR2",
+        "platform": "KR",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Elio",
+        "account": "bundauchammilo#GAM",
+        "platform": "NA1",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Hizto",
+        "account": "asdfghjzxc#KR2",
+        "platform": "KR",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Tatu",
+        "account": "FURIA Ronaldo#BAHIA",
+        "platform": "NA1",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Ayu",
+        "account": "FURIA Ayu#furia",
+        "platform": "NA1",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Tutsz",
+        "account": "FURIA Tutsz#furia",
+        "platform": "NA1",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "JoJo",
+        "account": "Jojos#Tatu",
+        "platform": "NA1",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Guigo",
+        "account": "ONE Steal#vitin",
+        "platform": "NA1",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Mago",
+        "account": "RED Mago SL#1980",
+        "platform": "BR1",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Morttheus",
+        "account": "MORTESTO#AURA",
+        "platform": "NA1",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Disamis",
+        "account": "DERRAMES#HU3",
+        "platform": "NA1",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Mireu",
+        "account": "kimchi warrior#0325",
+        "platform": "NA1",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Boal",
+        "account": "byakko#iszo",
+        "platform": "NA1",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Zest",
+        "account": "Zest#D P",
+        "platform": "EUW1",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Ackerman",
+        "account": "ACKERMAN#XDD",
+        "platform": "KR",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Zven",
+        "account": "Zven#oink",
+        "platform": "KR",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Zven",
+        "account": "Zven#C9C9",
+        "platform": "KR",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Zven",
+        "account": "Zven#3450",
+        "platform": "KR",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "APA",
+        "account": "? ??? ??#APA",
+        "platform": "KR",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "APA",
+        "account": "TL YAPA#HONDA",
+        "platform": "KR",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Blaber",
+        "account": "Hello world#china",
+        "platform": "KR",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Blaber",
+        "account": "blaberfish2#3456",
+        "platform": "KR",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "VULCAN",
+        "account": "C9 VULCAN#CAN1",
+        "platform": "KR",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "VULCAN",
+        "account": "C9 Heung Min Son#sonny",
+        "platform": "KR",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Yeon",
+        "account": "TL Honda Yeon#Rin",
+        "platform": "KR",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Josedeodo",
+        "account": "?? ???#123",
+        "platform": "KR",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Josedeodo",
+        "account": "Josedeodo#2929",
+        "platform": "KR",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Morgan",
+        "account": "Clip#ese",
+        "platform": "KR",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "riot_api",
+        "player": "Gryffinn",
+        "account": "T1 Gryffinn#2006",
+        "platform": "KR",
+        "error_code": 404,
+        "error_message": "Resource not found"
+      },
+      {
+        "type": "unexpected",
+        "player": "Gryffinn",
+        "account": "twtv Gryffinn#NA1",
+        "platform": "NA1",
+        "error": "unexpected connection_lost() call"
+      },
+      {
+        "type": "player_import",
+        "player": "Quad",
+        "team": "FlyQuest",
+        "league": "LTAN",
+        "error": "unexpected connection_lost() call"
+      },
+      {
+        "type": "player_import",
+        "player": "Cryogen",
+        "team": "FlyQuest",
+        "league": "LTAN",
+        "error": "unexpected connection_lost() call"
+      },
+      {
+        "type": "player_import",
+        "player": "Massu",
+        "team": "FlyQuest",
+        "league": "LTAN",
+        "error": "unexpected connection_lost() call"
+      },
+      {
+        "type": "player_import",
+        "player": "Gakgos",
+        "team": "FlyQuest",
+        "league": "LTAN",
+        "error": "unexpected connection_lost() call"
+      },
+      {
+        "type": "team_import",
+        "team": "Dignitas",
+        "league": "LTAN",
+        "error": "unexpected connection_lost() call"
+      },
+      {
+        "type": "team_import",
+        "team": "Disguised",
+        "league": "LTAN",
+        "error": "unexpected connection_lost() call"
+      },
+      {
+        "type": "team_import",
+        "team": "LYON (2024 American Team)",
+        "league": "LTAN",
+        "error": "unexpected connection_lost() call"
+      },
+      {
+        "type": "team_import",
+        "team": "Shopify Rebellion",
+        "league": "LTAN",
+        "error": "unexpected connection_lost() call"
+      },
+      {
+        "type": "team_import",
+        "team": "SEN",
+        "league": "LTAN",
+        "error": "unexpected connection_lost() call"
+      }
+    ]
+  }
+}

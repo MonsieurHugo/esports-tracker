@@ -41,7 +41,7 @@ const TabsList = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
     <div
       ref={ref}
       className={cn(
-        'inline-flex h-10 items-center justify-center rounded-lg bg-[var(--card)] p-1',
+        'inline-flex h-10 items-center justify-center rounded-lg bg-(--card) p-1',
         className
       )}
       {...props}
@@ -69,8 +69,8 @@ const TabsTrigger = forwardRef<HTMLButtonElement, TabsTriggerProps>(
           'inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5',
           'text-sm font-medium transition-all',
           isActive
-            ? 'bg-[var(--background)] text-white shadow-sm'
-            : 'text-[var(--muted)] hover:text-white',
+            ? 'bg-(--background) text-white shadow-xs'
+            : 'text-(--muted) hover:text-white',
           className
         )}
         onClick={() => context.onValueChange(value)}

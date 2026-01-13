@@ -1,5 +1,6 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import { DateTime } from 'luxon'
+import crypto from 'node:crypto'
 import User from '#models/user'
 import OAuthAccount, { type OAuthProvider } from '#models/oauth_account'
 import auditService from '#services/audit_service'
@@ -44,12 +45,17 @@ interface OAuthUserInfo {
 
 export default class OAuthController {
   /**
-   * Generate a random state parameter for CSRF protection
+   * Generate a cryptographically secure random string for state/password
+   */
+  private generateSecureRandom(length: number = 32): string {
+    return crypto.randomBytes(length).toString('hex')
+  }
+
+  /**
+   * Generate a random state parameter for CSRF protection (legacy alias)
    */
   private generateState(): string {
-    return Array.from({ length: 32 }, () =>
-      Math.random().toString(36).charAt(2)
-    ).join('')
+    return this.generateSecureRandom(16)
   }
 
   /**
@@ -218,10 +224,10 @@ export default class OAuthController {
             user = existingUser
             await auditService.logOAuthLinked(user.id, provider, ctx)
           } else {
-            // Create new user
+            // Create new user with cryptographically secure random password
             user = await User.create({
               email: userInfo.email,
-              password: this.generateState() + this.generateState(), // Random password
+              password: this.generateSecureRandom(32), // Cryptographically secure random password
               fullName: userInfo.name,
               role: 'user',
               emailVerified: true, // OAuth verified the email

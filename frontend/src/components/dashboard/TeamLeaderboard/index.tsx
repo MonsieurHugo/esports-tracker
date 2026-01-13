@@ -22,6 +22,8 @@ interface TeamLeaderboardProps {
   lockedTeamIds: number[]
   onToggleLock: (teamId: number) => void
   leagueFilter?: React.ReactNode
+  roleFilter?: React.ReactNode
+  gamesFilter?: React.ReactNode
   leaderboardView: LeaderboardView
   onViewChange: (view: LeaderboardView) => void
 }
@@ -56,6 +58,8 @@ export default function TeamLeaderboard({
   lockedTeamIds,
   onToggleLock,
   leagueFilter,
+  roleFilter,
+  gamesFilter,
   leaderboardView,
   onViewChange,
 }: TeamLeaderboardProps) {
@@ -110,34 +114,36 @@ export default function TeamLeaderboard({
   }, [onSelectTeam])
 
   return (
-    <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg overflow-hidden">
+    <div className="bg-(--bg-card) border border-(--border) rounded-lg overflow-hidden">
       {/* Header */}
       <LeaderboardHeader
         view={leaderboardView}
         onViewChange={onViewChange}
         leagueFilter={leagueFilter}
+        roleFilter={roleFilter}
+        gamesFilter={gamesFilter}
       />
 
       {/* Table Header */}
-      <div className="bg-[var(--bg-secondary)]">
-        <div className="flex items-center px-2 sm:px-3 py-2 text-[10px] sm:text-[11px] uppercase tracking-wider text-[var(--text-muted)] font-medium">
+      <div className="bg-(--bg-secondary)">
+        <div className="flex items-center px-2 sm:px-3 py-2 text-[10px] sm:text-[11px] uppercase tracking-wider text-(--text-muted) font-medium">
           <span className="w-6 sm:w-7">#</span>
           <span className="flex-1 min-w-0">Équipe</span>
           <span
             onClick={() => onSortChange('lp')}
-            className={`w-16 sm:w-20 pr-3 text-right cursor-pointer hover:text-[var(--text-primary)] transition-colors ${sortBy === 'lp' ? 'text-[var(--text-primary)]' : ''}`}
+            className={`w-16 sm:w-20 pr-4 text-right whitespace-nowrap cursor-pointer hover:text-(--text-primary) transition-colors ${sortBy === 'lp' ? 'text-(--text-primary)' : ''}`}
           >
             LP<SortIcon active={sortBy === 'lp'} />
           </span>
           <span
             onClick={() => onSortChange('games')}
-            className={`w-12 sm:w-16 pr-3 text-right cursor-pointer hover:text-[var(--text-primary)] transition-colors ${sortBy === 'games' ? 'text-[var(--text-primary)]' : ''}`}
+            className={`w-14 sm:w-16 pr-4 text-right whitespace-nowrap cursor-pointer hover:text-(--text-primary) transition-colors ${sortBy === 'games' ? 'text-(--text-primary)' : ''}`}
           >
             Games<SortIcon active={sortBy === 'games'} />
           </span>
           <span
             onClick={() => onSortChange('winrate')}
-            className={`w-14 sm:w-16 text-right cursor-pointer hover:text-[var(--text-primary)] transition-colors ${sortBy === 'winrate' ? 'text-[var(--text-primary)]' : ''}`}
+            className={`w-[4.5rem] sm:w-20 pr-4 text-right whitespace-nowrap cursor-pointer hover:text-(--text-primary) transition-colors ${sortBy === 'winrate' ? 'text-(--text-primary)' : ''}`}
           >
             Winrate<SortIcon active={sortBy === 'winrate'} />
           </span>
@@ -150,12 +156,12 @@ export default function TeamLeaderboard({
         {/* Loading/Empty overlay avec transition */}
         <div
           className={`
-            absolute inset-0 bg-[var(--bg-card)] z-10 flex items-center justify-center
+            absolute inset-0 bg-(--bg-card) z-10 flex items-center justify-center
             transition-opacity duration-200
             ${isLoading || data.length === 0 ? 'opacity-100' : 'opacity-0 pointer-events-none'}
           `}
         >
-          <div className="text-[var(--text-muted)] text-sm">
+          <div className="text-(--text-muted) text-sm">
             {isLoading ? 'Chargement...' : 'Aucune donnée'}
           </div>
         </div>

@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-export type ThemeKey = 'terminal' | 'emerald' | 'mint' | 'obsidian' | 'arctic' | 'amber'
+export type ThemeKey = 'terminal' | 'emerald' | 'mint' | 'snow' | 'daylight'
 
 export interface ThemeVars {
   '--bg-primary': string
@@ -15,6 +15,8 @@ export interface ThemeVars {
   '--accent-hover': string
   '--positive': string
   '--negative': string
+  '--warning': string
+  '--text-on-accent': string
 }
 
 export interface Theme {
@@ -40,6 +42,8 @@ export const themes: Record<ThemeKey, Theme> = {
       '--accent-hover': '#00c974',
       '--positive': '#00dc82',
       '--negative': '#ff4757',
+      '--warning': '#f59e0b',
+      '--text-on-accent': '#0f172a',
     },
   },
   emerald: {
@@ -58,6 +62,8 @@ export const themes: Record<ThemeKey, Theme> = {
       '--accent-hover': '#059669',
       '--positive': '#10b981',
       '--negative': '#f43f5e',
+      '--warning': '#f59e0b',
+      '--text-on-accent': '#0f172a',
     },
   },
   mint: {
@@ -76,60 +82,48 @@ export const themes: Record<ThemeKey, Theme> = {
       '--accent-hover': '#14b8a6',
       '--positive': '#2dd4bf',
       '--negative': '#fb7185',
+      '--warning': '#f59e0b',
+      '--text-on-accent': '#0f172a',
     },
   },
-  obsidian: {
-    name: 'Obsidian',
-    description: 'Jade discret, luxe',
+  snow: {
+    name: 'Snow',
+    description: 'Thème clair, accent vert',
     vars: {
-      '--bg-primary': '#09090b',
-      '--bg-secondary': '#0e0e11',
-      '--bg-card': '#131316',
-      '--bg-hover': '#19191d',
-      '--border': '#222226',
-      '--text-primary': '#ededef',
-      '--text-secondary': '#b0b0b8',
-      '--text-muted': '#909098',
-      '--accent': '#3ecf8e',
-      '--accent-hover': '#2eb67d',
-      '--positive': '#3ecf8e',
-      '--negative': '#e5484d',
+      '--bg-primary': '#ffffff',
+      '--bg-secondary': '#f8fafc',
+      '--bg-card': '#f1f5f9',
+      '--bg-hover': '#e2e8f0',
+      '--border': '#cbd5e1',
+      '--text-primary': '#0f172a',
+      '--text-secondary': '#475569',
+      '--text-muted': '#94a3b8',
+      '--accent': '#10b981',
+      '--accent-hover': '#059669',
+      '--positive': '#10b981',
+      '--negative': '#ef4444',
+      '--warning': '#d97706',
+      '--text-on-accent': '#ffffff',
     },
   },
-  arctic: {
-    name: 'Arctic',
-    description: 'Tons froids glacials',
+  daylight: {
+    name: 'Daylight',
+    description: 'Thème clair, tons chauds',
     vars: {
-      '--bg-primary': '#06080a',
-      '--bg-secondary': '#0a0d10',
-      '--bg-card': '#0f1318',
-      '--bg-hover': '#151a20',
-      '--border': '#1e252d',
-      '--text-primary': '#f1f5f9',
-      '--text-secondary': '#abbcc8',
-      '--text-muted': '#8b9aaa',
-      '--accent': '#06d6a0',
-      '--accent-hover': '#05b88a',
-      '--positive': '#06d6a0',
-      '--negative': '#ff6b6b',
-    },
-  },
-  amber: {
-    name: 'Amber',
-    description: 'Jaune ambre chaleureux',
-    vars: {
-      '--bg-primary': '#0a0908',
-      '--bg-secondary': '#100f0c',
-      '--bg-card': '#161412',
-      '--bg-hover': '#1c1a16',
-      '--border': '#2a2620',
-      '--text-primary': '#faf8f5',
-      '--text-secondary': '#c5c0b0',
-      '--text-muted': '#a09c90',
+      '--bg-primary': '#fffbf5',
+      '--bg-secondary': '#fef7ed',
+      '--bg-card': '#fef3e2',
+      '--bg-hover': '#fde9d0',
+      '--border': '#f5d0a9',
+      '--text-primary': '#1c1917',
+      '--text-secondary': '#57534e',
+      '--text-muted': '#a8a29e',
       '--accent': '#f59e0b',
       '--accent-hover': '#d97706',
-      '--positive': '#84cc16',
+      '--positive': '#22c55e',
       '--negative': '#ef4444',
+      '--warning': '#b45309',
+      '--text-on-accent': '#ffffff',
     },
   },
 }

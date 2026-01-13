@@ -20,6 +20,7 @@ export const ROLE_MAP: Record<string, string> = {
   'TOP': 'TOP',
   'JUNGLE': 'JGL',
   'JGL': 'JGL',
+  'JNG': 'JGL',
   'JUNGLER': 'JGL',
   'MID': 'MID',
   'MIDDLE': 'MID',
@@ -28,14 +29,15 @@ export const ROLE_MAP: Record<string, string> = {
   'BOTTOM': 'ADC',
   'SUP': 'SUP',
   'SUPPORT': 'SUP',
+  'UTILITY': 'SUP',
 }
 
 /**
- * Configuration des couleurs pour chaque ligue
+ * Configuration des couleurs pour chaque ligue (utilise les CSS variables)
  */
 export const LEAGUE_COLORS: Record<string, { bg: string; text: string; border: string; dot: string }> = {
-  'LEC': { bg: 'bg-[#00e5bf]/20', text: 'text-[#00e5bf]', border: 'border-[#00e5bf]/30', dot: 'bg-[#00e5bf]' },
-  'LFL': { bg: 'bg-[#ff7b57]/20', text: 'text-[#ff7b57]', border: 'border-[#ff7b57]/30', dot: 'bg-[#ff7b57]' },
-  'LCK': { bg: 'bg-[#f5e6d3]/20', text: 'text-[#f5e6d3]', border: 'border-[#f5e6d3]/30', dot: 'bg-[#f5e6d3]' },
-  'LCS': { bg: 'bg-[#0a7cff]/20', text: 'text-[#0a7cff]', border: 'border-[#0a7cff]/30', dot: 'bg-[#0a7cff]' },
+  'LEC': { bg: 'bg-(--league-lec)/20', text: 'text-(--league-lec)', border: 'border-(--league-lec)/30', dot: 'bg-(--league-lec)' },
+  'LFL': { bg: 'bg-(--league-lfl)/20', text: 'text-(--league-lfl)', border: 'border-(--league-lfl)/30', dot: 'bg-(--league-lfl)' },
+  'LCK': { bg: 'bg-(--league-lck)/20', text: 'text-(--league-lck)', border: 'border-(--league-lck)/30', dot: 'bg-(--league-lck)' },
+  'LCS': { bg: 'bg-(--league-lcs)/20', text: 'text-(--league-lcs)', border: 'border-(--league-lcs)/30', dot: 'bg-(--league-lcs)' },
 }

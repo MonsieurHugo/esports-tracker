@@ -27,13 +27,13 @@ describe('StatCard', () => {
   it('renders positive change with green color', () => {
     render(<StatCard label="Games" value={150} change={12} changeUnit="" />)
     const changeElement = screen.getByText(/↑.*12/)
-    expect(changeElement).toHaveClass('text-[var(--positive)]')
+    expect(changeElement).toHaveClass('text-(--positive)')
   })
 
   it('renders negative change with red color', () => {
     render(<StatCard label="Winrate" value="55%" change={-2.5} changeUnit="%" />)
     const changeElement = screen.getByText(/↓.*2.*5/)
-    expect(changeElement).toHaveClass('text-[var(--negative)]')
+    expect(changeElement).toHaveClass('text-(--negative)')
   })
 
   it('hides change indicator when change is undefined', () => {

@@ -135,7 +135,7 @@ export default class AuthController {
     await user.save()
 
     // Reset rate limit for this IP
-    resetRateLimit('login', this.getClientIp(ctx))
+    await resetRateLimit('login', this.getClientIp(ctx))
 
     // Create session
     await auth.use('web').login(user)
@@ -179,7 +179,7 @@ export default class AuthController {
     await auditService.logRegister(user.id, ctx)
 
     // Reset rate limit for this IP
-    resetRateLimit('register', this.getClientIp(ctx))
+    await resetRateLimit('register', this.getClientIp(ctx))
 
     // Send verification email
     await emailService.sendVerificationEmail(user.email, verificationToken, user.fullName || undefined)
@@ -279,7 +279,7 @@ export default class AuthController {
     await auditService.logPasswordResetRequest(payload.email, ctx, user.id)
 
     // Reset rate limit for this IP
-    resetRateLimit('passwordReset', this.getClientIp(ctx))
+    await resetRateLimit('passwordReset', this.getClientIp(ctx))
 
     // Send password reset email
     await emailService.sendPasswordResetEmail(user.email, resetToken, user.fullName || undefined)

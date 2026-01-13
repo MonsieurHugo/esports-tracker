@@ -20,7 +20,7 @@ function TeamLogo({ slug, shortName, size = 20, className = '' }: TeamLogoProps)
   if (error || !slug) {
     return (
       <div
-        className={`bg-[var(--bg-secondary)] rounded flex-shrink-0 flex items-center justify-center text-[7px] font-semibold text-[var(--text-muted)] ${className}`}
+        className={`bg-(--bg-secondary) rounded-sm shrink-0 flex items-center justify-center text-[7px] font-semibold text-(--text-muted) ${className}`}
         style={{ width: size, height: size }}
       >
         {shortName.substring(0, 2)}
@@ -34,7 +34,7 @@ function TeamLogo({ slug, shortName, size = 20, className = '' }: TeamLogoProps)
       alt={shortName}
       width={size}
       height={size}
-      className={`object-contain flex-shrink-0 ${className}`}
+      className={`object-contain shrink-0 ${className}`}
       style={{ width: size, height: size }}
       onError={() => setError(true)}
     />

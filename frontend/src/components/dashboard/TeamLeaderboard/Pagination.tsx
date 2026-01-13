@@ -24,9 +24,9 @@ export default function Pagination({
   const endItem = Math.min(currentPage * itemsPerPage, totalItems)
 
   return (
-    <div className="flex justify-between items-center px-3 py-2 border-t border-[var(--border)]">
+    <div className="flex justify-between items-center px-3 py-2 border-t border-(--border)">
       <div className="flex items-center gap-2">
-        <span className="text-[11px] text-[var(--text-muted)]">
+        <span className="text-[11px] text-(--text-muted)">
           {startItem} - {endItem} sur {totalItems}
         </span>
         <div className="flex items-center gap-1">
@@ -38,8 +38,8 @@ export default function Pagination({
                 px-1.5 py-0.5 text-[10px] rounded transition-all duration-150
                 ${
                   itemsPerPage === option
-                    ? 'bg-[var(--accent)] text-white'
-                    : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]'
+                    ? 'bg-(--accent) text-white'
+                    : 'text-(--text-muted) hover:text-(--text-primary) hover:bg-(--bg-hover)'
                 }
               `}
             >
@@ -53,11 +53,11 @@ export default function Pagination({
           onClick={() => onPageChange(currentPage - 1)}
           disabled={currentPage <= 1}
           className={`
-            w-7 h-7 border border-[var(--border)] bg-[var(--bg-secondary)] text-[var(--text-secondary)] text-xs rounded flex items-center justify-center transition-all duration-150
+            w-7 h-7 border border-(--border) bg-(--bg-secondary) text-(--text-secondary) text-xs rounded flex items-center justify-center transition-all duration-150
             ${
               currentPage <= 1
                 ? 'opacity-30 cursor-not-allowed'
-                : 'cursor-pointer hover:bg-[var(--bg-hover)] hover:border-[var(--text-muted)] hover:text-[var(--text-primary)]'
+                : 'cursor-pointer hover:bg-(--bg-hover) hover:border-(--text-muted) hover:text-(--text-primary)'
             }
           `}
         >
@@ -67,11 +67,11 @@ export default function Pagination({
           onClick={() => onPageChange(currentPage + 1)}
           disabled={currentPage >= lastPage}
           className={`
-            w-7 h-7 border border-[var(--border)] bg-[var(--bg-secondary)] text-[var(--text-secondary)] text-xs rounded flex items-center justify-center transition-all duration-150
+            w-7 h-7 border border-(--border) bg-(--bg-secondary) text-(--text-secondary) text-xs rounded flex items-center justify-center transition-all duration-150
             ${
               currentPage >= lastPage
                 ? 'opacity-30 cursor-not-allowed'
-                : 'cursor-pointer hover:bg-[var(--bg-hover)] hover:border-[var(--text-muted)] hover:text-[var(--text-primary)]'
+                : 'cursor-pointer hover:bg-(--bg-hover) hover:border-(--text-muted) hover:text-(--text-primary)'
             }
           `}
         >

@@ -29,7 +29,7 @@ const Avatar = forwardRef<HTMLDivElement, AvatarProps>(
       <div
         ref={ref}
         className={cn(
-          'relative rounded-full overflow-hidden bg-[var(--card)] border border-[var(--border)]',
+          'relative rounded-full overflow-hidden bg-(--card) border border-(--border)',
           sizeClasses[size],
           className
         )}
@@ -44,7 +44,7 @@ const Avatar = forwardRef<HTMLDivElement, AvatarProps>(
             className="object-cover w-full h-full"
           />
         ) : (
-          <div className="w-full h-full flex items-center justify-center font-medium text-[var(--muted)]">
+          <div className="w-full h-full flex items-center justify-center font-medium text-(--muted)">
             {fallback || alt.charAt(0).toUpperCase()}
           </div>
         )}

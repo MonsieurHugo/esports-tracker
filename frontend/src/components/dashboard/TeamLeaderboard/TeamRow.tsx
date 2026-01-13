@@ -44,15 +44,15 @@ function TeamRow({ entry, selectionIndex, isExpanded, onSelect, onToggle, sortBy
       <div
         onClick={handleRowClick}
         className={`
-          flex items-center px-2 sm:px-3 py-1.5 cursor-pointer transition-colors duration-150 border-b border-[var(--border)]
-          ${selectionIndex === 0 ? 'bg-[var(--accent)]/10 border-l-2 border-l-[var(--accent)]' : ''}
-          ${selectionIndex === 1 ? 'bg-[var(--lol)]/10 border-l-2 border-l-[var(--lol)]' : ''}
-          ${selectionIndex === null ? 'hover:bg-[var(--bg-hover)]' : ''}
-          ${isPinned && selectionIndex === 0 ? 'bg-[var(--accent)]/15 border-b-2 border-b-[var(--accent)]/30' : ''}
-          ${isPinned && selectionIndex === 1 ? 'bg-[var(--lol)]/15 border-b-2 border-b-[var(--lol)]/30' : ''}
+          flex items-center px-2 sm:px-3 py-1.5 cursor-pointer transition-colors duration-150 border-b border-(--border)
+          ${selectionIndex === 0 ? 'bg-(--accent)/10 border-l-2 border-l-(--accent)' : ''}
+          ${selectionIndex === 1 ? 'bg-(--lol)/10 border-l-2 border-l-(--lol)' : ''}
+          ${selectionIndex === null ? 'hover:bg-(--bg-hover)' : ''}
+          ${isPinned && selectionIndex === 0 ? 'bg-(--accent)/15 border-b-2 border-b-(--accent)/30' : ''}
+          ${isPinned && selectionIndex === 1 ? 'bg-(--lol)/15 border-b-2 border-b-(--lol)/30' : ''}
         `}
       >
-        <span className={`font-mono font-semibold text-[10px] sm:text-[11px] w-6 sm:w-7 ${entry.rank === -1 ? 'text-[var(--text-muted)]' : getRankTextClass(entry.rank)}`}>
+        <span className={`font-mono font-semibold text-[10px] sm:text-[11px] w-6 sm:w-7 ${entry.rank === -1 ? 'text-(--text-muted)' : getRankTextClass(entry.rank)}`}>
           {entry.rank === -1 ? '-' : entry.rank}
         </span>
         <div className="flex items-center gap-1.5 sm:gap-2 flex-1 min-w-0">
@@ -62,29 +62,31 @@ function TeamRow({ entry, selectionIndex, isExpanded, onSelect, onToggle, sortBy
               alt={entry.team.currentName}
               width={24}
               height={24}
-              className="w-5 h-5 sm:w-6 sm:h-6 object-contain flex-shrink-0"
+              className="w-5 h-5 sm:w-6 sm:h-6 object-contain shrink-0"
               onError={() => setLogoError(true)}
             />
           ) : (
-            <div className="w-5 h-5 sm:w-6 sm:h-6 bg-[var(--bg-secondary)] rounded flex-shrink-0 flex items-center justify-center text-[7px] sm:text-[8px] font-semibold text-[var(--text-muted)]">
+            <div className="w-5 h-5 sm:w-6 sm:h-6 bg-(--bg-secondary) rounded-sm shrink-0 flex items-center justify-center text-[7px] sm:text-[8px] font-semibold text-(--text-muted)">
               {entry.team.shortName.substring(0, 2)}
             </div>
           )}
           <span className="font-medium text-[11px] sm:text-xs truncate">
             {entry.team.currentName}
           </span>
-          <span className={`hidden sm:inline text-[9px] px-1.5 py-0.5 rounded flex-shrink-0 ${getLeagueTagClasses(entry.team.region)}`}>
-            {entry.team.region}
-          </span>
+          {entry.team.league && (
+            <span className={`hidden sm:inline text-[9px] px-1.5 py-0.5 rounded-sm shrink-0 ${getLeagueTagClasses(entry.team.league)}`}>
+              {entry.team.league}
+            </span>
+          )}
           {/* Lock button - only visible for selected teams */}
           {isSelected && onToggleLock && (
             <button
               onClick={handleLockClick}
               className={`
-                w-5 h-5 sm:w-6 sm:h-6 flex items-center justify-center rounded-md transition-all duration-200 flex-shrink-0
+                w-5 h-5 sm:w-6 sm:h-6 flex items-center justify-center rounded-md transition-all duration-200 shrink-0
                 ${isLocked
-                  ? 'text-[var(--accent)]'
-                  : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]'
+                  ? 'text-(--accent)'
+                  : 'text-(--text-muted) hover:text-(--text-secondary) hover:bg-(--bg-secondary)'
                 }
               `}
               title={isLocked ? 'Désépingler' : 'Épingler en haut'}
@@ -103,19 +105,19 @@ function TeamRow({ entry, selectionIndex, isExpanded, onSelect, onToggle, sortBy
             </button>
           )}
         </div>
-        <span className={`font-mono font-semibold text-[10px] sm:text-[11px] w-16 sm:w-20 text-right pr-3 ${sortBy === 'lp' ? 'text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'}`}>
+        <span className={`font-mono font-semibold text-[10px] sm:text-[11px] w-16 sm:w-20 text-right pr-4 ${sortBy === 'lp' ? 'text-(--text-primary)' : 'text-(--text-secondary)'}`}>
           {entry.totalLp > 0 ? entry.totalLp.toLocaleString() : '-'}
         </span>
-        <span className={`font-mono font-semibold text-[10px] sm:text-[11px] w-12 sm:w-16 text-right pr-3 ${sortBy === 'games' ? 'text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'}`}>
+        <span className={`font-mono font-semibold text-[10px] sm:text-[11px] w-14 sm:w-16 text-right pr-4 ${sortBy === 'games' ? 'text-(--text-primary)' : 'text-(--text-secondary)'}`}>
           {entry.games === -1 ? '-' : entry.games}
         </span>
-        <span className={`font-mono font-semibold text-[10px] sm:text-[11px] w-14 sm:w-16 text-right ${sortBy === 'winrate' ? 'text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'}`}>
+        <span className={`font-mono font-semibold text-[10px] sm:text-[11px] w-[4.5rem] sm:w-20 text-right pr-4 ${sortBy === 'winrate' ? 'text-(--text-primary)' : 'text-(--text-secondary)'}`}>
           {entry.winrate === -1 || entry.games === 0 ? '-' : `${entry.winrate.toFixed(0)}%`}
         </span>
         <button
           onClick={handleToggleClick}
           className={`
-            w-7 h-7 sm:w-8 sm:h-8 -my-1 flex items-center justify-center rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] ml-2 transition-all duration-200
+            w-7 h-7 sm:w-8 sm:h-8 -my-1 flex items-center justify-center rounded-md text-(--text-muted) hover:text-(--text-primary) hover:bg-(--bg-secondary) ml-2 transition-all duration-200
           `}
           title={isExpanded ? 'Masquer les joueurs' : 'Afficher les joueurs'}
         >

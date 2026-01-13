@@ -5,7 +5,7 @@ import testUtils from '@adonisjs/core/services/test_utils'
 test.group('Auth API - Registration', (group) => {
   group.each.setup(() => testUtils.db().withGlobalTransaction())
 
-  test('POST /api/v1/auth/register creates new user with valid data', async ({ client, assert }) => {
+  test('POST /api/v1/auth/register creates new user with valid data', async ({ client }) => {
     const response = await client.post('/api/v1/auth/register').json({
       email: 'newuser@example.com',
       password: 'StrongP@ss123',
@@ -70,7 +70,7 @@ test.group('Auth API - Login', (group) => {
 
   test('POST /api/v1/auth/login succeeds with valid credentials', async ({ client }) => {
     // Create a user
-    const user = await User.create({
+    await User.create({
       email: 'test@example.com',
       password: 'StrongP@ss123',
       emailVerified: true,
@@ -146,7 +146,7 @@ test.group('Auth API - Me Endpoint', (group) => {
   })
 
   test('GET /api/v1/auth/me returns user data with valid session', async ({ client }) => {
-    const user = await User.create({
+    await User.create({
       email: 'test@example.com',
       password: 'StrongP@ss123',
       emailVerified: true,

@@ -72,8 +72,8 @@ function DateRangePicker({ startDate, endDate, onApply, isActive, onToggle }: Da
           px-3 py-[5px] border-none rounded text-[11px] font-medium cursor-pointer transition-all duration-150
           ${
             isActive
-              ? 'bg-[var(--accent)] text-white'
-              : 'bg-transparent text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+              ? 'bg-(--accent) text-white'
+              : 'bg-transparent text-(--text-muted) hover:text-(--text-secondary)'
           }
         `}
       >
@@ -81,10 +81,10 @@ function DateRangePicker({ startDate, endDate, onApply, isActive, onToggle }: Da
       </button>
 
       {isOpen && (
-        <div className="absolute top-full left-0 mt-2 z-50 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg shadow-lg p-4 min-w-[280px]">
+        <div className="absolute top-full left-0 mt-2 z-50 bg-(--bg-card) border border-(--border) rounded-lg shadow-lg p-4 min-w-[280px]">
           <div className="flex flex-col gap-3">
             <div className="flex flex-col gap-1">
-              <label className="text-[10px] font-medium text-[var(--text-muted)] uppercase tracking-wider">
+              <label className="text-[10px] font-medium text-(--text-muted) uppercase tracking-wider">
                 Date de début
               </label>
               <input
@@ -92,12 +92,12 @@ function DateRangePicker({ startDate, endDate, onApply, isActive, onToggle }: Da
                 value={tempStartDate}
                 onChange={(e) => setTempStartDate(e.target.value)}
                 max={tempEndDate || today}
-                className="w-full px-3 py-2 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-md text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)]"
+                className="w-full px-3 py-2 bg-(--bg-secondary) border border-(--border) rounded-md text-sm text-(--text-primary) focus:outline-hidden focus:border-(--accent)"
               />
             </div>
 
             <div className="flex flex-col gap-1">
-              <label className="text-[10px] font-medium text-[var(--text-muted)] uppercase tracking-wider">
+              <label className="text-[10px] font-medium text-(--text-muted) uppercase tracking-wider">
                 Date de fin
               </label>
               <input
@@ -106,21 +106,21 @@ function DateRangePicker({ startDate, endDate, onApply, isActive, onToggle }: Da
                 onChange={(e) => setTempEndDate(e.target.value)}
                 min={tempStartDate}
                 max={today}
-                className="w-full px-3 py-2 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-md text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)]"
+                className="w-full px-3 py-2 bg-(--bg-secondary) border border-(--border) rounded-md text-sm text-(--text-primary) focus:outline-hidden focus:border-(--accent)"
               />
             </div>
 
             <div className="flex gap-2 pt-2">
               <button
                 onClick={() => setIsOpen(false)}
-                className="flex-1 px-3 py-2 text-xs font-medium text-[var(--text-muted)] bg-[var(--bg-secondary)] border border-[var(--border)] rounded-md hover:bg-[var(--bg-hover)] transition-colors"
+                className="flex-1 px-3 py-2 text-xs font-medium text-(--text-muted) bg-(--bg-secondary) border border-(--border) rounded-md hover:bg-(--bg-hover) transition-colors"
               >
                 Annuler
               </button>
               <button
                 onClick={handleApply}
                 disabled={!tempStartDate || !tempEndDate || new Date(tempStartDate) > new Date(tempEndDate)}
-                className="flex-1 px-3 py-2 text-xs font-medium text-white bg-[var(--accent)] rounded-md hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex-1 px-3 py-2 text-xs font-medium text-white bg-(--accent) rounded-md hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Appliquer
               </button>

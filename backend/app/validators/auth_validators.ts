@@ -13,9 +13,6 @@ const passwordRules = vine
   .minLength(8)
   .maxLength(128)
   .regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#^()_+\-=\[\]{};':"\\|,.<>\/~`])/)
-  .withMessage(
-    'Le mot de passe doit contenir au moins une majuscule, une minuscule, un chiffre et un caractère spécial'
-  )
 
 /**
  * Login validator
@@ -36,7 +33,7 @@ export const registerValidator = vine.compile(
   vine.object({
     email: vine.string().email().trim().toLowerCase(),
     password: passwordRules,
-    confirmPassword: vine.string(),
+    confirmPassword: vine.string().sameAs('password'),
     fullName: vine.string().trim().minLength(2).maxLength(100).optional(),
   })
 )
@@ -60,7 +57,7 @@ export const changePasswordValidator = vine.compile(
   vine.object({
     currentPassword: vine.string().minLength(1),
     newPassword: passwordRules,
-    confirmNewPassword: vine.string(),
+    confirmNewPassword: vine.string().sameAs('newPassword'),
   })
 )
 
@@ -80,7 +77,7 @@ export const resetPasswordValidator = vine.compile(
   vine.object({
     token: vine.string().minLength(1),
     password: passwordRules,
-    confirmPassword: vine.string(),
+    confirmPassword: vine.string().sameAs('password'),
   })
 )
 

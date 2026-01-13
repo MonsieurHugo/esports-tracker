@@ -18,7 +18,7 @@ export function Sidebar({ items }: SidebarProps) {
   const pathname = usePathname()
 
   return (
-    <aside className="w-64 border-r border-[var(--border)] min-h-screen p-4">
+    <aside className="w-64 border-r border-(--border) min-h-screen p-4">
       <nav className="flex flex-col gap-1">
         {items.map((item) => {
           const isActive = pathname === item.href
@@ -29,8 +29,8 @@ export function Sidebar({ items }: SidebarProps) {
               className={cn(
                 'px-3 py-2 rounded-lg text-sm font-medium transition-colors',
                 isActive
-                  ? 'bg-[var(--primary)] text-white'
-                  : 'text-[var(--muted)] hover:text-white hover:bg-[var(--card)]'
+                  ? 'bg-(--primary) text-white'
+                  : 'text-(--muted) hover:text-white hover:bg-(--card)'
               )}
             >
               {item.label}

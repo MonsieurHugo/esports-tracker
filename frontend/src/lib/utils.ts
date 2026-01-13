@@ -62,13 +62,13 @@ export function slugify(text: string): string {
 export function getRankTextClass(rank: number): string {
   switch (rank) {
     case 1:
-      return 'text-yellow-400'
+      return 'text-(--rank-gold)'
     case 2:
-      return 'text-gray-400'
+      return 'text-(--rank-silver)'
     case 3:
-      return 'text-amber-600'
+      return 'text-(--rank-bronze)'
     default:
-      return 'text-[var(--text-muted)]'
+      return 'text-(--text-muted)'
   }
 }
 
@@ -78,13 +78,13 @@ export function getRankTextClass(rank: number): string {
 export function getRankBadgeClass(rank: number): string {
   switch (rank) {
     case 1:
-      return 'bg-gradient-to-br from-yellow-400 to-amber-600 text-black'
+      return 'bg-linear-to-br from-(--rank-gold) to-(--rank-bronze) text-(--bg-primary)'
     case 2:
-      return 'bg-gradient-to-br from-gray-300 to-gray-400 text-black'
+      return 'bg-linear-to-br from-(--rank-silver) to-(--text-muted) text-(--bg-primary)'
     case 3:
-      return 'bg-gradient-to-br from-amber-600 to-amber-800 text-white'
+      return 'bg-linear-to-br from-(--rank-bronze) to-(--rank-bronze)/70 text-(--text-primary)'
     default:
-      return 'bg-[var(--bg-secondary)] text-[var(--text-muted)]'
+      return 'bg-(--bg-secondary) text-(--text-muted)'
   }
 }
 
@@ -92,16 +92,16 @@ export function getRankBadgeClass(rank: number): string {
  * Retourne la classe CSS pour la couleur d'un tier LoL (Master+)
  */
 export function getTierColor(tier: string | null): string {
-  if (!tier) return 'text-[var(--text-muted)]'
+  if (!tier) return 'text-(--text-muted)'
   switch (tier.toUpperCase()) {
     case 'CHALLENGER':
-      return 'text-cyan-400'
+      return 'text-(--tier-challenger)'
     case 'GRANDMASTER':
-      return 'text-red-400'
+      return 'text-(--tier-grandmaster)'
     case 'MASTER':
-      return 'text-purple-400'
+      return 'text-(--tier-master)'
     default:
-      return 'text-[var(--text-muted)]'
+      return 'text-(--text-muted)'
   }
 }
 
@@ -109,24 +109,24 @@ export function getTierColor(tier: string | null): string {
  * Retourne les classes CSS pour un badge de rang LoL (tier + background)
  */
 export function getRankBadgeClasses(tier: string | null): string {
-  if (!tier) return 'bg-[var(--bg-secondary)] text-[var(--text-muted)]'
+  if (!tier) return 'bg-(--bg-secondary) text-(--text-muted)'
   switch (tier.toUpperCase()) {
     case 'CHALLENGER':
-      return 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30'
+      return 'bg-(--tier-challenger)/20 text-(--tier-challenger) border border-(--tier-challenger)/30'
     case 'GRANDMASTER':
-      return 'bg-red-500/20 text-red-400 border border-red-500/30'
+      return 'bg-(--tier-grandmaster)/20 text-(--tier-grandmaster) border border-(--tier-grandmaster)/30'
     case 'MASTER':
-      return 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
+      return 'bg-(--tier-master)/20 text-(--tier-master) border border-(--tier-master)/30'
     case 'DIAMOND':
-      return 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
+      return 'bg-(--tier-diamond)/20 text-(--tier-diamond) border border-(--tier-diamond)/30'
     case 'EMERALD':
-      return 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+      return 'bg-(--tier-emerald)/20 text-(--tier-emerald) border border-(--tier-emerald)/30'
     case 'PLATINUM':
-      return 'bg-teal-500/20 text-teal-400 border border-teal-500/30'
+      return 'bg-(--tier-platinum)/20 text-(--tier-platinum) border border-(--tier-platinum)/30'
     case 'GOLD':
-      return 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'
+      return 'bg-(--tier-gold)/20 text-(--tier-gold) border border-(--tier-gold)/30'
     default:
-      return 'bg-[var(--bg-secondary)] text-[var(--text-muted)]'
+      return 'bg-(--bg-secondary) text-(--text-muted)'
   }
 }
 
@@ -139,7 +139,34 @@ export function getLeagueTagClasses(league: string): string {
   if (colors) {
     return `${colors.bg} ${colors.text} border ${colors.border}`
   }
-  return 'bg-[var(--bg-secondary)] text-[var(--text-muted)]'
+  return 'bg-(--bg-secondary) text-(--text-muted)'
+}
+
+/**
+ * Génère des couleurs pour les ligues non définies dans LEAGUE_COLORS
+ * Utilise une couleur par défaut pour les ligues inconnues
+ */
+export function getLeagueColor(league: string): { bg: string; text: string; border: string; dot: string } {
+  // Couleurs prédéfinies pour les nouvelles ligues courantes
+  const additionalColors: Record<string, { bg: string; text: string; border: string; dot: string }> = {
+    'LPL': { bg: 'bg-red-500/20', text: 'text-red-400', border: 'border-red-500/30', dot: 'bg-red-400' },
+    'LCKCL': { bg: 'bg-purple-500/20', text: 'text-purple-400', border: 'border-purple-500/30', dot: 'bg-purple-400' },
+    'LCP': { bg: 'bg-pink-500/20', text: 'text-pink-400', border: 'border-pink-500/30', dot: 'bg-pink-400' },
+    'LTAS': { bg: 'bg-teal-500/20', text: 'text-teal-400', border: 'border-teal-500/30', dot: 'bg-teal-400' },
+    'LTAN': { bg: 'bg-cyan-500/20', text: 'text-cyan-400', border: 'border-cyan-500/30', dot: 'bg-cyan-400' },
+    'VCS': { bg: 'bg-orange-500/20', text: 'text-orange-400', border: 'border-orange-500/30', dot: 'bg-orange-400' },
+    'PCS': { bg: 'bg-lime-500/20', text: 'text-lime-400', border: 'border-lime-500/30', dot: 'bg-lime-400' },
+    'CBLOL': { bg: 'bg-green-500/20', text: 'text-green-400', border: 'border-green-500/30', dot: 'bg-green-400' },
+    'LLA': { bg: 'bg-amber-500/20', text: 'text-amber-400', border: 'border-amber-500/30', dot: 'bg-amber-400' },
+    'LJL': { bg: 'bg-indigo-500/20', text: 'text-indigo-400', border: 'border-indigo-500/30', dot: 'bg-indigo-400' },
+  }
+
+  if (additionalColors[league]) {
+    return additionalColors[league]
+  }
+
+  // Couleur par défaut pour les ligues inconnues
+  return { bg: 'bg-gray-500/20', text: 'text-gray-400', border: 'border-gray-500/30', dot: 'bg-gray-400' }
 }
 
 /**

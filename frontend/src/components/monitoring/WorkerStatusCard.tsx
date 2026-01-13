@@ -1,80 +1,115 @@
 'use client'
 
-import { memo } from 'react'
 import type { WorkerStatus } from '@/lib/types'
 
-interface Props {
+interface WorkerStatusCardProps {
   status: WorkerStatus | null
-  isConnected: boolean
+  isLoading: boolean
 }
 
-function WorkerStatusCard({ status, isConnected }: Props) {
-  const isOnline = status?.is_running ?? false
+function formatUptime(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`
+  const hours = Math.floor(seconds / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+  if (hours > 0) return `${hours}h ${minutes}m`
+  return `${minutes}m`
+}
 
-  const formatUptime = (seconds: number): string => {
-    const hours = Math.floor(seconds / 3600)
-    const minutes = Math.floor((seconds % 3600) / 60)
-    if (hours > 0) {
-      return `${hours}h ${minutes}m`
-    }
-    return `${minutes}m`
+function formatTimeAgo(isoDate: string | null): string {
+  if (!isoDate) return 'Jamais'
+  const diff = Date.now() - new Date(isoDate).getTime()
+  const seconds = Math.floor(diff / 1000)
+  if (seconds < 60) return `${seconds}s`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m`
+  const hours = Math.floor(minutes / 60)
+  return `${hours}h`
+}
+
+export default function WorkerStatusCard({ status, isLoading }: WorkerStatusCardProps) {
+  if (isLoading) {
+    return (
+      <div className="bg-(--bg-card) border border-(--border) rounded-lg p-4">
+        <div className="animate-pulse space-y-3">
+          <div className="h-4 bg-(--bg-hover) rounded w-24" />
+          <div className="h-8 bg-(--bg-hover) rounded w-32" />
+          <div className="h-3 bg-(--bg-hover) rounded w-full" />
+        </div>
+      </div>
+    )
   }
 
+  const isRunning = status?.is_running ?? false
+
   return (
-    <>
-      {/* Status */}
-      <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4">
-        <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider mb-1">
-          Statut
-        </div>
+    <div className="bg-(--bg-card) border border-(--border) rounded-lg p-4">
+      {/* Header with status indicator */}
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-sm font-medium text-(--text-secondary)">Worker Status</h3>
         <div className="flex items-center gap-2">
-          <div
-            className={`w-2 h-2 rounded-full ${
-              isOnline ? 'bg-green-500 animate-pulse' : 'bg-red-500'
+          <span
+            className={`relative flex h-2.5 w-2.5 ${isRunning ? 'animate-pulse' : ''}`}
+          >
+            <span
+              className={`absolute inline-flex h-full w-full rounded-full opacity-75 ${
+                isRunning ? 'bg-(--accent) animate-ping' : 'bg-(--negative)'
+              }`}
+            />
+            <span
+              className={`relative inline-flex rounded-full h-2.5 w-2.5 ${
+                isRunning ? 'bg-(--accent)' : 'bg-(--negative)'
+              }`}
+            />
+          </span>
+          <span
+            className={`text-xs font-medium ${
+              isRunning ? 'text-(--accent)' : 'text-(--negative)'
             }`}
-          />
-          <span className="font-semibold">{isOnline ? 'En ligne' : 'Hors ligne'}</span>
+          >
+            {isRunning ? 'En ligne' : 'Hors ligne'}
+          </span>
         </div>
-        {!isConnected && (
-          <div className="text-[10px] text-orange-500 mt-1">WebSocket deconnecte</div>
-        )}
       </div>
 
       {/* Uptime */}
-      <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4">
-        <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider mb-1">
-          Uptime
+      <div className="mb-4">
+        <div className="text-2xl font-mono font-bold text-(--text-primary)">
+          {formatUptime(status?.uptime ?? 0)}
         </div>
-        <div className="font-mono text-xl font-bold">
-          {status?.uptime ? formatUptime(status.uptime) : '-'}
-        </div>
+        <div className="text-xs text-(--text-muted)">Uptime</div>
       </div>
 
-      {/* API Requests */}
-      <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4">
-        <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider mb-1">
-          Requetes API
+      {/* Current activity */}
+      {status?.current_account_name && (
+        <div className="mb-3 p-2 bg-(--bg-hover) rounded text-xs">
+          <div className="text-(--text-muted) mb-1">En cours de traitement</div>
+          <div className="font-mono text-(--text-primary) truncate">
+            {status.current_account_name}
+            <span className="text-(--text-muted) ml-1">
+              ({status.current_account_region})
+            </span>
+          </div>
         </div>
-        <div className="font-mono text-xl font-bold">
-          {status?.session_api_requests?.toLocaleString('fr-FR') ?? 0}
-        </div>
+      )}
+
+      {/* Last activity */}
+      <div className="flex justify-between text-xs text-(--text-muted)">
+        <span>Derniere activite</span>
+        <span className="font-mono">{formatTimeAgo(status?.last_activity_at ?? null)}</span>
       </div>
 
-      {/* Errors */}
-      <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4">
-        <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider mb-1">
-          Erreurs
+      {/* Last error if present */}
+      {status?.last_error_message && (
+        <div className="mt-3 p-2 bg-(--negative)/10 border border-(--negative)/20 rounded text-xs">
+          <div className="text-(--negative) font-medium mb-1">Derniere erreur</div>
+          <div className="text-(--text-secondary) truncate">
+            {status.last_error_message}
+          </div>
+          <div className="text-(--text-muted) mt-1">
+            {formatTimeAgo(status.last_error_at ?? null)}
+          </div>
         </div>
-        <div
-          className={`font-mono text-xl font-bold ${
-            (status?.session_errors ?? 0) > 0 ? 'text-red-500' : ''
-          }`}
-        >
-          {status?.session_errors ?? 0}
-        </div>
-      </div>
-    </>
+      )}
+    </div>
   )
 }
-
-export default memo(WorkerStatusCard)

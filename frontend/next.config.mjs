@@ -9,10 +9,15 @@ const nextConfig = {
       },
     ],
   },
-  // Disable static generation for all pages
-  experimental: {
-    // This might help with the useContext issue
-    serverComponentsExternalPackages: ['zustand'],
+  serverExternalPackages: ['zustand'],
+  async rewrites() {
+    const backendUrl = process.env.BACKEND_URL || 'http://localhost:3333'
+    return [
+      {
+        source: '/api/:path*',
+        destination: `${backendUrl}/api/:path*`,
+      },
+    ]
   },
 }
 

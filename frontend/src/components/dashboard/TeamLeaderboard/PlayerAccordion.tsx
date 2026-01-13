@@ -16,7 +16,7 @@ function RoleIcon({ role }: { role: string | null }) {
 
   if (!role || !(VALID_ROLES as readonly string[]).includes(role.toUpperCase()) || error) {
     return (
-      <span className="text-[8px] sm:text-[9px] text-[var(--text-muted)] uppercase w-6 sm:w-7 text-center">
+      <span className="text-[8px] sm:text-[9px] text-(--text-muted) uppercase w-6 sm:w-7 text-center">
         {role || '-'}
       </span>
     )
@@ -37,14 +37,14 @@ function RoleIcon({ role }: { role: string | null }) {
 function PlayerAccordion({ players, isOpen }: PlayerAccordionProps) {
   return (
     <div
-      className="grid transition-[grid-template-rows] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]"
+      className="grid transition-[grid-template-rows] duration-300 ease-in-out"
       style={{ gridTemplateRows: isOpen ? '1fr' : '0fr' }}
     >
       <div className="overflow-hidden">
         <div
           className={`
-            py-1.5 px-2 sm:px-3 bg-[var(--bg-accordion)] border-b border-[var(--border)]
-            transition-opacity duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]
+            py-1.5 px-2 sm:px-3 bg-(--bg-accordion) border-b border-(--border)
+            transition-opacity duration-300 ease-in-out
             ${isOpen ? 'opacity-100' : 'opacity-0'}
           `}
         >
@@ -53,7 +53,7 @@ function PlayerAccordion({ players, isOpen }: PlayerAccordionProps) {
               key={player.playerId}
               className={`
                 flex items-center py-[5px]
-                ${index !== players.length - 1 ? 'border-b border-[var(--border)]' : ''}
+                ${index !== players.length - 1 ? 'border-b border-(--border)' : ''}
               `}
             >
               {/* Spacer pour aligner avec le rank */}
@@ -61,11 +61,11 @@ function PlayerAccordion({ players, isOpen }: PlayerAccordionProps) {
               <RoleIcon role={player.role} />
               <Link
                 href={`/lol/player/${player.slug}`}
-                className="text-[10px] sm:text-[11px] font-medium flex-1 min-w-0 truncate ml-2 hover:text-[var(--accent)] hover:underline transition-colors"
+                className="text-[10px] sm:text-[11px] font-medium flex-1 min-w-0 truncate ml-2 hover:text-(--accent) hover:underline transition-colors"
               >
                 {player.pseudo}
               </Link>
-              <span className="font-mono text-[10px] sm:text-[11px] text-[var(--text-secondary)] w-16 sm:w-20 text-right pr-3 flex items-center justify-end gap-1">
+              <span className="font-mono text-[10px] sm:text-[11px] text-(--text-secondary) w-16 sm:w-20 text-right pr-4 flex items-center justify-end gap-1">
                 {getRankImagePath(player.tier) && (
                   <img
                     src={getRankImagePath(player.tier)!}
@@ -75,10 +75,10 @@ function PlayerAccordion({ players, isOpen }: PlayerAccordionProps) {
                 )}
                 {formatLp(player.tier, player.lp)}
               </span>
-              <span className="font-mono text-[10px] sm:text-[11px] text-[var(--text-secondary)] w-12 sm:w-16 text-right pr-3">
+              <span className="font-mono text-[10px] sm:text-[11px] text-(--text-secondary) w-14 sm:w-16 text-right pr-4">
                 {player.games === -1 ? '-' : player.games}
               </span>
-              <span className="font-mono text-[10px] sm:text-[11px] text-[var(--text-secondary)] w-14 sm:w-16 text-right">
+              <span className="font-mono text-[10px] sm:text-[11px] text-(--text-secondary) w-[4.5rem] sm:w-20 text-right pr-4">
                 {player.winrate === -1 || player.games === 0 ? '-' : `${player.winrate.toFixed(0)}%`}
               </span>
               {/* Spacer pour aligner avec le bouton expand */}

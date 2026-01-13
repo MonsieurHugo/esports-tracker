@@ -30,22 +30,22 @@ function WinrateChart({ data, isLoading, teamId }: WinrateChartProps) {
 
   if (isLoading) {
     return (
-      <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg overflow-hidden">
-        <div className="px-3.5 py-2.5 border-b border-[var(--border)] text-[11px] font-semibold text-[var(--text-secondary)]">
+      <div className="bg-(--bg-card) border border-(--border) rounded-lg overflow-hidden">
+        <div className="px-3.5 py-2.5 border-b border-(--border) text-[11px] font-semibold text-(--text-secondary)">
           {title}
         </div>
         <div className="p-3 h-[120px] flex items-center justify-center">
-          <div className="text-[var(--text-muted)] text-sm">Chargement...</div>
+          <div className="text-(--text-muted) text-sm">Chargement...</div>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg overflow-hidden">
-      <div className="px-3.5 py-2.5 border-b border-[var(--border)] text-[11px] font-semibold text-[var(--text-secondary)] flex justify-between items-center">
+    <div className="bg-(--bg-card) border border-(--border) rounded-lg overflow-hidden">
+      <div className="px-3.5 py-2.5 border-b border-(--border) text-[11px] font-semibold text-(--text-secondary) flex justify-between items-center">
         <span>{title}</span>
-        <span className="text-[10px] text-[var(--text-muted)]">
+        <span className="text-[10px] text-(--text-muted)">
           Moy: {avgWinrate.toFixed(1)}%
         </span>
       </div>
@@ -86,9 +86,11 @@ function WinrateChart({ data, isLoading, teamId }: WinrateChartProps) {
               }}
               labelStyle={{ color: 'var(--text-primary)', fontSize: 11 }}
               itemStyle={{ color: 'var(--text-secondary)', fontSize: 11 }}
-              formatter={(value: number, _name: string, props: { payload?: GamesPerDayData }) => {
-                if (!props.payload) return [`${value}%`, '']
-                const { wins, games } = props.payload
+              formatter={(value, _name, props) => {
+                if (typeof value !== 'number') return ['', '']
+                const payload = props?.payload as GamesPerDayData | undefined
+                if (!payload) return [`${value}%`, '']
+                const { wins, games } = payload
                 return [`${value}% (${wins}W/${games - wins}L)`, '']
               }}
             />

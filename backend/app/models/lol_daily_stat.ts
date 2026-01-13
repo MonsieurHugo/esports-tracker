@@ -22,12 +22,6 @@ export default class LolDailyStat extends BaseModel {
   declare wins: number
 
   @column()
-  declare soloqGames: number
-
-  @column()
-  declare flexGames: number
-
-  @column()
   declare totalKills: number
 
   @column()
@@ -37,13 +31,16 @@ export default class LolDailyStat extends BaseModel {
   declare totalAssists: number
 
   @column()
-  declare totalCs: number
-
-  @column()
-  declare totalDamage: number
-
-  @column()
   declare totalGameDuration: number | null
+
+  @column()
+  declare tier: string | null
+
+  @column()
+  declare rank: string | null
+
+  @column()
+  declare lp: number
 
   @belongsTo(() => LolAccount, { foreignKey: 'puuid' })
   declare account: BelongsTo<typeof LolAccount>

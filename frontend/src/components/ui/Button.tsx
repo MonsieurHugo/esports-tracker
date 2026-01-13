@@ -15,11 +15,11 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
           'inline-flex items-center justify-center font-medium transition-colors rounded-lg',
           'disabled:opacity-50 disabled:cursor-not-allowed',
           {
-            'bg-[var(--primary)] text-white hover:bg-[var(--primary-hover)]': variant === 'primary',
-            'bg-[var(--card)] text-white border border-[var(--border)] hover:bg-[var(--card-hover)]':
+            'bg-(--primary) text-white hover:bg-(--primary-hover)': variant === 'primary',
+            'bg-(--card) text-white border border-(--border) hover:bg-(--card-hover)':
               variant === 'secondary',
-            'text-[var(--muted)] hover:text-white hover:bg-[var(--card)]': variant === 'ghost',
-            'bg-[var(--danger)] text-white hover:opacity-90': variant === 'danger',
+            'text-(--muted) hover:text-white hover:bg-(--card)': variant === 'ghost',
+            'bg-(--danger) text-white hover:opacity-90': variant === 'danger',
           },
           {
             'px-3 py-1.5 text-sm': size === 'sm',

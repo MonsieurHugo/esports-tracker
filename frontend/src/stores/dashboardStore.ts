@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import type { DashboardPeriod, TeamLeaderboardEntry, PlayerLeaderboardEntry } from '@/lib/types'
 import { formatToDateString } from '@/lib/dateUtils'
-import { ALL_LEAGUES } from '@/lib/constants'
+import { VALID_ROLES } from '@/lib/constants'
 
 export type SortOption = 'lp' | 'games' | 'winrate'
 export type ItemsPerPageOption = 10 | 20 | 50
@@ -16,6 +16,8 @@ interface DashboardState {
 
   // Filters
   selectedLeagues: string[]
+  selectedRoles: string[]
+  minGames: number
 
   // Sorting
   sortBy: SortOption
@@ -50,6 +52,9 @@ interface DashboardState {
   navigatePeriod: (direction: 'prev' | 'next') => void
   toggleLeague: (league: string) => void
   selectAllLeagues: () => void
+  toggleRole: (role: string) => void
+  selectAllRoles: () => void
+  setMinGames: (minGames: number) => void
   setSortBy: (sort: SortOption) => void
   setPage: (page: number) => void
   setItemsPerPage: (count: ItemsPerPageOption) => void
@@ -161,6 +166,8 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
   customStartDate: null,
   customEndDate: null,
   selectedLeagues: [],
+  selectedRoles: [],
+  minGames: 0,
   sortBy: 'lp',
   currentPage: 1,
   itemsPerPage: 20,
@@ -223,8 +230,8 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
       ? selectedLeagues.filter((l) => l !== league)
       : [...selectedLeagues, league]
 
-    // Si toutes sont sélectionnées ou aucune, on reset
-    if (newSelected.length === ALL_LEAGUES.length || newSelected.length === 0) {
+    // Si aucune ligue sélectionnée, on reset (= toutes)
+    if (newSelected.length === 0) {
       set({ selectedLeagues: [], currentPage: 1 })
     } else {
       set({ selectedLeagues: newSelected, currentPage: 1 })
@@ -232,6 +239,24 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
   },
 
   selectAllLeagues: () => set({ selectedLeagues: [], currentPage: 1 }),
+
+  toggleRole: (role) => {
+    const { selectedRoles } = get()
+    const newSelected = selectedRoles.includes(role)
+      ? selectedRoles.filter((r) => r !== role)
+      : [...selectedRoles, role]
+
+    // Si tous sont sélectionnés ou aucun, on reset
+    if (newSelected.length === VALID_ROLES.length || newSelected.length === 0) {
+      set({ selectedRoles: [], currentPage: 1 })
+    } else {
+      set({ selectedRoles: newSelected, currentPage: 1 })
+    }
+  },
+
+  selectAllRoles: () => set({ selectedRoles: [], currentPage: 1 }),
+
+  setMinGames: (minGames) => set({ minGames, currentPage: 1 }),
 
   setSortBy: (sortBy) => set({ sortBy, currentPage: 1 }),
 
@@ -374,6 +399,8 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
     customStartDate: null,
     customEndDate: null,
     selectedLeagues: [],
+    selectedRoles: [],
+    minGames: 0,
     sortBy: 'lp',
     currentPage: 1,
     // Keep itemsPerPage as-is (responsive default set on mount)

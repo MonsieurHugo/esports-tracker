@@ -7,21 +7,30 @@ interface LeaderboardHeaderProps {
   view: LeaderboardView
   onViewChange: (view: LeaderboardView) => void
   leagueFilter?: React.ReactNode
+  roleFilter?: React.ReactNode
+  gamesFilter?: React.ReactNode
 }
 
-function LeaderboardHeader({ view, onViewChange, leagueFilter }: LeaderboardHeaderProps) {
+function LeaderboardHeader({ view, onViewChange, leagueFilter, roleFilter, gamesFilter }: LeaderboardHeaderProps) {
   return (
-    <div className="flex justify-between items-center px-3.5 py-2.5 border-b border-[var(--border)]">
-      <div className="flex items-center gap-2">
-        <span className="text-xs font-semibold text-[var(--text-secondary)]">Leaderboard</span>
-        <div className="flex items-center">
+    <div className="flex flex-wrap items-center gap-2 px-3 py-2 border-b border-(--border)">
+      {/* Left: Title + View Toggle */}
+      <div className="flex items-center gap-3">
+        <span className="text-xs font-semibold text-(--text-secondary)">Leaderboard</span>
+        <div className="relative flex bg-(--bg-card) p-[3px] rounded-md border border-(--border)">
+          {/* Sliding indicator */}
+          <div
+            className={`absolute top-[3px] bottom-[3px] left-[3px] w-[calc(50%-3px)] bg-(--accent) rounded transition-transform duration-200 ease-out ${
+              view === 'players' ? 'translate-x-full' : 'translate-x-0'
+            }`}
+          />
           <button
             onClick={() => onViewChange('teams')}
             className={`
-              px-2 py-0.5 text-xs font-semibold rounded-l-md border transition-colors
+              relative z-10 px-3 py-[5px] border-none rounded text-[11px] font-medium transition-colors duration-150
               ${view === 'teams'
-                ? 'bg-[var(--accent)] text-white border-[var(--accent)]'
-                : 'bg-transparent text-[var(--text-muted)] border-[var(--border)] hover:text-[var(--text-primary)] hover:border-[var(--text-muted)]'
+                ? 'text-(--text-on-accent)'
+                : 'bg-transparent text-(--text-muted) hover:text-(--text-secondary)'
               }
             `}
           >
@@ -30,10 +39,10 @@ function LeaderboardHeader({ view, onViewChange, leagueFilter }: LeaderboardHead
           <button
             onClick={() => onViewChange('players')}
             className={`
-              px-2 py-0.5 text-xs font-semibold rounded-r-md border-t border-r border-b -ml-px transition-colors
+              relative z-10 px-3 py-[5px] border-none rounded text-[11px] font-medium transition-colors duration-150
               ${view === 'players'
-                ? 'bg-[var(--accent)] text-white border-[var(--accent)]'
-                : 'bg-transparent text-[var(--text-muted)] border-[var(--border)] hover:text-[var(--text-primary)] hover:border-[var(--text-muted)]'
+                ? 'text-(--text-on-accent)'
+                : 'bg-transparent text-(--text-muted) hover:text-(--text-secondary)'
               }
             `}
           >
@@ -41,7 +50,20 @@ function LeaderboardHeader({ view, onViewChange, leagueFilter }: LeaderboardHead
           </button>
         </div>
       </div>
-      {leagueFilter}
+
+      {/* Spacer */}
+      <div className="flex-1" />
+
+      {/* Role Filter - always rendered to maintain consistent height */}
+      <div className={`transition-opacity duration-150 ${view === 'players' ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+        {roleFilter}
+      </div>
+
+      {/* Right: Games + League Filters */}
+      <div className="flex items-center gap-2">
+        {gamesFilter}
+        {leagueFilter}
+      </div>
     </div>
   )
 }
