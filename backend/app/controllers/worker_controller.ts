@@ -5,6 +5,18 @@ import WorkerStatus from '#models/worker_status'
 import WorkerLog from '#models/worker_log'
 import WorkerMetrics from '#models/worker_metrics'
 
+/**
+ * Sanitize input for use in SQL LIKE queries.
+ * Escapes wildcard characters (%, _) and backslashes to prevent injection.
+ */
+function sanitizeLikeInput(input: string, maxLength: number = 100): string {
+  // Trim and limit length
+  let sanitized = input.trim().slice(0, maxLength)
+  // Escape backslashes first, then LIKE wildcards
+  sanitized = sanitized.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_')
+  return sanitized
+}
+
 export default class WorkerController {
   /**
    * GET /api/v1/worker/status
@@ -37,14 +49,16 @@ export default class WorkerController {
       })
     }
 
-    // Get region stats
+    // Get region stats (only active players)
     const regionStats = await db.rawQuery(`
       SELECT
-        region,
+        a.region,
         COUNT(*) as accounts_total,
-        COUNT(CASE WHEN last_fetched_at >= NOW() - INTERVAL '24 hours' THEN 1 END) as accounts_done
-      FROM lol_accounts
-      GROUP BY region
+        COUNT(CASE WHEN a.last_fetched_at >= NOW() - INTERVAL '24 hours' THEN 1 END) as accounts_done
+      FROM lol_accounts a
+      JOIN players p ON a.player_id = p.player_id
+      WHERE p.is_active = true
+      GROUP BY a.region
     `)
 
     const regionStatsMap: Record<string, { accounts_total: number; accounts_done: number; matches: number }> = {}
@@ -202,9 +216,13 @@ export default class WorkerController {
   async searchPlayers(ctx: HttpContext) {
     const { q } = ctx.request.qs()
 
-    if (!q || q.length < 2) {
+    // Validate input: must be string with 2-100 characters
+    if (!q || typeof q !== 'string' || q.trim().length < 2) {
       return ctx.response.ok({ players: [] })
     }
+
+    // Sanitize input to escape LIKE wildcards
+    const sanitizedQuery = sanitizeLikeInput(q, 100)
 
     const players = await db
       .from('players as p')
@@ -212,7 +230,7 @@ export default class WorkerController {
         query.on('p.player_id', 'pc.player_id').andOnNull('pc.end_date')
       })
       .leftJoin('teams as t', 'pc.team_id', 't.team_id')
-      .whereILike('p.current_pseudo', `%${q}%`)
+      .whereILike('p.current_pseudo', `%${sanitizedQuery}%`)
       .select('p.player_id', 'p.current_pseudo', 'p.slug', 't.current_name as team_name', 't.region')
       .limit(10)
 
@@ -268,8 +286,12 @@ export default class WorkerController {
       .groupBy('date')
       .orderBy('date', 'asc')
 
-    // Get total accounts count
-    const [{ total_accounts }] = await db.from('lol_accounts').count('* as total_accounts')
+    // Get total accounts count (only active players)
+    const [{ total_accounts }] = await db
+      .from('lol_accounts as a')
+      .join('players as p', 'a.player_id', 'p.player_id')
+      .where('p.is_active', true)
+      .count('* as total_accounts')
 
     return ctx.response.ok({
       totalAccounts: Number(total_accounts),
@@ -288,10 +310,11 @@ export default class WorkerController {
   async accounts(ctx: HttpContext) {
     const { limit = 5 } = ctx.request.qs()
 
-    // Get recently updated accounts
+    // Get recently updated accounts (only active players)
     const recent = await db
       .from('lol_accounts as a')
-      .leftJoin('players as p', 'a.player_id', 'p.player_id')
+      .join('players as p', 'a.player_id', 'p.player_id')
+      .where('p.is_active', true)
       .orderBy('a.last_fetched_at', 'desc')
       .limit(Number(limit))
       .select(
@@ -304,10 +327,11 @@ export default class WorkerController {
         'p.current_pseudo as player_name'
       )
 
-    // Get oldest (need update) accounts
+    // Get oldest (need update) accounts (only active players)
     const oldest = await db
       .from('lol_accounts as a')
-      .leftJoin('players as p', 'a.player_id', 'p.player_id')
+      .join('players as p', 'a.player_id', 'p.player_id')
+      .where('p.is_active', true)
       .orderByRaw('a.last_fetched_at ASC NULLS FIRST')
       .limit(Number(limit))
       .select(
@@ -320,15 +344,21 @@ export default class WorkerController {
         'p.current_pseudo as player_name'
       )
 
-    // Get count by region
+    // Get count by region (only active players)
     const byRegion = await db
-      .from('lol_accounts')
-      .select('region')
+      .from('lol_accounts as a')
+      .join('players as p', 'a.player_id', 'p.player_id')
+      .where('p.is_active', true)
+      .select('a.region')
       .count('* as count')
-      .groupBy('region')
+      .groupBy('a.region')
       .orderBy('count', 'desc')
 
-    const [{ total }] = await db.from('lol_accounts').count('* as total')
+    const [{ total }] = await db
+      .from('lol_accounts as a')
+      .join('players as p', 'a.player_id', 'p.player_id')
+      .where('p.is_active', true)
+      .count('* as total')
 
     const formatAccount = (a: any) => ({
       puuid: a.puuid,
@@ -372,7 +402,8 @@ export default class WorkerController {
 
     let query = db
       .from('lol_accounts as a')
-      .leftJoin('players as p', 'a.player_id', 'p.player_id')
+      .join('players as p', 'a.player_id', 'p.player_id')
+      .where('p.is_active', true)
       .select(
         'a.puuid',
         'a.game_name',
@@ -397,11 +428,13 @@ export default class WorkerController {
       query = query.where('a.region', region)
     }
 
-    if (search) {
+    if (search && typeof search === 'string' && search.trim().length >= 2) {
+      // Sanitize input to escape LIKE wildcards
+      const sanitizedSearch = sanitizeLikeInput(search, 100)
       query = query.where((qb) => {
-        qb.whereILike('a.game_name', `%${search}%`)
-          .orWhereILike('a.tag_line', `%${search}%`)
-          .orWhereILike('p.current_pseudo', `%${search}%`)
+        qb.whereILike('a.game_name', `%${sanitizedSearch}%`)
+          .orWhereILike('a.tag_line', `%${sanitizedSearch}%`)
+          .orWhereILike('p.current_pseudo', `%${sanitizedSearch}%`)
       })
     }
 
@@ -444,21 +477,23 @@ export default class WorkerController {
     const total = Number(countResult?.total || 0)
     const lastPage = Math.ceil(total / perPageNum)
 
-    // Summary counts
+    // Summary counts (only active players)
     const summary = await db
-      .from('lol_accounts')
+      .from('lol_accounts as a')
+      .join('players as p', 'a.player_id', 'p.player_id')
+      .where('p.is_active', true)
       .select(
         db.raw(
-          "COUNT(CASE WHEN last_fetched_at >= NOW() - INTERVAL '6 hours' THEN 1 END)::int as fresh"
+          "COUNT(CASE WHEN a.last_fetched_at >= NOW() - INTERVAL '6 hours' THEN 1 END)::int as fresh"
         ),
         db.raw(
-          "COUNT(CASE WHEN last_fetched_at < NOW() - INTERVAL '6 hours' AND last_fetched_at >= NOW() - INTERVAL '24 hours' THEN 1 END)::int as normal"
+          "COUNT(CASE WHEN a.last_fetched_at < NOW() - INTERVAL '6 hours' AND a.last_fetched_at >= NOW() - INTERVAL '24 hours' THEN 1 END)::int as normal"
         ),
         db.raw(
-          "COUNT(CASE WHEN last_fetched_at < NOW() - INTERVAL '24 hours' AND last_fetched_at >= NOW() - INTERVAL '72 hours' THEN 1 END)::int as stale"
+          "COUNT(CASE WHEN a.last_fetched_at < NOW() - INTERVAL '24 hours' AND a.last_fetched_at >= NOW() - INTERVAL '72 hours' THEN 1 END)::int as stale"
         ),
         db.raw(
-          "COUNT(CASE WHEN last_fetched_at < NOW() - INTERVAL '72 hours' OR last_fetched_at IS NULL THEN 1 END)::int as critical"
+          "COUNT(CASE WHEN a.last_fetched_at < NOW() - INTERVAL '72 hours' OR a.last_fetched_at IS NULL THEN 1 END)::int as critical"
         )
       )
       .first()
