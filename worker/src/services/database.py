@@ -2,6 +2,7 @@
 Database Service
 """
 
+import asyncio
 from datetime import date, datetime
 from typing import Any
 
@@ -18,14 +19,54 @@ class DatabaseService:
         self.database_url = database_url
         self._pool: asyncpg.Pool | None = None
 
-    async def connect(self):
-        """Create connection pool."""
-        self._pool = await asyncpg.create_pool(
-            self.database_url,
-            min_size=5,
-            max_size=20,
-        )
-        logger.info("Database pool created")
+    async def connect(self) -> None:
+        """Create connection pool with proper timeout handling."""
+        try:
+            self._pool = await asyncio.wait_for(
+                asyncpg.create_pool(
+                    self.database_url,
+                    min_size=5,
+                    max_size=20,
+                    command_timeout=30,  # Timeout for individual commands
+                    timeout=10,  # Timeout for acquiring a connection from pool
+                ),
+                timeout=30,  # Global timeout for pool creation
+            )
+            logger.info("Database connection pool created")
+        except asyncio.TimeoutError:
+            logger.error("Timeout creating database connection pool")
+            raise
+        except Exception as e:
+            logger.error("Failed to create database connection pool", error=str(e))
+            raise
+
+    async def connect_with_retry(
+        self, max_retries: int = 3, base_delay: float = 2.0
+    ) -> None:
+        """Connect with exponential backoff retry.
+
+        Args:
+            max_retries: Maximum number of connection attempts
+            base_delay: Base delay in seconds (doubles each retry)
+        """
+        for attempt in range(max_retries):
+            try:
+                await self.connect()
+                return
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    wait_time = base_delay * (2**attempt)
+                    logger.warning(
+                        f"Connection attempt {attempt + 1} failed, retrying in {wait_time}s",
+                        error=str(e),
+                    )
+                    await asyncio.sleep(wait_time)
+                else:
+                    logger.error(
+                        f"All {max_retries} connection attempts failed",
+                        error=str(e),
+                    )
+                    raise
 
     async def disconnect(self):
         """Close connection pool."""
@@ -71,9 +112,37 @@ class DatabaseService:
                 a.last_match_at
             FROM lol_accounts a
             JOIN players p ON a.player_id = p.player_id
-            WHERE p.is_active = true
+            WHERE p.is_active = true AND a.puuid IS NOT NULL
             ORDER BY a.region, a.last_fetched_at NULLS FIRST
             """
+        )
+
+    async def get_accounts_without_puuid(self) -> list[asyncpg.Record]:
+        """Get all accounts that don't have a PUUID yet (pending validation)."""
+        return await self.fetch(
+            """
+            SELECT
+                a.account_id,
+                a.player_id,
+                a.game_name,
+                a.tag_line,
+                a.region
+            FROM lol_accounts a
+            WHERE a.puuid IS NULL
+            ORDER BY a.created_at ASC
+            """
+        )
+
+    async def update_account_puuid(self, account_id: int, puuid: str) -> None:
+        """Update the PUUID for an account after validation."""
+        await self.execute(
+            """
+            UPDATE lol_accounts
+            SET puuid = $2, updated_at = NOW()
+            WHERE account_id = $1
+            """,
+            account_id,
+            puuid,
         )
 
     async def get_active_accounts_by_region(self, region: str) -> list[asyncpg.Record]:
@@ -90,7 +159,7 @@ class DatabaseService:
                 a.last_match_at
             FROM lol_accounts a
             JOIN players p ON a.player_id = p.player_id
-            WHERE p.is_active = true AND a.region = $1
+            WHERE p.is_active = true AND a.region = $1 AND a.puuid IS NOT NULL
             ORDER BY a.last_fetched_at NULLS FIRST
             """,
             region,
@@ -103,7 +172,7 @@ class DatabaseService:
             SELECT a.puuid
             FROM lol_accounts a
             JOIN players p ON a.player_id = p.player_id
-            WHERE p.is_active = true
+            WHERE p.is_active = true AND a.puuid IS NOT NULL
             """
         )
         return {row["puuid"] for row in rows}
@@ -129,43 +198,6 @@ class DatabaseService:
             WHERE puuid = $1
             """,
             puuid,
-        )
-
-    # ==========================================
-    # LoL Current Ranks Operations
-    # ==========================================
-
-    async def upsert_current_rank(
-        self,
-        puuid: str,
-        queue_type: str,
-        tier: str | None,
-        rank: str | None,
-        league_points: int,
-        wins: int,
-        losses: int,
-    ) -> None:
-        """Insert or update current rank for an account."""
-        await self.execute(
-            """
-            INSERT INTO lol_current_ranks (puuid, queue_type, tier, rank, league_points, wins, losses, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-            ON CONFLICT (puuid, queue_type)
-            DO UPDATE SET
-                tier = EXCLUDED.tier,
-                rank = EXCLUDED.rank,
-                league_points = EXCLUDED.league_points,
-                wins = EXCLUDED.wins,
-                losses = EXCLUDED.losses,
-                updated_at = NOW()
-            """,
-            puuid,
-            queue_type,
-            tier,
-            rank,
-            league_points,
-            wins,
-            losses,
         )
 
     # ==========================================
@@ -686,7 +718,7 @@ class DatabaseService:
                 a.region
             FROM lol_accounts a
             JOIN players p ON a.player_id = p.player_id
-            WHERE p.is_active = true
+            WHERE p.is_active = true AND a.puuid IS NOT NULL
             ORDER BY a.region
             """
         )
@@ -722,4 +754,144 @@ class DatabaseService:
             league_points,
             wins,
             losses,
+        )
+
+    # ==========================================
+    # Priority Queue Operations
+    # ==========================================
+
+    async def get_active_accounts_with_activity(self) -> list[asyncpg.Record]:
+        """Get active accounts with activity data for priority scoring.
+
+        Returns accounts with:
+        - Basic account info (puuid, game_name, etc.)
+        - Priority queue fields (activity_score, tier, next_fetch_at)
+        - Activity metrics (games today, last 3 days, last 7 days)
+        """
+        return await self.fetch(
+            """
+            SELECT
+                a.puuid,
+                a.player_id,
+                a.game_name,
+                a.tag_line,
+                a.region,
+                a.last_fetched_at,
+                a.last_match_at,
+                a.activity_score,
+                a.activity_tier,
+                a.next_fetch_at,
+                a.consecutive_empty_fetches,
+                COALESCE(today.games_played, 0) as games_today,
+                COALESCE(recent.games, 0) as games_last_3_days,
+                COALESCE(weekly.games, 0) as games_last_7_days
+            FROM lol_accounts a
+            JOIN players p ON a.player_id = p.player_id
+            LEFT JOIN lol_daily_stats today
+                ON a.puuid = today.puuid AND today.date = CURRENT_DATE
+            LEFT JOIN (
+                SELECT puuid, SUM(games_played) as games
+                FROM lol_daily_stats
+                WHERE date >= CURRENT_DATE - INTERVAL '3 days'
+                GROUP BY puuid
+            ) recent ON a.puuid = recent.puuid
+            LEFT JOIN (
+                SELECT puuid, SUM(games_played) as games
+                FROM lol_daily_stats
+                WHERE date >= CURRENT_DATE - INTERVAL '7 days'
+                GROUP BY puuid
+            ) weekly ON a.puuid = weekly.puuid
+            WHERE p.is_active = true AND a.puuid IS NOT NULL
+            ORDER BY a.region, a.next_fetch_at NULLS FIRST
+            """
+        )
+
+    async def get_account_activity_data(self, puuid: str) -> dict:
+        """Get fresh activity data for a single account.
+
+        Used when recalculating score after finding new matches.
+        """
+        row = await self.fetchrow(
+            """
+            SELECT
+                a.last_match_at,
+                COALESCE(today.games_played, 0) as games_today,
+                COALESCE(recent.games, 0) as games_last_3_days,
+                COALESCE(weekly.games, 0) as games_last_7_days
+            FROM lol_accounts a
+            LEFT JOIN lol_daily_stats today
+                ON a.puuid = today.puuid AND today.date = CURRENT_DATE
+            LEFT JOIN (
+                SELECT puuid, SUM(games_played) as games
+                FROM lol_daily_stats
+                WHERE date >= CURRENT_DATE - INTERVAL '3 days'
+                GROUP BY puuid
+            ) recent ON a.puuid = recent.puuid
+            LEFT JOIN (
+                SELECT puuid, SUM(games_played) as games
+                FROM lol_daily_stats
+                WHERE date >= CURRENT_DATE - INTERVAL '7 days'
+                GROUP BY puuid
+            ) weekly ON a.puuid = weekly.puuid
+            WHERE a.puuid = $1
+            """,
+            puuid,
+        )
+
+        if row:
+            return {
+                "last_match_at": row["last_match_at"],
+                "games_today": row["games_today"] or 0,
+                "games_last_3_days": row["games_last_3_days"] or 0,
+                "games_last_7_days": row["games_last_7_days"] or 0,
+            }
+        return {
+            "last_match_at": None,
+            "games_today": 0,
+            "games_last_3_days": 0,
+            "games_last_7_days": 0,
+        }
+
+    async def update_account_priority(
+        self,
+        puuid: str,
+        activity_score: float,
+        tier: str,
+        next_fetch_at: datetime,
+        consecutive_empty_fetches: int,
+    ) -> None:
+        """Update account priority queue data."""
+        await self.execute(
+            """
+            UPDATE lol_accounts
+            SET
+                activity_score = $2,
+                activity_tier = $3,
+                next_fetch_at = $4,
+                consecutive_empty_fetches = $5,
+                updated_at = NOW()
+            WHERE puuid = $1
+            """,
+            puuid,
+            activity_score,
+            tier,
+            next_fetch_at,
+            consecutive_empty_fetches,
+        )
+
+    async def get_priority_queue_stats(self) -> asyncpg.Record | None:
+        """Get statistics about the priority queue state."""
+        return await self.fetchrow(
+            """
+            SELECT
+                COUNT(*) FILTER (WHERE activity_tier = 'very_active') as very_active_count,
+                COUNT(*) FILTER (WHERE activity_tier = 'active') as active_count,
+                COUNT(*) FILTER (WHERE activity_tier = 'moderate') as moderate_count,
+                COUNT(*) FILTER (WHERE activity_tier = 'inactive') as inactive_count,
+                AVG(activity_score) as avg_score,
+                COUNT(*) FILTER (WHERE next_fetch_at <= NOW()) as ready_now
+            FROM lol_accounts a
+            JOIN players p ON a.player_id = p.player_id
+            WHERE p.is_active = true
+            """
         )

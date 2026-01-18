@@ -11,7 +11,10 @@ export default class LolAccount extends BaseModel {
   static table = 'lol_accounts'
 
   @column({ isPrimary: true })
-  declare puuid: string
+  declare accountId: number
+
+  @column()
+  declare puuid: string | null
 
   @column()
   declare playerId: number
@@ -43,15 +46,15 @@ export default class LolAccount extends BaseModel {
   @belongsTo(() => Player, { foreignKey: 'playerId' })
   declare player: BelongsTo<typeof Player>
 
-  @hasMany(() => LolMatchStat, { foreignKey: 'puuid' })
+  @hasMany(() => LolMatchStat, { foreignKey: 'puuid', localKey: 'puuid' })
   declare matchStats: HasMany<typeof LolMatchStat>
 
-  @hasMany(() => LolDailyStat, { foreignKey: 'puuid' })
+  @hasMany(() => LolDailyStat, { foreignKey: 'puuid', localKey: 'puuid' })
   declare dailyStats: HasMany<typeof LolDailyStat>
 
-  @hasOne(() => LolCurrentRank, { foreignKey: 'puuid' })
+  @hasOne(() => LolCurrentRank, { foreignKey: 'puuid', localKey: 'puuid' })
   declare currentRank: HasOne<typeof LolCurrentRank>
 
-  @hasOne(() => LolStreak, { foreignKey: 'puuid' })
+  @hasOne(() => LolStreak, { foreignKey: 'puuid', localKey: 'puuid' })
   declare streak: HasOne<typeof LolStreak>
 }
