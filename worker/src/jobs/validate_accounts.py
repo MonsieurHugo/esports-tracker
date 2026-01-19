@@ -4,11 +4,15 @@ Validates accounts that were added without a PUUID by fetching from Riot API
 """
 
 import asyncio
+from typing import TYPE_CHECKING
 
 import structlog
 
 from src.services.database import DatabaseService
 from src.services.riot_api import RiotAPIService, RiotAPIError, RateLimiter
+
+if TYPE_CHECKING:
+    from src.services.account_selector import AccountSelector
 
 logger = structlog.get_logger(__name__)
 
@@ -16,9 +20,15 @@ logger = structlog.get_logger(__name__)
 class ValidateAccountsJob:
     """Job to validate accounts without PUUID by fetching from Riot API."""
 
-    def __init__(self, db: DatabaseService, api_key: str):
+    def __init__(
+        self,
+        db: DatabaseService,
+        api_key: str,
+        account_selector: "AccountSelector | None" = None,
+    ):
         self.db = db
         self.api_key = api_key
+        self.account_selector = account_selector
         self._region_clients: dict[str, RiotAPIService] = {}
 
     def _get_region_client(self, region: str) -> RiotAPIService:
@@ -133,6 +143,16 @@ class ValidateAccountsJob:
                 tag_line=tag_line,
                 puuid=puuid[:8] + "...",  # Log partial PUUID for privacy
             )
+
+            # Add to priority queue for immediate fetching
+            if self.account_selector:
+                await self.account_selector.add_account(
+                    puuid=puuid,
+                    region=region,
+                    game_name=game_name,
+                    tag_line=tag_line,
+                    player_id=account["player_id"],
+                )
 
             await self.db.log_worker_activity(
                 log_type="info",

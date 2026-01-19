@@ -70,15 +70,31 @@ class FetchMatchesJobV2:
             )
         return self._region_clients[region]
 
+    @property
+    def selector(self) -> AccountSelector | None:
+        """Get the account selector (available after initialize())."""
+        return self._selector
+
+    async def initialize(self) -> None:
+        """Initialize scoring and selection components.
+
+        Must be called before run(). This allows the selector to be
+        passed to other jobs (like ValidateAccountsJob).
+        """
+        if self._selector is not None:
+            return  # Already initialized
+
+        self._scorer = ActivityScorer()
+        self._selector = AccountSelector(self.db, self._scorer, self.config)
+        await self._selector.initialize()
+
     async def run(self) -> None:
         """Execute the job continuously with priority-based scheduling."""
         self._running = True
         logger.info("Starting priority-based fetch matches job (V2)")
 
-        # Initialize scoring and selection components
-        self._scorer = ActivityScorer()
-        self._selector = AccountSelector(self.db, self._scorer, self.config)
-        await self._selector.initialize()
+        # Ensure initialized (in case run() is called without initialize())
+        await self.initialize()
 
         try:
             while self._running:

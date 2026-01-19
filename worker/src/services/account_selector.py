@@ -173,6 +173,79 @@ class AccountSelector:
             tier_distribution=tier_counts,
         )
 
+    async def add_account(
+        self,
+        puuid: str,
+        region: str,
+        game_name: str,
+        tag_line: str,
+        player_id: int,
+    ) -> None:
+        """Add a newly validated account to the priority queue.
+
+        Called when ValidateAccountsJob successfully validates an account.
+        The account is scheduled for immediate fetching.
+
+        Args:
+            puuid: The account's PUUID
+            region: Region code (EUW, NA, etc.)
+            game_name: Riot ID game name
+            tag_line: Riot ID tag line
+            player_id: Associated player ID
+        """
+        # Skip if account already exists
+        if puuid in self._account_map:
+            logger.debug(
+                "Account already in selector",
+                puuid=puuid[:8],
+                game_name=game_name,
+            )
+            return
+
+        # Initialize region queue if needed
+        if region not in self.queues:
+            self.queues[region] = []
+            self._locks[region] = asyncio.Lock()
+
+        # New account starts with base score (no activity data yet)
+        score = self.scorer.calculate_score(
+            games_today=0,
+            games_last_3_days=0,
+            games_last_7_days=0,
+            last_match_at=None,
+        )
+        tier = self.scorer.determine_tier(score)
+
+        # Schedule immediately
+        now = datetime.now(timezone.utc)
+
+        pa = PrioritizedAccount(
+            puuid=puuid,
+            region=region,
+            activity_score=score,
+            tier=tier,
+            next_fetch_at=now,
+            last_fetched_at=None,
+            last_match_at=None,
+            consecutive_empty_fetches=0,
+            game_name=game_name,
+            tag_line=tag_line,
+            player_id=player_id,
+        )
+
+        async with self._locks[region]:
+            heappush(self.queues[region], pa)
+            self._account_map[puuid] = pa
+
+        logger.info(
+            "Added new account to selector",
+            puuid=puuid[:8],
+            game_name=game_name,
+            tag_line=tag_line,
+            region=region,
+            tier=tier,
+        )
+
     async def get_ready_accounts(
         self, region: str, max_count: int | None = None
     ) -> list[PrioritizedAccount]:

@@ -73,7 +73,7 @@ class Worker:
         await self._sync_champions()
 
         # Initialize jobs
-        self._setup_jobs()
+        await self._setup_jobs()
         logger.info("Jobs initialized")
 
     async def _sync_champions(self):
@@ -85,10 +85,12 @@ class Worker:
         except Exception as e:
             logger.warning("Champion sync failed at startup", error=str(e))
 
-    def _setup_jobs(self):
+    async def _setup_jobs(self):
         """Setup all jobs."""
         # Fetch matches job (continuous, runs as background task)
         # Note: Rank is fetched directly in fetch_matches when new matches are found
+
+        account_selector = None
 
         if self.use_priority_queue:
             # V2: Priority-based scheduling
@@ -106,6 +108,9 @@ class Worker:
             self.fetch_matches_job = FetchMatchesJobV2(
                 self.db, settings.riot_api_key, config
             )
+            # Initialize the selector early so it can be shared with validate job
+            await self.fetch_matches_job.initialize()
+            account_selector = self.fetch_matches_job.selector
             logger.info("Using priority-based fetch matches job (V2)")
         else:
             # V1: Legacy uniform polling
@@ -113,7 +118,10 @@ class Worker:
             logger.info("Using legacy fetch matches job (V1)")
 
         # Validate accounts job (scheduled, runs every 5 minutes)
-        self.validate_accounts_job = ValidateAccountsJob(self.db, settings.riot_api_key)
+        # Pass the account selector so newly validated accounts are added to the queue
+        self.validate_accounts_job = ValidateAccountsJob(
+            self.db, settings.riot_api_key, account_selector
+        )
         self.scheduler.add_job(
             self._run_validate_accounts,
             "interval",
