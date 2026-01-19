@@ -122,8 +122,14 @@ class FetchMatchesJob:
             # Update worker status with current account
             try:
                 await self.db.update_worker_current_account(game_name, region)
-            except Exception:
-                pass  # Don't fail on status update
+            except Exception as e:
+                logger.debug(
+                    "Failed to update worker current account",
+                    error=str(e),
+                    game_name=game_name,
+                    region=region,
+                )
+                # Continue execution - this is non-critical
 
             try:
                 new_matches = await self._fetch_account_matches(riot_api, account)
@@ -166,14 +172,25 @@ class FetchMatchesJob:
                         account_name=game_name,
                         account_puuid=account["puuid"],
                     )
-                except Exception:
-                    pass
+                except Exception as log_error:
+                    logger.debug(
+                        "Failed to log worker error to database",
+                        original_error=str(e),
+                        log_error=str(log_error),
+                        game_name=game_name,
+                    )
+                    # Continue execution - logging failure is non-critical
 
         # Clear current account after region is done
         try:
             await self.db.update_worker_current_account(None, None)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(
+                "Failed to clear worker current account",
+                error=str(e),
+                region=region,
+            )
+            # Continue execution - this is non-critical
 
         return total_new_matches
 
@@ -242,14 +259,14 @@ class FetchMatchesJob:
             # Always fetch current rank and update today's daily stats
             from datetime import date as date_type
             today = date_type.today()
-            tier, rank_div, lp = None, None, 0
+            tier, rank_div, lp = None, None, None
             try:
                 league_entries = await riot_api.get_league_entries_by_puuid(puuid)
                 for entry in league_entries:
                     if entry.get("queueType") == "RANKED_SOLO_5x5":
                         tier = entry.get("tier")
                         rank_div = entry.get("rank")
-                        lp = entry.get("leaguePoints", 0)
+                        lp = entry.get("leaguePoints")
                         break
             except RiotAPIError as e:
                 logger.debug("Could not fetch rank", puuid=puuid, error=str(e))
@@ -260,7 +277,7 @@ class FetchMatchesJob:
             # Update daily stats for other affected dates (historical, without rank)
             for stats_date in dates_to_update:
                 if stats_date != today:
-                    await self.db.update_daily_stats(puuid, stats_date, None, None, 0)
+                    await self.db.update_daily_stats(puuid, stats_date, None, None, None)
 
             # Update computed stats only if we have new matches
             if new_matches > 0:

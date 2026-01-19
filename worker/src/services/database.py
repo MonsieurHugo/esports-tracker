@@ -289,7 +289,7 @@ class DatabaseService:
         stats_date: date,
         tier: str | None = None,
         rank: str | None = None,
-        lp: int = 0,
+        lp: int | None = None,
     ) -> None:
         """Update daily stats for an account by aggregating match data.
 
@@ -705,23 +705,6 @@ class DatabaseService:
     # ==========================================
     # LoL Rank Operations
     # ==========================================
-
-    async def get_accounts_for_rank_update(self) -> list[asyncpg.Record]:
-        """Get all active accounts for rank updates."""
-        return await self.fetch(
-            """
-            SELECT
-                a.puuid,
-                a.player_id,
-                a.game_name,
-                a.tag_line,
-                a.region
-            FROM lol_accounts a
-            JOIN players p ON a.player_id = p.player_id
-            WHERE p.is_active = true AND a.puuid IS NOT NULL
-            ORDER BY a.region
-            """
-        )
 
     async def upsert_current_rank(
         self,

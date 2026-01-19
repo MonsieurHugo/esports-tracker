@@ -334,7 +334,7 @@ class FetchMatchesJobV2:
             from datetime import date as date_type
 
             today = date_type.today()
-            tier, rank_div, lp = None, None, 0
+            tier, rank_div, lp = None, None, None
 
             try:
                 league_entries = await riot_api.get_league_entries_by_puuid(puuid)
@@ -342,7 +342,7 @@ class FetchMatchesJobV2:
                     if entry.get("queueType") == "RANKED_SOLO_5x5":
                         tier = entry.get("tier")
                         rank_div = entry.get("rank")
-                        lp = entry.get("leaguePoints", 0)
+                        lp = entry.get("leaguePoints")
                         break
             except RiotAPIError as e:
                 logger.debug("Could not fetch rank", puuid=puuid[:8], error=str(e))
@@ -353,7 +353,7 @@ class FetchMatchesJobV2:
             # Update historical dates without rank
             for stats_date in dates_to_update:
                 if stats_date != today:
-                    await self.db.update_daily_stats(puuid, stats_date, None, None, 0)
+                    await self.db.update_daily_stats(puuid, stats_date, None, None, None)
 
             # Update computed stats if we have new matches
             if new_matches > 0:
