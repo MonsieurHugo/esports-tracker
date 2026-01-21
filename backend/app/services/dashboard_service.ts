@@ -1429,29 +1429,42 @@ export default class DashboardService {
     if (includeUnranked) {
       const filterConditions: string[] = []
       const havingConditions: string[] = []
-      const params: (string | number)[] = [startDate, endDate, startDate, endDate]
+      // Build params in order of appearance in SQL:
+      // 1. WHERE clause filters (league, role, search)
+      // 2. Date params for latest_ranks and player_stats CTEs
+      // 3. HAVING clause params
+      // 4. LIMIT/OFFSET
+      const filterParams: (string | number)[] = []
 
       if (leagueFilter?.length) {
         const [condition, vals] = buildInClause('t.league', leagueFilter)
         filterConditions.push(condition)
-        params.push(...vals)
+        filterParams.push(...vals)
       }
       if (roleFilter?.length) {
         const [condition, vals] = buildInClause('pc.role', roleFilter)
         filterConditions.push(condition)
-        params.push(...vals)
+        filterParams.push(...vals)
       }
       if (sanitizedSearch) {
         filterConditions.push(`p.current_pseudo ILIKE ?`)
-        params.push(`%${sanitizedSearch}%`)
+        filterParams.push(`%${sanitizedSearch}%`)
       }
 
+      const havingParams: number[] = []
       if (minGames > 0) {
         havingConditions.push('COALESCE(SUM(ds.games_played), 0) >= ?')
-        params.push(minGames)
+        havingParams.push(minGames)
       }
 
-      params.push(perPage, offset)
+      // Assemble params in correct order: filters, dates (x2), having, limit/offset
+      const params: (string | number)[] = [
+        ...filterParams,
+        startDate, endDate,  // for latest_ranks CTE
+        startDate, endDate,  // for player_stats CTE
+        ...havingParams,
+        perPage, offset,
+      ]
 
       // SECURITY: Validate all conditions before building query
       if (filterConditions.length > 0) {

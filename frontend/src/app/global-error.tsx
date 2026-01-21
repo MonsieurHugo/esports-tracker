@@ -23,7 +23,7 @@ export default function GlobalError({
           <h2 style={{ fontSize: '1.5rem', fontWeight: 'bold', marginBottom: '1rem', color: '#ff4757' }}>
             Erreur critique
           </h2>
-          <p style={{ color: '#8a8a94', marginBottom: '1.5rem' }}>{error.message}</p>
+          <p style={{ color: '#8a8a94', marginBottom: '1.5rem' }}>Une erreur inattendue s&apos;est produite. Veuillez recharger la page.</p>
           <button
             onClick={() => reset()}
             style={{

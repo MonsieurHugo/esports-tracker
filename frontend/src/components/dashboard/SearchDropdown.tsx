@@ -20,7 +20,7 @@ interface SearchDropdownProps<T extends SearchDropdownItem> {
   onSelect: (item: T) => void
   onClear: () => void
   onToggleLock?: (itemId: number | string) => void
-  onFetch: () => Promise<T[]>
+  onFetch: (searchQuery: string) => Promise<T[]>
 
   // Locked items
   lockedItemIds?: (number | string)[]
@@ -162,11 +162,11 @@ export default function SearchDropdown<T extends SearchDropdownItem>({
     }
   }, [isOpen])
 
-  // Fetch items when opening dropdown
-  const fetchItems = useCallback(async () => {
+  // Fetch items when opening dropdown or searching
+  const fetchItems = useCallback(async (searchQuery: string = '') => {
     setIsLoading(true)
     try {
-      const result = await onFetch()
+      const result = await onFetch(searchQuery)
       setItems(result)
     } catch {
       // Silent fail - dropdown will show empty state
@@ -176,11 +176,25 @@ export default function SearchDropdown<T extends SearchDropdownItem>({
     }
   }, [onFetch])
 
+  // Initial fetch when opening dropdown
   useEffect(() => {
     if (isOpen && items.length === 0) {
-      fetchItems()
+      fetchItems('')
     }
   }, [isOpen, items.length, fetchItems])
+
+  // Debounced search - fetch from backend after 300ms
+  useEffect(() => {
+    if (!isOpen) return
+    // Skip if search is empty (already loaded initial data)
+    if (!search.trim()) return
+
+    const timer = setTimeout(() => {
+      fetchItems(search)
+    }, 300)
+
+    return () => clearTimeout(timer)
+  }, [search, isOpen, fetchItems])
 
   // Reset items when refresh key changes
   useEffect(() => {

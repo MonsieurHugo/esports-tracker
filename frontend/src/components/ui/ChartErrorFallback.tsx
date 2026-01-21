@@ -11,7 +11,7 @@ export function ChartErrorFallback({ error, onRetry, chartName = 'Chart' }: Prop
     <div className="h-[300px] flex flex-col items-center justify-center p-8 bg-[var(--bg-card)] rounded-xl border border-[var(--border)]">
       <p className="text-[var(--negative)] mb-2">Failed to load {chartName}</p>
       <p className="text-[var(--text-muted)] text-sm mb-4 text-center max-w-[300px]">
-        {error.message}
+        Impossible de charger les données. Vérifiez votre connexion et réessayez.
       </p>
       <button
         onClick={onRetry}

@@ -58,91 +58,104 @@
   animation: fadeIn 0.3s ease-out;
 }
 
-@layer utilities {
-  :root {
-    /* Background colors - Terminal theme (default) */
-    --bg-primary: #07070a;
-    --bg-secondary: #0c0c0f;
-    --bg-card: #101014;
-    --bg-hover: #16161c;
-    --bg-accordion: #0a0a0d;
+/* CSS Variables - must be outside @layer for proper specificity in Tailwind v4 */
+:root {
+  /* Background colors - Terminal theme (default) */
+  --bg-primary: #07070a;
+  --bg-secondary: #0c0c0f;
+  --bg-card: #101014;
+  --bg-hover: #16161c;
+  --bg-accordion: #0a0a0d;
 
-    /* Border */
-    --border: #1e1e24;
+  /* Border */
+  --border: #1e1e24;
 
-    /* Text colors */
-    --text-primary: #f0f0f0;
-    --text-secondary: #b0b0b8;
-    --text-muted: #8a8a94;
+  /* Text colors */
+  --text-primary: #f0f0f0;
+  --text-secondary: #b0b0b8;
+  --text-muted: #8a8a94;
 
-    /* Accent colors */
-    --accent: #00dc82;
-    --accent-hover: #00c974;
-    --lol: #c89b3c;
-    --positive: #00dc82;
-    --negative: #ff4757;
-    --warning: #f59e0b;
+  /* Accent colors */
+  --accent: #00dc82;
+  --accent-hover: #00c974;
+  --lol: #c89b3c;
+  --positive: #00dc82;
+  --negative: #ff4757;
+  --warning: #f59e0b;
 
-    /* Podium - Rangs 1, 2, 3 */
-    --rank-gold: #facc15;
-    --rank-silver: #9ca3af;
-    --rank-bronze: #d97706;
+  /* Podium - Rangs 1, 2, 3 */
+  --rank-gold: #facc15;
+  --rank-silver: #9ca3af;
+  --rank-bronze: #d97706;
 
-    /* Tiers LoL */
-    --tier-challenger: #22d3ee;
-    --tier-grandmaster: #f87171;
-    --tier-master: #c084fc;
-    --tier-diamond: #60a5fa;
-    --tier-emerald: #34d399;
-    --tier-platinum: #2dd4bf;
-    --tier-gold: #fbbf24;
+  /* Tiers LoL */
+  --tier-challenger: #22d3ee;
+  --tier-grandmaster: #f87171;
+  --tier-master: #c084fc;
+  --tier-diamond: #60a5fa;
+  --tier-emerald: #34d399;
+  --tier-platinum: #2dd4bf;
+  --tier-gold: #fbbf24;
 
-    /* Ligues */
-    --league-lec: #00e5bf;
-    --league-lfl: #ff7b57;
-    --league-lck: #f5e6d3;
-    --league-lcs: #0a7cff;
-    --league-lpl: #de2910;
-    --league-lckcl: #a855f7;
-    --league-lcp: #22c55e;
-    --league-cblol: #10b981;
+  /* Ligues */
+  --league-lec: #00e5bf;
+  --league-lfl: #ff7b57;
+  --league-lck: #f5e6d3;
+  --league-lcs: #0a7cff;
+  --league-lpl: #de2910;
+  --league-lckcl: #a855f7;
+  --league-lcp: #22c55e;
+  --league-cblol: #10b981;
 
-    /* Rôles */
-    --role-top: #f59e0b;
-    --role-jungle: #22c55e;
-    --role-mid: #3b82f6;
-    --role-adc: #ef4444;
-    --role-support: #a855f7;
+  /* Rôles */
+  --role-top: #f59e0b;
+  --role-jungle: #22c55e;
+  --role-mid: #3b82f6;
+  --role-adc: #ef4444;
+  --role-support: #a855f7;
 
-    /* Utilitaires */
-    --favorite: #facc15;
+  /* Utilitaires */
+  --favorite: #facc15;
 
-    /* Legacy variables (for compatibility) */
-    --background: var(--bg-primary);
-    --foreground: var(--text-primary);
-    --card: var(--bg-card);
-    --card-hover: var(--bg-hover);
-    --primary: var(--accent);
-    --primary-hover: var(--accent-hover);
-    --success: var(--positive);
-    --danger: var(--negative);
-    --muted: var(--text-muted);
-  }
+  /* Legacy variables (for compatibility) */
+  --background: var(--bg-primary);
+  --foreground: var(--text-primary);
+  --card: var(--bg-card);
+  --card-hover: var(--bg-hover);
+  --primary: var(--accent);
+  --primary-hover: var(--accent-hover);
+  --success: var(--positive);
+  --danger: var(--negative);
+  --muted: var(--text-muted);
+}
 
+body {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-family:
+    var(--font-inter),
+    system-ui,
+    -apple-system,
+    sans-serif;
+  font-size: 14px;
+}
+
+/* Écrans QHD (1440p) sans scaling - légèrement plus grand */
+@media (min-height: 1350px) and (max-height: 1600px) {
   body {
-    background-color: var(--bg-primary);
-    color: var(--text-primary);
-    font-family:
-      var(--font-inter),
-      system-ui,
-      -apple-system,
-      sans-serif;
-    font-size: 14px;
+    zoom: 1.1;
   }
+}
 
-  .font-mono {
-    font-family: var(--font-mono), monospace;
+/* Écrans 4K sans scaling - plus grand */
+@media (min-height: 2000px) {
+  body {
+    zoom: 1.25;
   }
+}
+
+.font-mono {
+  font-family: var(--font-mono), monospace;
 }
 
 @keyframes fadeIn {

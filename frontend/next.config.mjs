@@ -1,6 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone',
+  devIndicators: false,
   images: {
     remotePatterns: [
       {
@@ -9,7 +10,6 @@ const nextConfig = {
       },
     ],
   },
-  serverExternalPackages: ['zustand'],
   async rewrites() {
     const backendUrl = process.env.BACKEND_URL || 'http://localhost:3333'
     return [

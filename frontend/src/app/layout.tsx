@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { Inter, JetBrains_Mono } from 'next/font/google'
 import { Footer } from '@/components/layout/Footer'
 import { ToastContainerWrapper } from '@/components/ui/ToastContainerWrapper'
+import { ThemeProvider } from '@/components/ThemeProvider'
 import './globals.css'
 
 const inter = Inter({
@@ -27,9 +28,11 @@ export default function RootLayout({
   return (
     <html lang="fr" className={`${inter.variable} ${jetbrainsMono.variable}`}>
       <body className="min-h-screen antialiased font-sans bg-(--bg-primary) text-(--text-primary) flex flex-col">
-        <main className="flex-1">{children}</main>
-        <Footer />
-        <ToastContainerWrapper />
+        <ThemeProvider>
+          <main className="flex-1">{children}</main>
+          <Footer />
+          <ToastContainerWrapper />
+        </ThemeProvider>
       </body>
     </html>
   )

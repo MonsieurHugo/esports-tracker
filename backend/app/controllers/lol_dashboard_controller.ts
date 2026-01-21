@@ -28,12 +28,33 @@ export default class LolDashboardController {
   private dashboardService = new DashboardService()
 
   /**
+   * Mapping from frontend role names to backend API role names
+   * Frontend uses: TOP, JGL, MID, ADC, SUP
+   * Backend validator expects: top, jungle, mid, adc, support
+   */
+  private static readonly ROLE_FRONTEND_TO_API: Record<string, string> = {
+    top: 'top',
+    jgl: 'jungle',
+    jungle: 'jungle',
+    mid: 'mid',
+    adc: 'adc',
+    sup: 'support',
+    support: 'support',
+  }
+
+  /**
    * Helper to preprocess query params for validation
    * Converts comma-separated strings to arrays for leagues and roles
    */
   private preprocessQueryParams(qs: Record<string, unknown>): Record<string, unknown> {
     const MAX_ARRAY_ELEMENTS = 50
     const result = { ...qs }
+
+    // Helper to normalize role names from frontend to API format
+    const normalizeRole = (role: string): string => {
+      const lower = role.trim().toLowerCase()
+      return LolDashboardController.ROLE_FRONTEND_TO_API[lower] || lower
+    }
 
     // Handle leagues: convert comma-separated string to array if needed
     if (result.leagues && typeof result.leagues === 'string') {
@@ -43,8 +64,14 @@ export default class LolDashboardController {
 
     // Handle roles: convert comma-separated string to array if needed
     if (result.roles && typeof result.roles === 'string') {
-      const roles = result.roles.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
+      const roles = result.roles.split(',').map(normalizeRole).filter(Boolean)
       result.roles = roles.slice(0, MAX_ARRAY_ELEMENTS)
+    } else if (Array.isArray(result.roles)) {
+      // Handle array of roles - normalize them
+      result.roles = result.roles
+        .map((s: string) => normalizeRole(s))
+        .filter(Boolean)
+        .slice(0, MAX_ARRAY_ELEMENTS)
     }
 
     // Convert numeric string params to numbers for validation

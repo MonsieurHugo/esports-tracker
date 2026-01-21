@@ -4,7 +4,7 @@ import { useCallback } from 'react'
 import type { TeamLeaderboardEntry } from '@/lib/types'
 import type { DashboardPeriod } from '@/lib/types'
 import api from '@/lib/api'
-import { sanitizeSlug } from '@/lib/utils'
+import { sanitizeSlug, sanitizeSearchQuery } from '@/lib/utils'
 import SearchDropdown, { type SearchDropdownItem } from './SearchDropdown'
 import LeagueTag from '@/components/ui/LeagueTag'
 
@@ -48,7 +48,9 @@ export default function TeamSearchDropdown({
 
   const selectedItems = selectedTeams.map(toSearchItem)
 
-  const handleFetch = useCallback(async (): Promise<TeamSearchItem[]> => {
+  const handleFetch = useCallback(async (searchQuery: string): Promise<TeamSearchItem[]> => {
+    const sanitizedSearch = searchQuery ? sanitizeSearchQuery(searchQuery, 100) : undefined
+
     const res = await api.get<{
       data: TeamLeaderboardEntry[]
       meta: { total: number }
@@ -59,6 +61,7 @@ export default function TeamSearchDropdown({
         leagues: selectedLeagues.length > 0 ? selectedLeagues : undefined,
         sortBy: 'lp',
         limit: 100,
+        search: sanitizedSearch,
       },
     })
     return (res.data || []).map(toSearchItem)

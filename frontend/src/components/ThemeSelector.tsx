@@ -1,51 +1,22 @@
 'use client'
 
-import { useState, useRef, useEffect, useLayoutEffect } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useThemeStore, themes, type ThemeKey } from '@/stores/themeStore'
 
-// Safe localStorage helpers
-const getStoredTheme = (): ThemeKey | null => {
-  if (typeof window === 'undefined') return null
-  try {
-    const stored = localStorage.getItem('theme')
-    return stored && themes[stored as ThemeKey] ? (stored as ThemeKey) : null
-  } catch {
-    return null
-  }
-}
-
-const setStoredTheme = (theme: ThemeKey): void => {
-  if (typeof window === 'undefined') return
-  try {
-    localStorage.setItem('theme', theme)
-  } catch {
-    // Ignore storage errors (private mode, quota exceeded, etc.)
-  }
-}
-
+/**
+ * ThemeSelector - Dropdown UI for selecting themes
+ *
+ * Note: Theme application (CSS variables) is handled by ThemeProvider in layout.tsx.
+ * This component only provides the UI for selecting themes.
+ */
 export default function ThemeSelector() {
-  const { currentTheme, setTheme } = useThemeStore()
+  // Use individual selectors for proper reactivity
+  const currentTheme = useThemeStore((state) => state.currentTheme)
+  const setTheme = useThemeStore((state) => state.setTheme)
   const [isOpen, setIsOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
   const currentThemeData = themes[currentTheme]
-
-  // Load saved theme on mount and apply CSS variables
-  useLayoutEffect(() => {
-    // Load saved theme on mount
-    const savedTheme = getStoredTheme()
-    if (savedTheme && savedTheme !== currentTheme) {
-      setTheme(savedTheme)
-      return // Will re-run with new theme
-    }
-
-    // Apply CSS variables
-    const themeVars = themes[currentTheme].vars
-    Object.entries(themeVars).forEach(([key, value]) => {
-      document.documentElement.style.setProperty(key, value)
-    })
-    setStoredTheme(currentTheme)
-  }, [currentTheme, setTheme])
 
   // Close dropdown on click outside
   useEffect(() => {

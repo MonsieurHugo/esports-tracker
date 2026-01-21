@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
-import api, { ApiError } from '@/lib/api'
+import api from '@/lib/api'
 import { logError } from '@/lib/logger'
 import { useToastStore } from '@/stores/toastStore'
 import type {
@@ -208,9 +208,7 @@ export function useLolDashboardData({
 
         logError('Failed to fetch teams', error)
         addToast({
-          message: error instanceof ApiError
-            ? `Erreur lors du chargement des équipes (${error.status})`
-            : 'Impossible de charger les données des équipes',
+          message: 'Erreur lors du chargement des équipes',
           type: 'error',
         })
       } finally {
@@ -279,9 +277,7 @@ export function useLolDashboardData({
 
         logError('Failed to fetch batch data', error)
         addToast({
-          message: error instanceof ApiError
-            ? `Erreur lors du chargement des statistiques (${error.status})`
-            : 'Impossible de charger les classements',
+          message: 'Erreur lors du chargement des statistiques',
           type: 'error',
         })
       }
@@ -296,6 +292,7 @@ export function useLolDashboardData({
 
   // Fetch players data when in players view
   useEffect(() => {
+    if (!isHydrated || !isUrlInitialized) return
     if (leaderboardView !== 'players') return
 
     const abortController = new AbortController()
@@ -334,9 +331,7 @@ export function useLolDashboardData({
 
         logError('Failed to fetch players', error)
         addToast({
-          message: error instanceof ApiError
-            ? `Erreur lors du chargement des joueurs (${error.status})`
-            : 'Impossible de charger les données des joueurs',
+          message: 'Erreur lors du chargement des joueurs',
           type: 'error',
         })
       } finally {
@@ -353,7 +348,7 @@ export function useLolDashboardData({
       abortController.abort()
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [leaderboardView, startDate, endDate, selectedLeagues, selectedRoles, minGames, sortBy, currentPage, itemsPerPage])
+  }, [isHydrated, isUrlInitialized, leaderboardView, startDate, endDate, selectedLeagues, selectedRoles, minGames, sortBy, currentPage, itemsPerPage])
 
   // Fetch team history for selected teams
   useEffect(() => {
@@ -413,9 +408,7 @@ export function useLolDashboardData({
 
         logError('Failed to fetch team history', error)
         addToast({
-          message: error instanceof ApiError
-            ? `Erreur lors du chargement de l'historique des équipes (${error.status})`
-            : 'Impossible de charger l\'historique des équipes',
+          message: 'Erreur lors du chargement de l\'historique des équipes',
           type: 'error',
         })
         setTeamsGamesData([])
@@ -493,9 +486,7 @@ export function useLolDashboardData({
 
         logError('Failed to fetch player history', error)
         addToast({
-          message: error instanceof ApiError
-            ? `Erreur lors du chargement de l'historique des joueurs (${error.status})`
-            : 'Impossible de charger l\'historique des joueurs',
+          message: 'Erreur lors du chargement de l\'historique des joueurs',
           type: 'error',
         })
         setPlayersGamesData([])

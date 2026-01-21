@@ -45,10 +45,11 @@ export default function PlayerSearchDropdown({
 
   const selectedItems = selectedPlayers.map(toSearchItem)
 
-  const handleFetch = useCallback(async (): Promise<PlayerSearchItem[]> => {
+  const handleFetch = useCallback(async (searchQuery: string): Promise<PlayerSearchItem[]> => {
     // Validate parameters before sending to API
     const validatedPeriod = validatePeriod(period)
     const validatedSortBy = validateSortOption('lp')
+    const sanitizedSearch = searchQuery ? sanitizeSearchQuery(searchQuery, 100) : undefined
 
     const res = await api.get<{
       data: PlayerLeaderboardEntry[]
@@ -61,6 +62,7 @@ export default function PlayerSearchDropdown({
         sortBy: validatedSortBy,
         limit: 100,
         includeUnranked: true,
+        search: sanitizedSearch,
       },
     })
     return (res.data || []).map(toSearchItem)
