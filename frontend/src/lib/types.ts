@@ -106,16 +106,6 @@ export interface LolDailyStat {
   lp: number
 }
 
-export interface LolCurrentRank {
-  puuid: string
-  queueType: string
-  tier?: string
-  rank?: string
-  leaguePoints: number
-  wins: number
-  losses: number
-}
-
 export interface LolStreak {
   puuid: string
   currentStreak: number

@@ -6,7 +6,6 @@ import PlayerContract from '#models/player_contract'
 import LolAccount from '#models/lol_account'
 import LolDailyStat from '#models/lol_daily_stat'
 import LolStreak from '#models/lol_streak'
-import LolCurrentRank from '#models/lol_current_rank'
 
 /**
  * Dashboard Integration Test Fixtures
@@ -202,19 +201,8 @@ export async function createDashboardFixtures(
             diamondAccounts.push(account)
           }
 
-          // Create current rank for this account (required for account queries)
-          const accountBaseLp = isMasterPlus ? 300 + (orgIndex * 50) + (playerIdx * 20) : 50
-          await LolCurrentRank.create({
-            puuid: puuid,
-            queueType: 'RANKED_SOLO_5x5',
-            tier: tier,
-            rank: 'I',
-            leaguePoints: accountBaseLp,
-            wins: 100 + (playerIdx * 10),
-            losses: 80 + (playerIdx * 5),
-          })
-
           // Create daily stats for this account
+          const accountBaseLp = isMasterPlus ? 300 + (orgIndex * 50) + (playerIdx * 20) : 50
           const baseLp = accountBaseLp
           const baseGames = 5 + (playerIdx % 3)
 
@@ -359,17 +347,6 @@ export async function createLpGainerScenario(
     isPrimary: true,
   })
 
-  // Create current rank for this account
-  await LolCurrentRank.create({
-    puuid: puuid,
-    queueType: 'RANKED_SOLO_5x5',
-    tier: tier,
-    rank: 'I',
-    leaguePoints: endLp,
-    wins: 100,
-    losses: 50,
-  })
-
   const stats: LolDailyStat[] = []
   const daysDiff = Math.ceil(endDate.diff(startDate, 'days').days)
   const lpPerDay = (endLp - startLp) / daysDiff
@@ -440,17 +417,6 @@ export async function createLpLoserScenario(
     tagLine: 'EUW',
     region: 'EUW1',
     isPrimary: true,
-  })
-
-  // Create current rank for this account
-  await LolCurrentRank.create({
-    puuid: puuid,
-    queueType: 'RANKED_SOLO_5x5',
-    tier: tier,
-    rank: 'I',
-    leaguePoints: endLp,
-    wins: 50,
-    losses: 100,
   })
 
   const stats: LolDailyStat[] = []
@@ -524,17 +490,6 @@ export async function createMultiAccountPlayer(
       isPrimary: i === 0,
     })
     createdAccounts.push(account)
-
-    // Create current rank for this account
-    await LolCurrentRank.create({
-      puuid: puuid,
-      queueType: 'RANKED_SOLO_5x5',
-      tier: accConfig.tier,
-      rank: 'I',
-      leaguePoints: accConfig.lp,
-      wins: 100,
-      losses: 80,
-    })
 
     // Create stats for each day
     const daysDiff = Math.ceil(endDate.diff(startDate, 'days').days)
@@ -615,17 +570,6 @@ export async function createPartialRosterTeam(
       isPrimary: true,
     })
     accounts.push(account)
-
-    // Create current rank for this account
-    await LolCurrentRank.create({
-      puuid: puuid,
-      queueType: 'RANKED_SOLO_5x5',
-      tier: 'MASTER',
-      rank: 'I',
-      leaguePoints: 100 + (i * 50),
-      wins: 100,
-      losses: 80,
-    })
   }
 
   return { team, players, accounts }

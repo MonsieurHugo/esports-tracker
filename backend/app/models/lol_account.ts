@@ -4,7 +4,6 @@ import type { BelongsTo, HasMany, HasOne } from '@adonisjs/lucid/types/relations
 import Player from './player.js'
 import LolMatchStat from './lol_match_stat.js'
 import LolDailyStat from './lol_daily_stat.js'
-import LolCurrentRank from './lol_current_rank.js'
 import LolStreak from './lol_streak.js'
 
 export default class LolAccount extends BaseModel {
@@ -51,9 +50,6 @@ export default class LolAccount extends BaseModel {
 
   @hasMany(() => LolDailyStat, { foreignKey: 'puuid', localKey: 'puuid' })
   declare dailyStats: HasMany<typeof LolDailyStat>
-
-  @hasOne(() => LolCurrentRank, { foreignKey: 'puuid', localKey: 'puuid' })
-  declare currentRank: HasOne<typeof LolCurrentRank>
 
   @hasOne(() => LolStreak, { foreignKey: 'puuid', localKey: 'puuid' })
   declare streak: HasOne<typeof LolStreak>

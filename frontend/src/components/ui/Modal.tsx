@@ -70,18 +70,40 @@ export function Modal({ isOpen, onClose, title, children, size = 'md', headerCon
         )}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-(--border) gap-4">
-          <h2 id="modal-title" className="text-lg font-semibold text-(--text-primary) shrink-0">
-            {title}
-          </h2>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-(--border) gap-2 sm:gap-4">
+          <div className="flex items-center justify-between gap-2">
+            <h2 id="modal-title" className="text-base sm:text-lg font-semibold text-(--text-primary) shrink-0">
+              {title}
+            </h2>
+            <button
+              onClick={onClose}
+              className="sm:hidden p-1 rounded-md text-(--text-muted) hover:text-(--text-primary) hover:bg-(--bg-hover) transition-colors shrink-0"
+              aria-label="Fermer"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </div>
           {headerContent && (
-            <div className="flex-1 flex items-center justify-end gap-3 min-w-0">
+            <div className="flex-1 min-w-0">
               {headerContent}
             </div>
           )}
           <button
             onClick={onClose}
-            className="p-1 rounded-md text-(--text-muted) hover:text-(--text-primary) hover:bg-(--bg-hover) transition-colors shrink-0"
+            className="hidden sm:block p-1 rounded-md text-(--text-muted) hover:text-(--text-primary) hover:bg-(--bg-hover) transition-colors shrink-0"
             aria-label="Fermer"
           >
             <svg

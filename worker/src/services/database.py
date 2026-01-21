@@ -777,43 +777,6 @@ class DatabaseService:
         )
 
     # ==========================================
-    # LoL Rank Operations
-    # ==========================================
-
-    async def upsert_current_rank(
-        self,
-        puuid: str,
-        queue_type: str,
-        tier: str | None,
-        rank: str | None,
-        league_points: int,
-        wins: int,
-        losses: int,
-    ) -> None:
-        """Upsert current rank for an account."""
-        await self.execute(
-            """
-            INSERT INTO lol_current_ranks (puuid, queue_type, tier, rank, league_points, wins, losses, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-            ON CONFLICT (puuid, queue_type)
-            DO UPDATE SET
-                tier = EXCLUDED.tier,
-                rank = EXCLUDED.rank,
-                league_points = EXCLUDED.league_points,
-                wins = EXCLUDED.wins,
-                losses = EXCLUDED.losses,
-                updated_at = NOW()
-            """,
-            puuid,
-            queue_type,
-            tier,
-            rank,
-            league_points,
-            wins,
-            losses,
-        )
-
-    # ==========================================
     # Priority Queue Operations
     # ==========================================
 

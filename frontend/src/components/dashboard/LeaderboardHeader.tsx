@@ -54,13 +54,13 @@ function LeaderboardHeader({ view, onViewChange, leagueFilter, roleFilter, games
       {/* Spacer */}
       <div className="flex-1" />
 
-      {/* Role Filter - always rendered to maintain consistent height */}
-      <div className={`transition-opacity duration-150 ${view === 'players' ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+      {/* Role Filter - hidden on mobile, always rendered on desktop to maintain consistent height */}
+      <div className={`hidden sm:block transition-opacity duration-150 ${view === 'players' ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
         {roleFilter}
       </div>
 
-      {/* Right: Games + League Filters */}
-      <div className="flex items-center gap-2">
+      {/* Right: Games + League Filters - hidden on mobile (available in MobileFiltersSheet) */}
+      <div className="hidden sm:flex items-center gap-2">
         {gamesFilter}
         {leagueFilter}
       </div>

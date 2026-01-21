@@ -26,6 +26,8 @@ import LpChart from '@/components/dashboard/LpChart'
 import LpChangeChart from '@/components/dashboard/LpChangeChart'
 import DailyWinrateChart from '@/components/dashboard/DailyWinrateChart'
 import ChartsModal from '@/components/dashboard/ChartsModal'
+import MobileControlBar from '@/components/dashboard/MobileControlBar'
+import MobileFiltersSheet from '@/components/dashboard/MobileFiltersSheet'
 import TeamLeaderboard from '@/components/dashboard/TeamLeaderboard'
 import PlayerLeaderboard from '@/components/dashboard/PlayerLeaderboard'
 import TopGrinders from '@/components/dashboard/TopGrinders'
@@ -187,8 +189,17 @@ export default function LolDashboard() {
     })
   }, [period, refDate])
 
+  // Calculate active filters count for mobile badge
+  const activeFiltersCount = (() => {
+    let count = 0
+    if (selectedLeagues.length > 0 && selectedLeagues.length < availableLeagues.length) count++
+    if (leaderboardView === 'players' && selectedRoles.length > 0 && selectedRoles.length < 5) count++
+    if (minGames > 0) count++
+    return count
+  })()
+
   return (
-    <main className="p-3 sm:p-5 max-w-[1600px] mx-auto">
+    <main className="p-3 sm:p-5 pb-20 lg:pb-5 max-w-[1600px] mx-auto">
       {/* Header */}
       <header className="flex justify-between items-center mb-4 sm:mb-5">
         <h1 className="text-xl font-bold">Dashboard</h1>
@@ -270,10 +281,10 @@ export default function LolDashboard() {
                 />
               )}
             </div>
-            {/* Expand charts button - always visible */}
+            {/* Expand charts button - hidden on mobile (available in MobileControlBar) */}
             <button
               onClick={openChartsModal}
-              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 bg-(--bg-hover) border border-(--border) rounded-md text-(--text-secondary) hover:text-(--text-primary) hover:border-(--text-muted) transition-colors text-xs"
+              className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 bg-(--bg-hover) border border-(--border) rounded-md text-(--text-secondary) hover:text-(--text-primary) hover:border-(--text-muted) transition-colors text-xs"
               title="Agrandir les graphiques"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -282,7 +293,7 @@ export default function LolDashboard() {
                 <path d="M21 3L14 10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                 <path d="M3 21L10 14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
-              <span className="hidden md:inline">Agrandir</span>
+              <span className="hidden xl:inline">Agrandir</span>
             </button>
             <button
               onClick={resetToDefault}
@@ -521,6 +532,35 @@ export default function LolDashboard() {
             />
           )
         }
+      />
+
+      {/* Mobile Controls */}
+      <MobileControlBar
+        period={period}
+        onPeriodChange={setPeriod}
+        periodLabel={getPeriodLabel()}
+        onNavigatePeriod={navigatePeriod}
+        canGoNext={canGoNext}
+        canGoPrev={canGoPrev}
+        activeFiltersCount={activeFiltersCount}
+      />
+
+      {/* Mobile Filters Sheet */}
+      <MobileFiltersSheet
+        period={period}
+        onPeriodChange={setPeriod}
+        leaderboardView={leaderboardView}
+        onViewChange={setLeaderboardView}
+        selectedLeagues={selectedLeagues}
+        onToggleLeague={toggleLeague}
+        onSelectAllLeagues={selectAllLeagues}
+        leagues={availableLeagues}
+        selectedRoles={selectedRoles}
+        onToggleRole={toggleRole}
+        onSelectAllRoles={selectAllRoles}
+        minGames={minGames}
+        onMinGamesChange={setMinGames}
+        onResetFilters={resetToDefault}
       />
     </main>
   )

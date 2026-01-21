@@ -625,6 +625,8 @@ interface EmbeddedPlayerDetail {
   currentPseudo: string
   role: string | null
   isStarter: boolean
+  games: number
+  wins: number
   accounts: EmbeddedAccountDetail[]
 }
 
@@ -850,7 +852,7 @@ export default class DashboardService {
     const filterConditions: string[] = ['t.is_active = true']
     // Params order: prevStartDate, prevEndDate (for prev LP), startDate, endDate (for current LP),
     // prevStartDate, prevEndDate (for prev stats), startDate, endDate (for current stats),
-    // then filters, then pagination
+    // then filters (in team_stats WHERE), then player_details dates, then pagination
     const params: (string | number)[] = [
       prevStartDate, prevEndDate, // prev_player_lp
       startDate, endDate,         // player_lp
@@ -879,6 +881,9 @@ export default class DashboardService {
       havingConditions.push('COALESCE(SUM(ds.games_played), 0) >= ?')
       params.push(minGames)
     }
+
+    // Add player_period_stats params (after filters, before pagination)
+    params.push(startDate, endDate)  // player_period_stats CTE
 
     // Add pagination params
     params.push(perPage, offset)
@@ -1151,7 +1156,24 @@ export default class DashboardService {
       ),
 
       -- ============================================================================
-      -- CTE 15: player_details
+      -- CTE 15: player_stats_agg
+      -- Purpose: Aggregate games/wins per player using ranked_players best_puuid
+      -- Same source as team_stats for consistency
+      -- ============================================================================
+      player_stats_agg AS (
+        SELECT
+          rp.player_id,
+          rp.team_id,
+          COALESCE(SUM(ds.games_played), 0)::int as games,
+          COALESCE(SUM(ds.wins), 0)::int as wins
+        FROM ranked_players rp
+        JOIN lol_daily_stats ds ON ds.puuid = rp.best_puuid
+          AND ds.date >= ? AND ds.date <= ?
+        GROUP BY rp.player_id, rp.team_id
+      ),
+
+      -- ============================================================================
+      -- CTE 16: player_details
       -- Purpose: Aggregate all players and their accounts for each team as JSON
       -- This eliminates the N+1 query problem by embedding player data directly
       -- Players are ordered by role (Top > Jungle > Mid > ADC > Support)
@@ -1168,6 +1190,8 @@ export default class DashboardService {
                 'currentPseudo', p.current_pseudo,
                 'role', pc.role,
                 'isStarter', COALESCE(pc.is_starter, true),
+                'games', COALESCE(psa.games, 0),
+                'wins', COALESCE(psa.wins, 0),
                 'accounts', COALESCE(
                   (
                     SELECT json_agg(
@@ -1176,17 +1200,14 @@ export default class DashboardService {
                         'gameName', a.game_name,
                         'tagLine', a.tag_line,
                         'region', a.region,
-                        'tier', cr.tier,
-                        'rank', cr.rank,
-                        'lp', cr.league_points
-                      ) ORDER BY cr.league_points DESC NULLS LAST
+                        'tier', lr.tier,
+                        'rank', NULL,
+                        'lp', lr.lp
+                      ) ORDER BY lr.lp DESC NULLS LAST
                     )
                     FROM lol_accounts a
-                    LEFT JOIN lol_current_ranks cr
-                      ON a.puuid = cr.puuid
-                      AND cr.queue_type = 'RANKED_SOLO_5x5'
+                    LEFT JOIN latest_ranks lr ON a.puuid = lr.puuid
                     WHERE a.player_id = p.player_id
-                      AND a.puuid IS NOT NULL
                   ),
                   '[]'::json
                 )
@@ -1211,8 +1232,8 @@ export default class DashboardService {
           ) as players_json
         FROM player_contracts pc
         INNER JOIN players p ON pc.player_id = p.player_id
+        LEFT JOIN player_stats_agg psa ON psa.player_id = p.player_id AND psa.team_id = pc.team_id
         WHERE pc.end_date IS NULL
-          AND p.is_active = true
         GROUP BY pc.team_id
       )
 
@@ -1304,10 +1325,8 @@ export default class DashboardService {
             slug: p.slug,
             pseudo: p.currentPseudo,
             role: p.role || 'Unknown',
-            // Note: games/winrate per player not available with embedded JSON approach
-            // These were removed to eliminate N+1 - use team stats instead
-            games: 0,
-            winrate: -1,
+            games: p.games || 0,
+            winrate: p.games > 0 ? Math.round((p.wins / p.games) * 1000) / 10 : -1,
             tier: bestTier,
             rank: bestRank,
             lp: bestLp,

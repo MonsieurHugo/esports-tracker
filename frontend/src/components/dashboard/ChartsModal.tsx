@@ -72,51 +72,54 @@ export default function ChartsModal({
 
   // Header content with period controls and search
   const headerContent = (
-    <>
-      {/* Credit */}
-      <span className="text-xs text-(--text-muted) hidden md:block">by MonsieurYordle</span>
-      {/* View Toggle */}
-      <div className="relative flex bg-(--bg-secondary) p-[3px] rounded-md border border-(--border) hidden md:flex">
-        <div
-          className={`absolute top-[3px] bottom-[3px] left-[3px] w-[calc(50%-3px)] bg-(--accent) rounded transition-transform duration-200 ease-out ${
-            leaderboardView === 'players' ? 'translate-x-full' : 'translate-x-0'
-          }`}
-        />
-        <button
-          onClick={() => onViewChange('teams')}
-          className={`
-            relative z-10 px-3 py-[5px] border-none rounded text-[11px] font-medium transition-colors duration-150
-            ${leaderboardView === 'teams'
-              ? 'text-(--bg-primary)'
-              : 'bg-transparent text-(--text-muted) hover:text-(--text-secondary)'
-            }
-          `}
-        >
-          Équipes
-        </button>
-        <button
-          onClick={() => onViewChange('players')}
-          className={`
-            relative z-10 px-3 py-[5px] border-none rounded text-[11px] font-medium transition-colors duration-150
-            ${leaderboardView === 'players'
-              ? 'text-(--bg-primary)'
-              : 'bg-transparent text-(--text-muted) hover:text-(--text-secondary)'
-            }
-          `}
-        >
-          Joueurs
-        </button>
+    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 w-full">
+      {/* Top row on mobile: View Toggle + Search */}
+      <div className="flex items-center gap-2 sm:contents">
+        {/* Credit - hidden on mobile */}
+        <span className="text-xs text-(--text-muted) hidden lg:block">by MonsieurYordle</span>
+        {/* View Toggle */}
+        <div className="relative flex bg-(--bg-secondary) p-[3px] rounded-md border border-(--border) shrink-0">
+          <div
+            className={`absolute top-[3px] bottom-[3px] left-[3px] w-[calc(50%-3px)] bg-(--accent) rounded transition-transform duration-200 ease-out ${
+              leaderboardView === 'players' ? 'translate-x-full' : 'translate-x-0'
+            }`}
+          />
+          <button
+            onClick={() => onViewChange('teams')}
+            className={`
+              relative z-10 px-2 sm:px-3 py-[5px] border-none rounded text-[10px] sm:text-[11px] font-medium transition-colors duration-150
+              ${leaderboardView === 'teams'
+                ? 'text-(--bg-primary)'
+                : 'bg-transparent text-(--text-muted) hover:text-(--text-secondary)'
+              }
+            `}
+          >
+            Équipes
+          </button>
+          <button
+            onClick={() => onViewChange('players')}
+            className={`
+              relative z-10 px-2 sm:px-3 py-[5px] border-none rounded text-[10px] sm:text-[11px] font-medium transition-colors duration-150
+              ${leaderboardView === 'players'
+                ? 'text-(--bg-primary)'
+                : 'bg-transparent text-(--text-muted) hover:text-(--text-secondary)'
+              }
+            `}
+          >
+            Joueurs
+          </button>
+        </div>
+        {/* Search dropdown for comparison */}
+        <div className="flex-1 min-w-0 sm:max-w-[400px]">
+          {searchDropdown}
+        </div>
       </div>
-      {/* Search dropdown for comparison */}
-      <div className="flex-1 max-w-[400px] hidden md:block">
-        {searchDropdown}
-      </div>
-      {/* Period Controls */}
-      <div className="flex items-center gap-3">
-        <div className="w-[200px]">
+      {/* Bottom row on mobile: Period Controls */}
+      <div className="flex items-center gap-2 sm:gap-3 sm:ml-auto">
+        <div className="flex-1 sm:flex-none sm:w-[180px] lg:w-[200px]">
           <PeriodSelector value={period} onChange={onPeriodChange} />
         </div>
-        <div className="w-[240px]">
+        <div className="flex-1 sm:flex-none sm:w-[200px] lg:w-[240px]">
           <PeriodNavigator
             label={periodLabel}
             onPrevious={() => onNavigatePeriod('prev')}
@@ -126,7 +129,7 @@ export default function ChartsModal({
           />
         </div>
       </div>
-    </>
+    </div>
   )
 
   return (

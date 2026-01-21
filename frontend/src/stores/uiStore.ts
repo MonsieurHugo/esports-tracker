@@ -25,6 +25,9 @@ interface UIState {
   // Charts modal state
   isChartsModalOpen: boolean
 
+  // Mobile filters sheet state
+  isMobileFiltersOpen: boolean
+
   // Actions
   setSortBy: (sort: SortOption) => void
   setPage: (page: number) => void
@@ -35,6 +38,8 @@ interface UIState {
   resetUI: () => void
   openChartsModal: () => void
   closeChartsModal: () => void
+  openMobileFilters: () => void
+  closeMobileFilters: () => void
 }
 
 export const useUIStore = create<UIState>()(
@@ -47,6 +52,7 @@ export const useUIStore = create<UIState>()(
       leaderboardView: 'teams',
       resetKey: 0,
       isChartsModalOpen: false,
+      isMobileFiltersOpen: false,
 
       setSortBy: (sortBy) => set({ sortBy, currentPage: 1 }),
 
@@ -68,6 +74,8 @@ export const useUIStore = create<UIState>()(
 
       openChartsModal: () => set({ isChartsModalOpen: true }),
       closeChartsModal: () => set({ isChartsModalOpen: false }),
+      openMobileFilters: () => set({ isMobileFiltersOpen: true }),
+      closeMobileFilters: () => set({ isMobileFiltersOpen: false }),
     }),
     {
       name: 'ui-store',

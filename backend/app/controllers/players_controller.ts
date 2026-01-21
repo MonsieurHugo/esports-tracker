@@ -69,22 +69,32 @@ export default class PlayersController {
         db.raw('COALESCE(SUM(ds.total_assists), 0)::int as total_assists')
       )
 
-    // Get current rank from primary account
+    // Get current rank from primary account (using latest daily stats)
     const [rank] = await db
-      .from('lol_current_ranks as r')
-      .join('lol_accounts as a', 'r.puuid', 'a.puuid')
+      .from('lol_daily_stats as ds')
+      .join('lol_accounts as a', 'ds.puuid', 'a.puuid')
       .where('a.player_id', player.playerId)
       .where('a.is_primary', true)
-      .where('r.queue_type', 'RANKED_SOLO_5x5')
-      .select('r.tier', 'r.rank', 'r.league_points', 'r.wins', 'r.losses')
+      .whereNotNull('ds.tier')
+      .orderBy('ds.date', 'desc')
+      .limit(1)
+      .select('ds.tier', 'ds.rank', 'ds.lp as league_points')
 
-    // Calculate total LP across all accounts
+    // Calculate total LP across all accounts (using latest daily stats per account)
     const [{ total_lp = 0 }] = await db
-      .from('lol_current_ranks as r')
-      .join('lol_accounts as a', 'r.puuid', 'a.puuid')
+      .from('lol_accounts as a')
       .where('a.player_id', player.playerId)
-      .where('r.queue_type', 'RANKED_SOLO_5x5')
-      .select(db.raw('COALESCE(SUM(r.league_points), 0)::int as total_lp'))
+      .whereNotNull('a.puuid')
+      .joinRaw(`
+        LEFT JOIN LATERAL (
+          SELECT ds.lp
+          FROM lol_daily_stats ds
+          WHERE ds.puuid = a.puuid AND ds.tier IN ('MASTER', 'GRANDMASTER', 'CHALLENGER')
+          ORDER BY ds.date DESC
+          LIMIT 1
+        ) latest_stats ON true
+      `)
+      .select(db.raw('COALESCE(SUM(latest_stats.lp), 0)::int as total_lp'))
 
     return ctx.response.ok({
       player: {
@@ -126,8 +136,6 @@ export default class PlayersController {
             tier: rank.tier,
             rank: rank.rank,
             lp: rank.league_points,
-            wins: rank.wins,
-            losses: rank.losses,
           }
         : null,
       totalLp: total_lp,
@@ -366,11 +374,19 @@ export default class PlayersController {
         )
 
       const [{ total_lp = 0 }] = await db
-        .from('lol_current_ranks as r')
-        .join('lol_accounts as a', 'r.puuid', 'a.puuid')
+        .from('lol_accounts as a')
         .where('a.player_id', playerId)
-        .where('r.queue_type', 'RANKED_SOLO_5x5')
-        .select(db.raw('COALESCE(SUM(r.league_points), 0)::int as total_lp'))
+        .whereNotNull('a.puuid')
+        .joinRaw(`
+          LEFT JOIN LATERAL (
+            SELECT ds.lp
+            FROM lol_daily_stats ds
+            WHERE ds.puuid = a.puuid AND ds.tier IN ('MASTER', 'GRANDMASTER', 'CHALLENGER')
+            ORDER BY ds.date DESC
+            LIMIT 1
+          ) latest_stats ON true
+        `)
+        .select(db.raw('COALESCE(SUM(latest_stats.lp), 0)::int as total_lp'))
 
       const playHours = await db
         .from('lol_match_stats as ms')

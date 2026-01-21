@@ -23,11 +23,6 @@ async function main() {
       const stats = await db.from('lol_daily_stats').whereIn('puuid', puuids).orderBy('date', 'desc').limit(10)
       console.log('\n=== DAILY STATS ===')
       console.log(JSON.stringify(stats, null, 2))
-
-      // Current ranks
-      const ranks = await db.from('lol_current_ranks').whereIn('puuid', puuids)
-      console.log('\n=== CURRENT RANKS ===')
-      console.log(JSON.stringify(ranks, null, 2))
     } else {
       console.log('\n=== NO PUUID - accounts need validation ===')
     }
