@@ -1,8 +1,13 @@
 import type { Metadata } from 'next'
+import dynamic from 'next/dynamic'
 import { Inter, JetBrains_Mono } from 'next/font/google'
 import { Footer } from '@/components/layout/Footer'
-import { ToastContainer } from '@/components/ui/ToastContainer'
 import './globals.css'
+
+const ToastContainer = dynamic(
+  () => import('@/components/ui/ToastContainer').then((mod) => mod.ToastContainer),
+  { ssr: false }
+)
 
 const inter = Inter({
   subsets: ['latin'],
