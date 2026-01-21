@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import { useToastStore } from '@/stores/toastStore'
 import { Toast } from './Toast'
 
@@ -22,7 +23,14 @@ import { Toast } from './Toast'
  * - Fixed positioning in bottom-right corner
  */
 export function ToastContainer() {
+  const [mounted, setMounted] = useState(false)
   const { toasts, removeToast } = useToastStore()
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  if (!mounted) return null
 
   if (toasts.length === 0) return null
 
