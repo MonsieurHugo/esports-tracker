@@ -329,7 +329,7 @@ export default function PlayerLeaderboard({
   }, [])
 
   return (
-    <div className="bg-(--bg-card) border border-(--border) rounded-lg overflow-hidden">
+    <div className="bg-(--bg-card) border border-(--border) rounded-lg">
       {/* Header */}
       <LeaderboardHeader
         view={leaderboardView}

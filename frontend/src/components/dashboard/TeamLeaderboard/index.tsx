@@ -117,7 +117,7 @@ export default function TeamLeaderboard({
   }, [onSelectTeam])
 
   return (
-    <div className="bg-(--bg-card) border border-(--border) rounded-lg overflow-hidden">
+    <div className="bg-(--bg-card) border border-(--border) rounded-lg">
       {/* Header */}
       <LeaderboardHeader
         view={leaderboardView}

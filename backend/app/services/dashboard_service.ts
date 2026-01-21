@@ -2478,11 +2478,12 @@ export default class DashboardService {
           WHERE rn = 1
         ),
         first_day_lp AS (
-          -- Get LP at start of period for best accounts only
-          SELECT pb.player_id, ds.lp as lp_start
+          -- Get LP at start of period for best accounts only (fallback to most recent if no data for exact date)
+          SELECT DISTINCT ON (pb.player_id) pb.player_id, ds.lp as lp_start
           FROM player_best pb
           JOIN lol_daily_stats ds ON pb.best_puuid = ds.puuid
-          WHERE ds.date = ? AND ds.tier IN ('MASTER', 'GRANDMASTER', 'CHALLENGER')
+          WHERE ds.date <= ? AND ds.tier IN ('MASTER', 'GRANDMASTER', 'CHALLENGER')
+          ORDER BY pb.player_id, ds.date DESC
         ),
         player_lp_change AS (
           -- Calculate LP change for each player's best account
@@ -2591,11 +2592,12 @@ export default class DashboardService {
           WHERE rn = 1
         ),
         first_day_lp AS (
-          -- Get LP at start of period for best accounts only
-          SELECT pb.player_id, ds.lp as lp_start
+          -- Get LP at start of period for best accounts only (fallback to most recent if no data for exact date)
+          SELECT DISTINCT ON (pb.player_id) pb.player_id, ds.lp as lp_start
           FROM player_best pb
           JOIN lol_daily_stats ds ON pb.best_puuid = ds.puuid
-          WHERE ds.date = ? AND ds.tier IN ('MASTER', 'GRANDMASTER', 'CHALLENGER')
+          WHERE ds.date <= ? AND ds.tier IN ('MASTER', 'GRANDMASTER', 'CHALLENGER')
+          ORDER BY pb.player_id, ds.date DESC
         ),
         player_lp AS (
           SELECT
@@ -2727,10 +2729,11 @@ export default class DashboardService {
 
       const result = await db.rawQuery(`
         WITH first_day_lp AS (
-          -- Get LP at start of period for Master+ accounts
-          SELECT ds.puuid, ds.lp as lp_start, ds.tier
+          -- Get LP at start of period for Master+ accounts (fallback to most recent if no data for exact date)
+          SELECT DISTINCT ON (ds.puuid) ds.puuid, ds.lp as lp_start, ds.tier
           FROM lol_daily_stats ds
-          WHERE ds.date = ? AND ds.tier IN ('MASTER', 'GRANDMASTER', 'CHALLENGER')
+          WHERE ds.date <= ? AND ds.tier IN ('MASTER', 'GRANDMASTER', 'CHALLENGER')
+          ORDER BY ds.puuid, ds.date DESC
         ),
         player_best_account AS (
           -- Select best account per player at START of period (highest tier, then highest LP)
@@ -2759,11 +2762,12 @@ export default class DashboardService {
           WHERE rn = 1
         ),
         last_day_lp AS (
-          -- Get LP at end of period for best accounts (may be 0 if dropped)
-          SELECT pb.player_id, COALESCE(ds.lp, 0) as lp_end
+          -- Get LP at end of period for best accounts (fallback to most recent if no data for exact date)
+          SELECT DISTINCT ON (pb.player_id) pb.player_id, COALESCE(ds.lp, 0) as lp_end
           FROM player_best pb
           LEFT JOIN lol_daily_stats ds ON pb.best_puuid = ds.puuid
-            AND ds.date = ? AND ds.tier IN ('MASTER', 'GRANDMASTER', 'CHALLENGER')
+            AND ds.date <= ? AND ds.tier IN ('MASTER', 'GRANDMASTER', 'CHALLENGER')
+          ORDER BY pb.player_id, ds.date DESC
         ),
         player_lp_change AS (
           -- Calculate LP change for each player's best account
@@ -2839,10 +2843,11 @@ export default class DashboardService {
 
       const result = await db.rawQuery(`
         WITH first_day_lp AS (
-          -- Get LP at start of period for Master+ accounts
-          SELECT ds.puuid, ds.lp as lp_start, ds.tier
+          -- Get LP at start of period for Master+ accounts (fallback to most recent if no data for exact date)
+          SELECT DISTINCT ON (ds.puuid) ds.puuid, ds.lp as lp_start, ds.tier
           FROM lol_daily_stats ds
-          WHERE ds.date = ? AND ds.tier IN ('MASTER', 'GRANDMASTER', 'CHALLENGER')
+          WHERE ds.date <= ? AND ds.tier IN ('MASTER', 'GRANDMASTER', 'CHALLENGER')
+          ORDER BY ds.puuid, ds.date DESC
         ),
         player_best_account AS (
           -- Select best account per player at START of period
@@ -2871,11 +2876,12 @@ export default class DashboardService {
           WHERE rn = 1
         ),
         last_day_lp AS (
-          -- Get LP at end of period for best accounts
-          SELECT pb.player_id, COALESCE(ds.lp, 0) as lp_end
+          -- Get LP at end of period for best accounts (fallback to most recent if no data for exact date)
+          SELECT DISTINCT ON (pb.player_id) pb.player_id, COALESCE(ds.lp, 0) as lp_end
           FROM player_best pb
           LEFT JOIN lol_daily_stats ds ON pb.best_puuid = ds.puuid
-            AND ds.date = ? AND ds.tier IN ('MASTER', 'GRANDMASTER', 'CHALLENGER')
+            AND ds.date <= ? AND ds.tier IN ('MASTER', 'GRANDMASTER', 'CHALLENGER')
+          ORDER BY pb.player_id, ds.date DESC
         ),
         player_lp AS (
           SELECT
