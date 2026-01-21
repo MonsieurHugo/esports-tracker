@@ -2,13 +2,15 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import api from '@/lib/api'
-import type { WorkerStatus, WorkerLog, WorkerLogFilter, CoverageStatsData } from '@/lib/types'
+import { logError } from '@/lib/logger'
+import type { WorkerStatus, WorkerLog, WorkerLogFilter, CoverageStatsData, PriorityStatsData } from '@/lib/types'
 
 import WorkerStatusCard from '@/components/monitoring/WorkerStatusCard'
 import MetricsOverview from '@/components/monitoring/MetricsOverview'
 import AccountsProgress from '@/components/monitoring/AccountsProgress'
 import LogsPanel from '@/components/monitoring/LogsPanel'
 import CoverageStats from '@/components/monitoring/CoverageStats'
+import PriorityQueueStats from '@/components/monitoring/PriorityQueueStats'
 import ProcessingTimelineChart from '@/components/monitoring/ProcessingTimelineChart'
 import AccountsTable from '@/components/monitoring/AccountsTable'
 
@@ -16,9 +18,11 @@ export default function MonitoringDashboard() {
   const [status, setStatus] = useState<WorkerStatus | null>(null)
   const [logs, setLogs] = useState<WorkerLog[]>([])
   const [coverageStats, setCoverageStats] = useState<CoverageStatsData | null>(null)
+  const [priorityStats, setPriorityStats] = useState<PriorityStatsData | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [logsLoading, setLogsLoading] = useState(true)
   const [coverageLoading, setCoverageLoading] = useState(true)
+  const [priorityLoading, setPriorityLoading] = useState(true)
   const [logFilter, setLogFilter] = useState<WorkerLogFilter>('all')
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
 
@@ -32,7 +36,7 @@ export default function MonitoringDashboard() {
       setStatus(data)
       setLastUpdate(new Date())
     } catch (error) {
-      console.error('Failed to fetch worker status:', error)
+      logError('Failed to fetch worker status', error)
     } finally {
       setIsLoading(false)
     }
@@ -49,7 +53,7 @@ export default function MonitoringDashboard() {
       const data = await api.get<{ data: WorkerLog[] }>('/worker/logs', { params })
       setLogs(data.data)
     } catch (error) {
-      console.error('Failed to fetch logs:', error)
+      logError('Failed to fetch logs', error)
     } finally {
       setLogsLoading(false)
     }
@@ -62,9 +66,22 @@ export default function MonitoringDashboard() {
       const data = await api.get<CoverageStatsData>('/worker/coverage-stats')
       setCoverageStats(data)
     } catch (error) {
-      console.error('Failed to fetch coverage stats:', error)
+      logError('Failed to fetch coverage stats', error)
     } finally {
       setCoverageLoading(false)
+    }
+  }, [])
+
+  // Fetch priority queue stats
+  const fetchPriorityStats = useCallback(async () => {
+    setPriorityLoading(true)
+    try {
+      const data = await api.get<PriorityStatsData>('/worker/priority-stats')
+      setPriorityStats(data)
+    } catch (error) {
+      logError('Failed to fetch priority stats', error)
+    } finally {
+      setPriorityLoading(false)
     }
   }, [])
 
@@ -73,7 +90,8 @@ export default function MonitoringDashboard() {
     fetchStatus()
     fetchLogs(logFilter)
     fetchCoverageStats()
-  }, [fetchStatus, fetchLogs, fetchCoverageStats, logFilter])
+    fetchPriorityStats()
+  }, [fetchStatus, fetchLogs, fetchCoverageStats, fetchPriorityStats, logFilter])
 
   // Auto-refresh every 30 seconds
   useEffect(() => {
@@ -81,10 +99,11 @@ export default function MonitoringDashboard() {
       fetchStatus()
       fetchLogs(logFilter)
       fetchCoverageStats()
+      fetchPriorityStats()
     }, 30000)
 
     return () => clearInterval(interval)
-  }, [fetchStatus, fetchLogs, fetchCoverageStats, logFilter])
+  }, [fetchStatus, fetchLogs, fetchCoverageStats, fetchPriorityStats, logFilter])
 
   // Handle log filter change
   const handleLogFilterChange = (filter: WorkerLogFilter) => {
@@ -113,9 +132,10 @@ export default function MonitoringDashboard() {
         </div>
       </header>
 
-      {/* Top row: Status + Coverage */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+      {/* Top row: Status + Priority + Coverage */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
         <WorkerStatusCard status={status} isLoading={isLoading} />
+        <PriorityQueueStats stats={priorityStats} isLoading={priorityLoading} />
         <CoverageStats stats={coverageStats} isLoading={coverageLoading} />
       </div>
 

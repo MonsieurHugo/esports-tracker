@@ -10,13 +10,21 @@ import pg from 'pg'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
+function getRequiredEnv(name: string): string {
+  const value = process.env[name]
+  if (!value) {
+    throw new Error(`Missing required environment variable: ${name}`)
+  }
+  return value
+}
+
 async function main() {
   const client = new pg.Client({
-    host: process.env.DB_HOST || 'localhost',
-    port: parseInt(process.env.DB_PORT || '5433'),
-    user: process.env.DB_USER || 'monsieuryordle',
-    password: process.env.DB_PASSWORD || 'WpvN27rH1dSYYUdpxWM2hHtz',
-    database: process.env.DB_DATABASE || 'esports',
+    host: getRequiredEnv('DB_HOST'),
+    port: parseInt(getRequiredEnv('DB_PORT')),
+    user: getRequiredEnv('DB_USER'),
+    password: getRequiredEnv('DB_PASSWORD'),
+    database: getRequiredEnv('DB_DATABASE'),
   })
 
   try {
@@ -39,8 +47,7 @@ async function main() {
   } catch (error: any) {
     console.error('Error:', error.message)
     if (error.message.includes('ECONNREFUSED')) {
-      console.log('\n⚠️  Make sure the SSH tunnel is active:')
-      console.log('   ssh -L 5433:127.0.0.1:5432 root@monsieuryordle.com')
+      console.log('\n⚠️  Make sure the database is accessible at the configured host and port')
     }
     process.exit(1)
   } finally {

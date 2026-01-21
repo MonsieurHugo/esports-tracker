@@ -1,0 +1,584 @@
+# PROMPT POUR CORRIGER TOUS LES PROBLÈMES DU CODE REVIEW
+# Esports Tracker - Full Codebase Fix
+
+## CONTEXTE DU PROJET
+
+Esports Tracker est une plateforme de suivi des performances esports pour League of Legends.
+
+### Architecture
+```
+esports-tracker/
+├── frontend/          # Next.js 16 + React 19 + TypeScript + Zustand 5 + Recharts
+├── backend/           # AdonisJS 6 + Node.js 20 + TypeScript + Lucid ORM + Redis
+├── worker/            # Python 3.11+ + httpx + asyncpg + APScheduler + Pydantic 2
+└── docker-compose.yml
+```
+
+### Commandes utiles
+- Frontend: `cd frontend && pnpm test`
+- Backend: `cd backend && node ace test`
+- Worker: `cd worker && pytest`
+
+---
+
+## INSTRUCTIONS
+
+Lance 6 agents EN PARALLÈLE (dans un seul message avec 6 appels Task) pour corriger tous les problèmes identifiés. Chaque agent doit:
+1. Lire les fichiers concernés
+2. Appliquer les corrections
+3. Ne PAS ajouter de fonctionnalités supplémentaires
+
+Après la complétion de tous les agents, lance les tests pour vérifier.
+
+---
+
+## AGENT 1 - BACKEND CRITICAL FIXES
+
+### Tâche 1.1: Fix Race Condition Cache Service
+**Fichier:** `backend/app/services/cache_service.ts`
+**Lignes:** 64-81
+
+**Problème:** Multiple concurrent calls to `getRedis()` could trigger multiple Redis imports before `redisInstance` is set.
+
+**Code actuel (à remplacer):**
+```typescript
+private async getRedis(): Promise<RedisService | null> {
+  if (!this.isRedisEnabled || this.connectionFailed) {
+    return null
+  }
+
+  if (!this.redisInstance) {
+    try {
+      const { default: redis } = await import('@adonisjs/redis/services/main')
+      this.redisInstance = redis
+    } catch (error) {
+      logger.warn({ err: error }, 'Failed to load Redis module')
+      this.isRedisEnabled = false
+      return null
+    }
+  }
+
+  return this.redisInstance
+}
+```
+
+**Correction à appliquer:**
+```typescript
+private redisPromise: Promise<RedisService | null> | null = null
+
+private async getRedis(): Promise<RedisService | null> {
+  if (!this.isRedisEnabled || this.connectionFailed) {
+    return null
+  }
+
+  if (this.redisInstance) {
+    return this.redisInstance
+  }
+
+  if (!this.redisPromise) {
+    this.redisPromise = (async () => {
+      try {
+        const { default: redis } = await import('@adonisjs/redis/services/main')
+        this.redisInstance = redis
+        return redis
+      } catch (error) {
+        logger.warn({ err: error }, 'Failed to load Redis module')
+        this.isRedisEnabled = false
+        this.redisPromise = null
+        return null
+      }
+    })()
+  }
+
+  return this.redisPromise
+}
+```
+
+### Tâche 1.2: Fix Memory Leak Rate Limiter
+**Fichier:** `backend/app/middleware/rate_limit_middleware.ts`
+**Lignes:** 166-172 (dans la méthode startCleanup)
+
+**Problème:** Listeners are added every time `startCleanup()` is called but never removed. Could lead to listener memory leaks.
+
+**Code actuel (chercher dans startCleanup):**
+```typescript
+const shutdown = () => {
+  this.stopCleanup()
+}
+
+process.once('SIGTERM', shutdown)
+process.once('SIGINT', shutdown)
+```
+
+**Correction:** Ajouter une propriété pour tracker le handler et éviter les doublons:
+```typescript
+// Ajouter comme propriété de classe (près des autres propriétés privées)
+private shutdownHandler: (() => void) | null = null
+
+// Remplacer dans startCleanup():
+if (!this.shutdownHandler) {
+  this.shutdownHandler = () => {
+    this.stopCleanup()
+  }
+  process.once('SIGTERM', this.shutdownHandler)
+  process.once('SIGINT', this.shutdownHandler)
+}
+```
+
+### Tâche 1.3: Fix Types Worker Controller
+**Fichier:** `backend/app/controllers/worker_controller.ts`
+**Ligne:** 339 et autres endroits avec `any`
+
+**Problème:** Using `any` type defeats TypeScript's type checking.
+
+**Correction:** Ajouter interface et remplacer `any`:
+```typescript
+// Ajouter en haut du fichier ou dans un fichier types
+interface AccountRow {
+  puuid: string
+  game_name: string
+  tag_line: string
+  region: string
+  last_fetched_at: Date | null
+  last_match_at: Date | null
+  player_name: string
+  health_status: string
+}
+
+// Remplacer (a: any) par (a: AccountRow)
+```
+
+### Tâche 1.4: Ajouter commentaires sécurité rawQuery
+**Fichier:** `backend/app/controllers/worker_controller.ts`
+**Lignes:** 43, 486, 506
+
+**Action:** Ajouter un commentaire avant chaque rawQuery:
+```typescript
+// SECURITY: No user input - static query safe for rawQuery
+const regionStats = await db.rawQuery(`...`)
+```
+
+---
+
+## AGENT 2 - FRONTEND CRITICAL FIXES
+
+### Tâche 2.1: Fix validatePeriod Default
+**Fichier:** `frontend/src/lib/utils.ts`
+**Lignes:** 305-310
+
+**Problème:** `validatePeriod` returns `'week'` but valid periods are `['7d', '14d', '30d', '90d']`
+
+**Code actuel:**
+```typescript
+export function validatePeriod(period: string): DashboardPeriod {
+  if (VALID_PERIODS.includes(period as DashboardPeriod)) {
+    return period as DashboardPeriod
+  }
+  return 'week'  // ❌ INCORRECT
+}
+```
+
+**Correction:**
+```typescript
+export function validatePeriod(period: string): DashboardPeriod {
+  if (VALID_PERIODS.includes(period as DashboardPeriod)) {
+    return period as DashboardPeriod
+  }
+  return '7d'  // ✅ Valid default
+}
+```
+
+### Tâche 2.2: Fix Theme Race Condition
+**Fichier:** `frontend/src/components/ThemeSelector.tsx`
+**Lignes:** 34-48
+
+**Problème:** Two useEffect hooks modify theme without synchronization, causing flicker.
+
+**Code actuel (2 useEffects séparés):**
+```typescript
+useEffect(() => {
+  const savedTheme = getStoredTheme()
+  if (savedTheme) {
+    setTheme(savedTheme)
+  }
+}, [setTheme])
+
+useEffect(() => {
+  const themeVars = themes[currentTheme].vars
+  Object.entries(themeVars).forEach(([key, value]) => {
+    document.documentElement.style.setProperty(key, value)
+  })
+}, [currentTheme])
+```
+
+**Correction (combiner en un seul useLayoutEffect):**
+```typescript
+import { useLayoutEffect } from 'react'
+
+useLayoutEffect(() => {
+  // Load saved theme on mount
+  const savedTheme = getStoredTheme()
+  if (savedTheme && savedTheme !== currentTheme) {
+    setTheme(savedTheme)
+    return // Will re-run with new theme
+  }
+
+  // Apply CSS variables
+  const themeVars = themes[currentTheme].vars
+  Object.entries(themeVars).forEach(([key, value]) => {
+    document.documentElement.style.setProperty(key, value)
+  })
+}, [currentTheme, setTheme])
+```
+
+### Tâche 2.3: Add Length Validation to sanitizeParamValue
+**Fichier:** `frontend/src/lib/api.ts`
+**Lignes:** 68-71
+
+**Code actuel:**
+```typescript
+function sanitizeParamValue(value: string): string {
+  return value.replace(/[\x00-\x1f\x7f]/g, '')
+}
+```
+
+**Correction:**
+```typescript
+const MAX_PARAM_LENGTH = 500
+
+function sanitizeParamValue(value: string): string {
+  if (typeof value !== 'string') {
+    return ''
+  }
+  const truncated = value.slice(0, MAX_PARAM_LENGTH)
+  return truncated.replace(/[\x00-\x1f\x7f]/g, '')
+}
+```
+
+### Tâche 2.4: Add SSR Guards to filterStore
+**Fichier:** `frontend/src/stores/filterStore.ts`
+**Dans le custom storage (vers lignes 104-180)**
+
+**Correction:** Ajouter au début de getItem et setItem:
+```typescript
+getItem: (name) => {
+  if (typeof window === 'undefined') return null
+  // ... reste du code existant
+},
+setItem: (name, value) => {
+  if (typeof window === 'undefined') return
+  // ... reste du code existant
+},
+removeItem: (name) => {
+  if (typeof window === 'undefined') return
+  // ... reste du code existant
+}
+```
+
+---
+
+## AGENT 3 - WORKER PYTHON CRITICAL FIXES
+
+### Tâche 3.1: Fix SQL F-String Pattern
+**Fichier:** `worker/src/services/database.py`
+**Lignes:** 872-902
+
+**Problème:** Using f-strings for SQL construction is dangerous pattern.
+
+**Code actuel:**
+```python
+lock_clause = "FOR UPDATE SKIP LOCKED" if for_update else ""
+
+query = f"""
+    SELECT ...
+    WHERE a.puuid = $1
+    {lock_clause}
+"""
+```
+
+**Correction:** Utiliser des requêtes explicites:
+```python
+if for_update:
+    query = """
+        SELECT ...
+        WHERE a.puuid = $1
+        FOR UPDATE SKIP LOCKED
+    """
+else:
+    query = """
+        SELECT ...
+        WHERE a.puuid = $1
+    """
+```
+
+### Tâche 3.2: Add Complete Timeout to HTTP Client
+**Fichier:** `worker/src/services/riot_api.py`
+**Lignes:** 156-159
+
+**Code actuel:**
+```python
+self._client = httpx.AsyncClient(
+    headers={"X-Riot-Token": self.api_key},
+    timeout=30.0,
+)
+```
+
+**Correction:**
+```python
+self._client = httpx.AsyncClient(
+    headers={"X-Riot-Token": self.api_key},
+    timeout=httpx.Timeout(10.0, connect=5.0, pool=5.0),
+    limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
+)
+```
+
+### Tâche 3.3: Add maxlen to Rate Limiter Deques
+**Fichier:** `worker/src/services/riot_api.py`
+**Lignes:** 68-101 (dans RateLimiter class)
+
+**Code actuel:**
+```python
+self.short_window: deque[float] = deque()
+self.long_window: deque[float] = deque()
+```
+
+**Correction:**
+```python
+self.short_window: deque[float] = deque(maxlen=self.short_limit * 2)
+self.long_window: deque[float] = deque(maxlen=self.long_limit * 2)
+```
+
+### Tâche 3.4: Fix Private Pool Access
+**Fichier:** `worker/src/services/database.py`
+
+**Ajouter méthode publique:**
+```python
+async def force_terminate(self) -> None:
+    """Forcefully terminate pool (emergency shutdown only)."""
+    if self._pool:
+        self._pool.terminate()
+```
+
+**Fichier:** `worker/src/main.py`
+**Lignes:** 238-240
+
+**Code actuel:**
+```python
+if self.db._pool:
+    self.db._pool.terminate()
+```
+
+**Correction:**
+```python
+await self.db.force_terminate()
+```
+
+---
+
+## AGENT 4 - ERROR HANDLING STANDARDIZATION
+
+### Tâche 4.1: Standardize useDashboardData Error Handling
+**Fichier:** `frontend/src/hooks/useDashboardData.ts`
+
+**Pattern à suivre (depuis useLolDashboardData.ts):**
+```typescript
+import { useToastStore } from '@/stores/toastStore'
+
+// Dans le hook:
+const addToast = useToastStore((s) => s.addToast)
+
+// Dans le catch:
+catch (error) {
+  if (error instanceof Error) {
+    if (error.name === 'AbortError') return
+
+    // Ajouter toast pour erreurs critiques
+    if (error instanceof ApiError) {
+      if (error.status === 404) {
+        addToast('Aucune donnée disponible pour cette période', 'warning')
+      } else if (error.status >= 500) {
+        addToast('Erreur serveur, veuillez réessayer', 'error')
+      }
+    }
+
+    logError('Dashboard data fetch error', error)
+    setError(error)
+  }
+}
+```
+
+### Tâche 4.2: Standardize useHistoryData Error Handling
+**Fichier:** `frontend/src/hooks/useHistoryData.ts`
+
+**Appliquer le même pattern que ci-dessus.**
+
+### Tâche 4.3: Add Documentation Comment
+**Ajouter en haut de chaque hook modifié:**
+```typescript
+/**
+ * Error Handling Pattern:
+ * - AbortError: Silently ignored (request cancelled)
+ * - 404: Warning toast (no data available)
+ * - 5xx: Error toast (server error)
+ * - Other: Logged + error state set
+ */
+```
+
+---
+
+## AGENT 5 - TYPE SAFETY IMPROVEMENTS
+
+### Tâche 5.1: Backend AccountRow Interface
+**Fichier:** `backend/app/controllers/worker_controller.ts`
+
+Créer et utiliser l'interface (voir Agent 1, Tâche 1.3).
+
+### Tâche 5.2: Remove `any` from Frontend
+**Fichiers à vérifier et corriger:**
+- `frontend/src/hooks/useChartAnimation.ts`
+- `frontend/src/lib/chartUtils.ts`
+- Fichiers de test (*.test.ts)
+
+**Action:** Remplacer `any` par `unknown` avec type guards ou types spécifiques.
+
+### Tâche 5.3: Fix Worker Database Return Types
+**Fichier:** `worker/src/services/database.py`
+
+**Améliorer les type hints:**
+```python
+from typing import TypeVar, overload
+
+T = TypeVar('T')
+
+async def fetchval(self, query: str, *args, column: int = 0) -> Any:
+    """Fetch single value. Returns None if no rows."""
+    ...
+```
+
+---
+
+## AGENT 6 - CODE QUALITY FIXES
+
+### Tâche 6.1: Extract Rate Limiter Magic Numbers
+**Fichier:** `backend/app/middleware/rate_limit_middleware.ts`
+
+**Ajouter constantes en haut du fichier/classe:**
+```typescript
+const EVICTION_PERCENTAGE = 0.2        // Evict 20% of entries when limit reached
+const EMERGENCY_EVICTION_PERCENTAGE = 0.3  // Evict 30% during emergency cleanup
+```
+
+**Remplacer les magic numbers:**
+```typescript
+// Avant: Math.floor(MAX_MEMORY_ENTRIES * 0.2)
+// Après:
+Math.floor(MAX_MEMORY_ENTRIES * EVICTION_PERCENTAGE)
+
+// Avant: Math.floor(entries.length * 0.3)
+// Après:
+Math.floor(entries.length * EMERGENCY_EVICTION_PERCENTAGE)
+```
+
+### Tâche 6.2: Import keyPrefix from Config
+**Fichier:** `backend/app/services/cache_service.ts`
+**Ligne:** 288
+
+**Code actuel:**
+```typescript
+const keyPrefix = 'esports:' // from redis config
+```
+
+**Correction:**
+```typescript
+// En haut du fichier, importer la config redis et extraire le prefix
+// Ou utiliser une constante partagée
+import { redisConfig } from '#config/redis'
+const keyPrefix = redisConfig?.keyPrefix ?? 'esports:'
+```
+
+### Tâche 6.3: Create ensure_utc Helper in Worker
+**Fichier:** `worker/src/services/database.py` (ou créer `worker/src/utils/datetime_utils.py`)
+
+**Créer helper:**
+```python
+from datetime import datetime, timezone
+
+def ensure_utc(dt: datetime | None) -> datetime | None:
+    """Ensure datetime is UTC-aware. Returns None if input is None."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+```
+
+**L'utiliser dans:**
+- `worker/src/services/activity_scorer.py` (lignes 56-59)
+- `worker/src/services/account_selector.py` (lignes 283-285)
+
+### Tâche 6.4: Move Import to Module Level
+**Fichier:** `worker/src/services/database.py`
+**Ligne:** 751
+
+**Code actuel:**
+```python
+async def log_worker_activity(...):
+    import json  # ❌ Inside method
+    await self.execute(...)
+```
+
+**Correction:** Déplacer `import json` en haut du fichier avec les autres imports.
+
+---
+
+## VÉRIFICATION FINALE
+
+Après que tous les agents ont terminé, exécuter:
+
+```bash
+# Backend tests
+cd backend && node ace test
+
+# Frontend tests
+cd frontend && pnpm test:run
+
+# Worker tests
+cd worker && pytest
+
+# TypeScript check
+cd backend && npm run typecheck
+cd frontend && npx tsc --noEmit
+```
+
+---
+
+## NOTES IMPORTANTES
+
+1. **NE PAS** ajouter de nouvelles fonctionnalités
+2. **NE PAS** refactorer du code non mentionné
+3. **NE PAS** modifier les tests existants sauf si nécessaire pour les corrections
+4. **GARDER** le style de code existant (indentation, quotes, etc.)
+5. **VÉRIFIER** que les imports ajoutés existent déjà dans le projet
+
+## RÉSUMÉ DES FICHIERS À MODIFIER
+
+### Backend (6 fichiers)
+- `backend/app/services/cache_service.ts`
+- `backend/app/middleware/rate_limit_middleware.ts`
+- `backend/app/controllers/worker_controller.ts`
+- `backend/config/redis.ts` (vérifier export keyPrefix)
+
+### Frontend (5 fichiers)
+- `frontend/src/lib/utils.ts`
+- `frontend/src/lib/api.ts`
+- `frontend/src/components/ThemeSelector.tsx`
+- `frontend/src/stores/filterStore.ts`
+- `frontend/src/hooks/useDashboardData.ts`
+- `frontend/src/hooks/useHistoryData.ts`
+
+### Worker (4 fichiers)
+- `worker/src/services/database.py`
+- `worker/src/services/riot_api.py`
+- `worker/src/main.py`
+- `worker/src/services/activity_scorer.py`
+- `worker/src/services/account_selector.py`

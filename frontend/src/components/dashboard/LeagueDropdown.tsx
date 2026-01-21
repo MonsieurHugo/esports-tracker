@@ -1,8 +1,21 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { LEAGUE_COLORS, getLeagueColor } from '@/lib/utils'
 import type { LeagueInfo } from '@/lib/types'
+
+// Couleurs par défaut si la ligue n'a pas de couleur en BDD
+const DEFAULT_COLORS: Record<string, string> = {
+  'LEC': '#00e5bf',
+  'LFL': '#ff7b57',
+  'LCK': '#f5e6d3',
+  'LCS': '#0a7cff',
+  'LPL': '#de2910',
+  'LCKCL': '#a855f7',
+  'LCP': '#22c55e',
+  'CBLOL': '#10b981',
+  'LTAS': '#14b8a6',
+  'LTAN': '#06b6d4',
+}
 
 interface LeagueDropdownProps {
   selected: string[]
@@ -88,7 +101,7 @@ export default function LeagueDropdown({
 
           {leagues.map((league) => {
             const isSelected = selected.includes(league.shortName) && !isAllSelected
-            const colors = LEAGUE_COLORS[league.shortName] || getLeagueColor(league.shortName)
+            const dotColor = league.color || DEFAULT_COLORS[league.shortName] || '#8a8a94'
             return (
               <button
                 key={league.leagueId}
@@ -108,7 +121,7 @@ export default function LeagueDropdown({
                     </svg>
                   )}
                 </span>
-                <span className={`w-2 h-2 rounded-full ${colors?.dot}`} />
+                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: dotColor }} />
                 {league.shortName}
               </button>
             )

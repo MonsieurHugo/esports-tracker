@@ -3,14 +3,14 @@
 import { memo, useState } from 'react'
 import Image from 'next/image'
 import type { PlayerAccount } from '@/lib/types'
-import { formatLp, getRankImagePath as getRankImage } from '@/lib/utils'
+import { formatLp, getRankImagePath as getRankImage, getRegionTagClasses, cn } from '@/lib/utils'
 
 interface AccountAccordionProps {
   accounts: PlayerAccount[]
   isOpen: boolean
 }
 
-function AccountAccordion({ accounts, isOpen }: AccountAccordionProps) {
+const AccountAccordion = memo(function AccountAccordion({ accounts, isOpen }: AccountAccordionProps) {
   const [rankErrors, setRankErrors] = useState<Set<string>>(new Set())
 
   const handleRankError = (puuid: string) => {
@@ -42,17 +42,18 @@ function AccountAccordion({ accounts, isOpen }: AccountAccordionProps) {
               >
                 {/* Spacer pour aligner avec le rank */}
                 <span className="w-6 sm:w-7" />
-                {/* Account name */}
-                <span className="text-[10px] sm:text-[11px] font-medium flex-1 min-w-0 truncate">
-                  {account.gameName}
-                  <span className="text-(--text-muted)">#{account.tagLine}</span>
-                </span>
-                {/* Region */}
-                <span className="text-[8px] sm:text-[9px] px-1.5 py-0.5 bg-(--bg-secondary) text-(--text-muted) rounded-sm shrink-0 mr-2 uppercase">
-                  {account.region}
-                </span>
+                {/* Account name + Region */}
+                <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                  <span className="text-[10px] sm:text-[11px] font-medium truncate">
+                    {account.gameName}
+                    <span className="text-(--text-muted)">#{account.tagLine}</span>
+                  </span>
+                  <span className={`text-[8px] sm:text-[9px] px-1.5 py-0.5 rounded-sm shrink-0 uppercase ${getRegionTagClasses(account.region)}`}>
+                    {account.region}
+                  </span>
+                </div>
                 {/* Rank image + LP */}
-                <span className="font-mono text-[10px] sm:text-[11px] text-(--text-secondary) w-16 sm:w-20 text-right pr-4 flex items-center justify-end gap-1">
+                <span className="font-mono text-[10px] sm:text-[11px] text-(--text-secondary) w-16 sm:w-20 text-center flex items-center justify-center gap-1">
                   {rankImage && !rankErrors.has(account.puuid) && (
                     <Image
                       src={rankImage}
@@ -66,15 +67,20 @@ function AccountAccordion({ accounts, isOpen }: AccountAccordionProps) {
                   {formatLp(account.tier, account.lp)}
                 </span>
                 {/* Games */}
-                <span className="font-mono text-[10px] sm:text-[11px] text-(--text-secondary) w-14 sm:w-16 text-right pr-4">
+                <span className="font-mono text-[10px] sm:text-[11px] text-(--text-secondary) w-16 sm:w-20 text-center">
                   {account.games}
                 </span>
                 {/* Winrate */}
-                <span className="font-mono text-[10px] sm:text-[11px] text-(--text-secondary) w-[4.5rem] sm:w-20 text-right pr-4">
+                <span className={cn(
+                  'font-mono text-[10px] sm:text-[11px] w-16 sm:w-20 text-center',
+                  account.games > 0 && account.winrate >= 60
+                    ? 'text-(--positive)'
+                    : 'text-(--text-secondary)'
+                )}>
                   {account.games > 0 ? `${account.winrate.toFixed(0)}%` : '-'}
                 </span>
                 {/* Spacer pour aligner avec le bouton expand */}
-                <span className="w-7 sm:w-8 ml-2" />
+                <span className="w-7 sm:w-8" />
               </div>
             )
           })}
@@ -82,6 +88,13 @@ function AccountAccordion({ accounts, isOpen }: AccountAccordionProps) {
       </div>
     </div>
   )
-}
+}, (prevProps, nextProps) => {
+  // Return true if props are equal (no re-render needed)
+  // Compare by reference for accounts array (parent should provide stable reference)
+  return (
+    prevProps.accounts === nextProps.accounts &&
+    prevProps.isOpen === nextProps.isOpen
+  )
+})
 
-export default memo(AccountAccordion)
+export default AccountAccordion

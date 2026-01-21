@@ -67,7 +67,7 @@ yarn-error.log*
 .vercel/
 .cache/
 deploy/generated/
-.claude/settings.local.json
+**/.claude/settings.local.json
 
 # Security - sensitive files
 cookies.txt

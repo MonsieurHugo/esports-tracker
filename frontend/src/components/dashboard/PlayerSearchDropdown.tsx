@@ -5,8 +5,9 @@ import Image from 'next/image'
 import type { PlayerLeaderboardEntry } from '@/lib/types'
 import type { DashboardPeriod } from '@/lib/types'
 import api from '@/lib/api'
-import { getLeagueTagClasses, getRoleImagePath } from '@/lib/utils'
+import { getRoleImagePath, sanitizeSlug, validatePeriod, validateSortOption, sanitizeSearchQuery } from '@/lib/utils'
 import SearchDropdown, { type SearchDropdownItem } from './SearchDropdown'
+import LeagueTag from '@/components/ui/LeagueTag'
 
 interface PlayerSearchItem extends SearchDropdownItem {
   entry: PlayerLeaderboardEntry
@@ -37,24 +38,29 @@ export default function PlayerSearchDropdown({
   const toSearchItem = (entry: PlayerLeaderboardEntry): PlayerSearchItem => ({
     id: entry.player.playerId,
     name: entry.player.pseudo,
-    secondaryText: entry.team?.region,
-    imageUrl: entry.team ? `/images/teams/${entry.team.slug}.png` : null,
+    secondaryText: entry.team?.league || entry.team?.region,
+    imageUrl: entry.team ? `/images/teams/${sanitizeSlug(entry.team.shortName)}.png` : null,
     entry,
   })
 
   const selectedItems = selectedPlayers.map(toSearchItem)
 
   const handleFetch = useCallback(async (): Promise<PlayerSearchItem[]> => {
+    // Validate parameters before sending to API
+    const validatedPeriod = validatePeriod(period)
+    const validatedSortBy = validateSortOption('lp')
+
     const res = await api.get<{
       data: PlayerLeaderboardEntry[]
       meta: { total: number }
     }>('/lol/dashboard/players', {
       params: {
-        period,
+        period: validatedPeriod,
         date: refDate,
         leagues: selectedLeagues.length > 0 ? selectedLeagues : undefined,
-        sortBy: 'lp',
+        sortBy: validatedSortBy,
         limit: 100,
+        includeUnranked: true,
       },
     })
     return (res.data || []).map(toSearchItem)
@@ -65,16 +71,27 @@ export default function PlayerSearchDropdown({
   }, [onSelect])
 
   const filterItems = useCallback((items: PlayerSearchItem[], search: string): PlayerSearchItem[] => {
-    const searchLower = search.toLowerCase()
+    // Sanitize and validate search input
+    const sanitizedSearch = sanitizeSearchQuery(search, 100)
+    if (sanitizedSearch.length < 1) {
+      return items
+    }
+    const searchLower = sanitizedSearch.toLowerCase()
     return items.filter((item) =>
       item.entry.player.pseudo.toLowerCase().includes(searchLower) ||
       item.entry.team?.shortName.toLowerCase().includes(searchLower) ||
+      item.entry.team?.league?.toLowerCase().includes(searchLower) ||
       item.entry.team?.region.toLowerCase().includes(searchLower) ||
       item.entry.role.toLowerCase().includes(searchLower)
     )
   }, [])
 
-  const renderItem = useCallback((item: PlayerSearchItem, isSelected: boolean, selectionIndex: number) => {
+  const renderItem = useCallback((
+    item: PlayerSearchItem,
+    isSelected: boolean,
+    selectionIndex: number,
+    favoriteProps: { isFavorite: boolean; isRecent: boolean; onToggleFavorite: (e: React.MouseEvent) => void }
+  ) => {
     const entry = item.entry
     const isBlocked = selectedPlayers.length >= 2 && !isSelected
 
@@ -88,9 +105,21 @@ export default function PlayerSearchDropdown({
           ${!isSelected && !isBlocked ? 'hover:bg-(--bg-hover)' : ''}
         `}
       >
+        {/* Favorite star */}
+        <button
+          onClick={favoriteProps.onToggleFavorite}
+          className={`shrink-0 transition-colors ${
+            favoriteProps.isFavorite ? 'text-(--favorite)' : 'text-(--text-muted) hover:text-(--favorite)'
+          }`}
+          title={favoriteProps.isFavorite ? 'Retirer des favoris' : 'Ajouter aux favoris'}
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill={favoriteProps.isFavorite ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2">
+            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+          </svg>
+        </button>
         {entry.team ? (
           <Image
-            src={`/images/teams/${entry.team.slug}.png`}
+            src={`/images/teams/${sanitizeSlug(entry.team.shortName)}.png`}
             alt={entry.team.shortName}
             width={20}
             height={20}
@@ -110,9 +139,12 @@ export default function PlayerSearchDropdown({
           height={14}
           className="w-3.5 h-3.5 object-contain opacity-60"
         />
-        {entry.team && (
-          <span className={`text-[9px] px-1.5 py-0.5 rounded-sm ${getLeagueTagClasses(entry.team.region)}`}>
-            {entry.team.region}
+        {entry.team?.league && (
+          <LeagueTag league={entry.team.league} />
+        )}
+        {favoriteProps.isRecent && !isSelected && (
+          <span className="text-[8px] px-1 py-0.5 rounded bg-(--bg-secondary) text-(--text-muted)">
+            Récent
           </span>
         )}
         {isSelected && (

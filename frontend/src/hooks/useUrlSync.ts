@@ -49,7 +49,7 @@ export function useUrlSync() {
     // Déterminer d'abord la vue pour savoir quels filtres appliquer
     const isPlayersView = urlView === 'players'
 
-    if (urlPeriod && ['day', 'month', 'year', 'custom'].includes(urlPeriod)) {
+    if (urlPeriod && ['7d', '14d', '30d', '90d'].includes(urlPeriod)) {
       setPeriod(urlPeriod as DashboardPeriod)
     }
     if (urlLeagues) {
@@ -79,7 +79,7 @@ export function useUrlSync() {
     // Si l'URL contenait des rôles en vue équipes, nettoyer l'URL immédiatement
     if (!isPlayersView && urlRoles) {
       const params = new URLSearchParams()
-      if (urlPeriod && urlPeriod !== 'day') params.set('period', urlPeriod)
+      if (urlPeriod && urlPeriod !== '7d') params.set('period', urlPeriod)
       if (urlLeagues) params.set('leagues', urlLeagues)
       // Ne pas ajouter roles
       if (urlMinGames) params.set('minGames', urlMinGames)
@@ -113,7 +113,7 @@ export function useUrlSync() {
 
     const params = new URLSearchParams()
 
-    if (period !== 'day') params.set('period', period)
+    if (period !== '7d') params.set('period', period)
     if (selectedLeagues.length > 0) params.set('leagues', selectedLeagues.join(','))
     // Ne synchroniser les rôles que si on est en vue joueurs (inutile en vue équipes)
     if (leaderboardView === 'players' && selectedRoles.length > 0) {

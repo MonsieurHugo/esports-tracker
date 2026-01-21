@@ -10,11 +10,14 @@ interface GamesFilterProps {
 
 const PRESETS = [0, 5, 10, 20, 50]
 
-export default function GamesFilter({ value, onChange, max = 100 }: GamesFilterProps) {
+export default function GamesFilter({ value, onChange, max = 500 }: GamesFilterProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [localValue, setLocalValue] = useState(value)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const isDragging = useRef(false)
+  // Ref to track current localValue for slider end callback (avoids stale closure)
+  const localValueRef = useRef(localValue)
+  localValueRef.current = localValue
 
   // Sync local value when prop changes
   useEffect(() => {
@@ -26,13 +29,17 @@ export default function GamesFilter({ value, onChange, max = 100 }: GamesFilterP
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        // Apply the value before closing if it changed (use ref for current value)
+        if (localValueRef.current !== value) {
+          onChange(localValueRef.current)
+        }
         setIsOpen(false)
       }
     }
 
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [])
+  }, [value, onChange])
 
   const handleSliderChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const newValue = parseInt(e.target.value, 10)
@@ -41,8 +48,9 @@ export default function GamesFilter({ value, onChange, max = 100 }: GamesFilterP
 
   const handleSliderEnd = useCallback(() => {
     isDragging.current = false
-    onChange(localValue)
-  }, [localValue, onChange])
+    // Use ref to get current value (avoids stale closure issue when slider events fire quickly)
+    onChange(localValueRef.current)
+  }, [onChange])
 
   const handleSliderStart = useCallback(() => {
     isDragging.current = true
@@ -51,6 +59,29 @@ export default function GamesFilter({ value, onChange, max = 100 }: GamesFilterP
   const handlePresetClick = useCallback((preset: number) => {
     setLocalValue(preset)
     onChange(preset)
+  }, [onChange])
+
+  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const inputValue = e.target.value
+    if (inputValue === '') {
+      setLocalValue(0)
+    } else {
+      const parsed = parseInt(inputValue, 10)
+      if (!isNaN(parsed)) {
+        setLocalValue(Math.min(Math.max(0, parsed), max))
+      }
+    }
+  }, [max])
+
+  const handleInputBlur = useCallback(() => {
+    onChange(localValueRef.current)
+  }, [onChange])
+
+  const handleInputKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      onChange(localValueRef.current)
+      e.currentTarget.blur()
+    }
   }, [onChange])
 
   const getLabel = () => {
@@ -82,9 +113,21 @@ export default function GamesFilter({ value, onChange, max = 100 }: GamesFilterP
         <div className="absolute top-full right-0 mt-1 bg-(--bg-card) border border-(--border) rounded-lg shadow-lg z-50 p-3 min-w-[200px]">
           <div className="flex items-center justify-between mb-2">
             <span className="text-[10px] text-(--text-muted)">Minimum de games</span>
-            <span className="text-xs font-mono font-semibold text-(--accent)">
-              {localValue === 0 ? 'Tous' : localValue}
-            </span>
+            <input
+              type="number"
+              min="0"
+              max={max}
+              value={localValue === 0 ? '' : localValue}
+              placeholder="0"
+              onChange={handleInputChange}
+              onBlur={handleInputBlur}
+              onKeyDown={handleInputKeyDown}
+              className="w-14 text-xs font-mono font-semibold text-(--accent)
+                bg-(--bg-secondary) border border-(--border) rounded px-2 py-1
+                text-right focus:outline-none focus:border-(--accent)
+                [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none
+                [&::-webkit-inner-spin-button]:appearance-none"
+            />
           </div>
 
           {/* Slider */}

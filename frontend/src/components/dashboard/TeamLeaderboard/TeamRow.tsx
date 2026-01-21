@@ -1,11 +1,12 @@
 'use client'
 
-import { memo, useState } from 'react'
+import { memo, useState, useMemo } from 'react'
 import Image from 'next/image'
 import type { TeamLeaderboardEntry } from '@/lib/types'
 import type { SortOption } from '@/stores/dashboardStore'
-import { getRankTextClass, getLeagueTagClasses } from '@/lib/utils'
+import { getRankTextClass, sanitizeSlug, cn } from '@/lib/utils'
 import PlayerAccordion from './PlayerAccordion'
+import LeagueTag from '@/components/ui/LeagueTag'
 
 interface TeamRowProps {
   entry: TeamLeaderboardEntry
@@ -19,9 +20,15 @@ interface TeamRowProps {
   onToggleLock?: (teamId: number) => void
 }
 
-function TeamRow({ entry, selectionIndex, isExpanded, onSelect, onToggle, sortBy, isPinned, isLocked, onToggleLock }: TeamRowProps) {
+const TeamRow = memo(function TeamRow({ entry, selectionIndex, isExpanded, onSelect, onToggle, sortBy, isPinned, isLocked, onToggleLock }: TeamRowProps) {
   const [logoError, setLogoError] = useState(false)
   const isSelected = selectionIndex !== null
+
+  // Memoize computed values
+  const teamLogoPath = useMemo(
+    () => `/images/teams/${sanitizeSlug(entry.team.shortName)}.png`,
+    [entry.team.shortName]
+  )
 
   const handleLockClick = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -36,8 +43,6 @@ function TeamRow({ entry, selectionIndex, isExpanded, onSelect, onToggle, sortBy
     e.stopPropagation() // Empêche la sélection de l'équipe
     onToggle(entry.team.teamId) // Toggle l'expansion
   }
-
-  const teamLogoPath = `/images/teams/${entry.team.slug}.png`
 
   return (
     <div>
@@ -74,9 +79,7 @@ function TeamRow({ entry, selectionIndex, isExpanded, onSelect, onToggle, sortBy
             {entry.team.currentName}
           </span>
           {entry.team.league && (
-            <span className={`hidden sm:inline text-[9px] px-1.5 py-0.5 rounded-sm shrink-0 ${getLeagueTagClasses(entry.team.league)}`}>
-              {entry.team.league}
-            </span>
+            <LeagueTag league={entry.team.league} className="hidden sm:inline shrink-0" />
           )}
           {/* Lock button - only visible for selected teams */}
           {isSelected && onToggleLock && (
@@ -105,19 +108,24 @@ function TeamRow({ entry, selectionIndex, isExpanded, onSelect, onToggle, sortBy
             </button>
           )}
         </div>
-        <span className={`font-mono font-semibold text-[10px] sm:text-[11px] w-16 sm:w-20 text-right pr-4 ${sortBy === 'lp' ? 'text-(--text-primary)' : 'text-(--text-secondary)'}`}>
+        <span className={`font-mono font-semibold text-[10px] sm:text-[11px] w-16 sm:w-20 text-center ${sortBy === 'lp' ? 'text-(--text-primary)' : 'text-(--text-secondary)'}`}>
           {entry.totalLp > 0 ? entry.totalLp.toLocaleString() : '-'}
         </span>
-        <span className={`font-mono font-semibold text-[10px] sm:text-[11px] w-14 sm:w-16 text-right pr-4 ${sortBy === 'games' ? 'text-(--text-primary)' : 'text-(--text-secondary)'}`}>
+        <span className={`font-mono font-semibold text-[10px] sm:text-[11px] w-16 sm:w-20 text-center ${sortBy === 'games' ? 'text-(--text-primary)' : 'text-(--text-secondary)'}`}>
           {entry.games === -1 ? '-' : entry.games}
         </span>
-        <span className={`font-mono font-semibold text-[10px] sm:text-[11px] w-[4.5rem] sm:w-20 text-right pr-4 ${sortBy === 'winrate' ? 'text-(--text-primary)' : 'text-(--text-secondary)'}`}>
+        <span className={cn(
+          'font-mono font-semibold text-[10px] sm:text-[11px] w-16 sm:w-20 text-center',
+          entry.winrate !== -1 && entry.games > 0 && entry.winrate >= 60
+            ? 'text-(--positive)'
+            : sortBy === 'winrate' ? 'text-(--text-primary)' : 'text-(--text-secondary)'
+        )}>
           {entry.winrate === -1 || entry.games === 0 ? '-' : `${entry.winrate.toFixed(0)}%`}
         </span>
         <button
           onClick={handleToggleClick}
           className={`
-            w-7 h-7 sm:w-8 sm:h-8 -my-1 flex items-center justify-center rounded-md text-(--text-muted) hover:text-(--text-primary) hover:bg-(--bg-secondary) ml-2 transition-all duration-200
+            w-7 h-7 sm:w-8 sm:h-8 -my-1 flex items-center justify-center rounded-md text-(--text-muted) hover:text-(--text-primary) hover:bg-(--bg-secondary) transition-all duration-200
           `}
           title={isExpanded ? 'Masquer les joueurs' : 'Afficher les joueurs'}
         >
@@ -135,6 +143,22 @@ function TeamRow({ entry, selectionIndex, isExpanded, onSelect, onToggle, sortBy
       <PlayerAccordion players={entry.players} isOpen={isExpanded} />
     </div>
   )
-}
+}, (prevProps, nextProps) => {
+  // Return true if props are equal (no re-render needed)
+  return (
+    prevProps.entry.team.teamId === nextProps.entry.team.teamId &&
+    prevProps.entry.rank === nextProps.entry.rank &&
+    prevProps.entry.totalLp === nextProps.entry.totalLp &&
+    prevProps.entry.games === nextProps.entry.games &&
+    prevProps.entry.winrate === nextProps.entry.winrate &&
+    prevProps.entry.players === nextProps.entry.players &&
+    prevProps.selectionIndex === nextProps.selectionIndex &&
+    prevProps.isExpanded === nextProps.isExpanded &&
+    prevProps.sortBy === nextProps.sortBy &&
+    prevProps.isPinned === nextProps.isPinned &&
+    prevProps.isLocked === nextProps.isLocked
+    // Callbacks (onSelect, onToggle, onToggleLock) should be stable via useCallback in parent
+  )
+})
 
-export default memo(TeamRow)
+export default TeamRow

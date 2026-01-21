@@ -32,7 +32,7 @@ from src.services.riot_api import RateLimiter, RiotAPIError, RiotAPIService
 logger = structlog.get_logger(__name__)
 
 # Path to JSON data file
-DATA_FILE = Path(__file__).parent.parent.parent / "lck_lpl_lec_lckcl_lfl_lcp_ltas_ltan_data.json"
+DATA_FILE = Path(__file__).parent.parent.parent / "lck_lpl_lec_lckcl_lfl_lcp_ltas_ltan_data copy.json"
 ERROR_LOG_FILE = Path(__file__).parent.parent.parent / "import_errors.json"
 
 # League mapping with full names, regions, and tiers
@@ -111,12 +111,13 @@ def safe_str(text: str) -> str:
 class ImportEsportsDataJobV2:
     """Improved job to import esports data from JSON into the database."""
 
-    def __init__(self, dry_run: bool = False, start_from_league: str | None = None):
+    def __init__(self, dry_run: bool = False, start_from_league: str | None = None, only_league: str | None = None):
         self.db: DatabaseService | None = None
         self.riot_api: RiotAPIService | None = None
         self.rate_limiter = RateLimiter(requests_per_second=15, requests_per_2min=80)
         self.dry_run = dry_run
         self.start_from_league = start_from_league
+        self.only_league = only_league
         self.stats = {
             "leagues": 0,
             "organizations": 0,
@@ -529,6 +530,11 @@ class ImportEsportsDataJobV2:
             league_name = league_data["league"]
             teams = league_data["teams"]
 
+            # Filter by only_league if specified
+            if self.only_league and league_name != self.only_league:
+                logger.info(f"Skipping league: {league_name} (only importing {self.only_league})")
+                continue
+
             # Skip leagues until we find the start league
             if skip_until_found:
                 if league_name == self.start_from_league:
@@ -647,9 +653,10 @@ async def main():
     parser = argparse.ArgumentParser(description="Import esports data from JSON")
     parser.add_argument("--dry-run", action="store_true", help="Run without making changes")
     parser.add_argument("--start-from", type=str, help="Start from specific league (e.g., LEC)")
+    parser.add_argument("--only", type=str, help="Import only specific league (e.g., LCK)")
     args = parser.parse_args()
 
-    job = ImportEsportsDataJobV2(dry_run=args.dry_run, start_from_league=args.start_from)
+    job = ImportEsportsDataJobV2(dry_run=args.dry_run, start_from_league=args.start_from, only_league=args.only)
     try:
         await job.connect()
         await job.run()

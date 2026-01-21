@@ -3,6 +3,7 @@ export interface LeagueInfo {
   name: string
   shortName: string
   region: string
+  color: string | null
 }
 
 export interface Game {
@@ -161,21 +162,22 @@ export interface PaginatedResponse<T> {
   }
 }
 
-// Period types
-export type DashboardPeriod = 'day' | 'month' | 'year' | 'custom'
+// Period types - validation constants and types
+export const VALID_PERIODS = ['7d', '14d', '30d', '90d'] as const
+export type DashboardPeriod = (typeof VALID_PERIODS)[number]
+
+// Mapping of period to number of days
+export const PERIOD_DAYS: Record<DashboardPeriod, number> = {
+  '7d': 7,
+  '14d': 14,
+  '30d': 30,
+  '90d': 90,
+}
+
+export const VALID_SORT_OPTIONS = ['lp', 'games', 'winrate', 'lpChange'] as const
+export type SortOption = typeof VALID_SORT_OPTIONS[number]
 
 // Dashboard types
-
-export interface DashboardSummary {
-  totalGames: number
-  totalGamesChange: number
-  avgWinrate: number
-  avgWinrateChange: number
-  totalMinutes: number
-  totalMinutesChange: number
-  totalLp: number
-  lastUpdated: string
-}
 
 export interface GamesPerDayData {
   date: string
@@ -206,6 +208,7 @@ export interface PlayerInTeam {
   rank: string | null
   lp: number
   totalLp: number
+  countsForStats?: boolean
 }
 
 export interface TeamLeaderboardEntry {
@@ -287,6 +290,7 @@ export interface TeamLeaderboardResponse {
   }
 }
 
+// Legacy TopGrinderEntry for backward compatibility
 export interface TopGrinderEntry {
   rank: number
   player: {
@@ -299,6 +303,25 @@ export interface TopGrinderEntry {
     slug: string
   }
   role: string
+  games: number
+}
+
+// Generic GrinderEntry for both teams and players (new format)
+export interface GrinderEntry {
+  rank: number
+  entity: {
+    id: number
+    slug: string
+    name: string
+    shortName?: string
+    logoUrl?: string
+  }
+  entityType: 'team' | 'player'
+  team?: {
+    shortName: string
+    slug: string
+  }
+  role?: string
   games: number
 }
 
@@ -674,30 +697,6 @@ export interface AdminPlayersResponse {
   }
 }
 
-// Admin User Management Types
-
-export interface AdminUser {
-  id: number
-  email: string
-  fullName: string | null
-  role: 'user' | 'admin'
-  emailVerified: boolean
-  twoFactorEnabled: boolean
-  createdAt: string
-  lastLoginAt: string | null
-  lockedUntil: string | null
-  failedLoginAttempts: number
-}
-
-export interface CreateUserPayload {
-  email: string
-  password: string
-  fullName?: string
-  role?: 'user' | 'admin'
-}
-
-export type UserRoleFilter = 'all' | 'user' | 'admin'
-
 // Enhanced Worker Monitoring Types
 
 export type AccountHealthStatus = 'fresh' | 'normal' | 'stale' | 'critical'
@@ -745,4 +744,31 @@ export interface ProcessingTimelineEntry {
   label: string
   accountsProcessed: number
   matchesAdded: number
+}
+
+// Priority Queue Types
+
+export interface PriorityTierStats {
+  tier: string
+  count: number
+  avg_score: number
+  avg_staleness_sec: number
+  ready_now: number
+}
+
+export interface PriorityScoreDistribution {
+  range: string
+  count: number
+}
+
+export interface PriorityStatsData {
+  by_tier: PriorityTierStats[]
+  score_distribution: PriorityScoreDistribution[]
+  totals: {
+    total_accounts: number
+    overall_avg_score: number
+    total_ready: number
+    unscored: number
+  }
+  generated_at: string
 }

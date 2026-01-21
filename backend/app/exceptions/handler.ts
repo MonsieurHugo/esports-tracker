@@ -1,4 +1,5 @@
 import app from '@adonisjs/core/services/app'
+import logger from '@adonisjs/core/services/logger'
 import { HttpContext, ExceptionHandler } from '@adonisjs/core/http'
 import type { StatusPageRange, StatusPageRenderer } from '@adonisjs/core/types/http'
 
@@ -42,6 +43,8 @@ export default class HttpExceptionHandler extends ExceptionHandler {
    * @note You should not attempt to send a response from this method.
    */
   async report(error: unknown, ctx: HttpContext) {
+    const err = error as Error
+    logger.error({ err, path: ctx.request.url(), method: ctx.request.method() }, 'Unhandled exception')
     return super.report(error, ctx)
   }
 
@@ -51,10 +54,17 @@ export default class HttpExceptionHandler extends ExceptionHandler {
   async handle(error: unknown, ctx: HttpContext) {
     // Always return JSON for API
     const err = error as Error & { status?: number; code?: string }
+    const status = err.status || 500
 
-    return ctx.response.status(err.status || 500).json({
+    // In production, mask internal error details to prevent information leakage
+    const isServerError = status >= 500
+    const message = app.inProduction && isServerError
+      ? 'Internal Server Error'
+      : (err.message || 'An unexpected error occurred')
+
+    return ctx.response.status(status).json({
       error: err.code || 'Error',
-      message: err.message || 'An unexpected error occurred',
+      message,
     })
   }
 }

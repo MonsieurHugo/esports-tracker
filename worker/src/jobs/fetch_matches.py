@@ -195,11 +195,17 @@ class FetchMatchesJob:
         return total_new_matches
 
     async def _fetch_account_matches(self, riot_api: RiotAPIService, account) -> int:
-        """Fetch matches for a single account."""
+        """Fetch matches for a single account.
+
+        Includes timeout protection to avoid blocking indefinitely on API calls.
+        """
         puuid = account["puuid"]
         new_matches = 0
         champions_to_update: set[int] = set()
         dates_to_update: set = set()
+
+        # Timeout for API calls (30 seconds)
+        API_TIMEOUT = 30.0
 
         # Determine start_time: last match or default
         # Handle edge case where last_match_at is epoch (1970) or invalid
@@ -215,13 +221,25 @@ class FetchMatchesJob:
             start_time = DEFAULT_START_TIME
 
         try:
-            # Get recent match IDs (only Solo/Duo from start_time)
-            match_ids = await riot_api.get_match_ids(
-                puuid=puuid,
-                count=100,  # Max allowed
-                queue=QUEUE_SOLO_DUO,
-                start_time=start_time,
-            )
+            # Get recent match IDs with timeout protection
+            try:
+                match_ids = await asyncio.wait_for(
+                    riot_api.get_match_ids(
+                        puuid=puuid,
+                        count=100,  # Max allowed
+                        queue=QUEUE_SOLO_DUO,
+                        start_time=start_time,
+                    ),
+                    timeout=API_TIMEOUT,
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "Timeout fetching match IDs",
+                    puuid=puuid[:8],
+                    game_name=account["game_name"],
+                    timeout=API_TIMEOUT,
+                )
+                return 0
 
             if not match_ids:
                 return 0
@@ -236,9 +254,21 @@ class FetchMatchesJob:
                 if await self.db.match_exists(match_id):
                     continue
 
-                # Fetch and process new match
+                # Fetch and process new match with timeout protection
                 try:
-                    match_data = await riot_api.get_match(match_id)
+                    try:
+                        match_data = await asyncio.wait_for(
+                            riot_api.get_match(match_id),
+                            timeout=API_TIMEOUT,
+                        )
+                    except asyncio.TimeoutError:
+                        logger.warning(
+                            "Timeout fetching match",
+                            match_id=match_id,
+                            puuid=puuid[:8],
+                            timeout=API_TIMEOUT,
+                        )
+                        continue  # Skip this match and continue with others
                     result = await self._process_match(match_data, puuid)
 
                     if result:
@@ -261,13 +291,23 @@ class FetchMatchesJob:
             today = date_type.today()
             tier, rank_div, lp = None, None, None
             try:
-                league_entries = await riot_api.get_league_entries_by_puuid(puuid)
+                league_entries = await asyncio.wait_for(
+                    riot_api.get_league_entries_by_puuid(puuid),
+                    timeout=API_TIMEOUT,
+                )
                 for entry in league_entries:
                     if entry.get("queueType") == "RANKED_SOLO_5x5":
                         tier = entry.get("tier")
                         rank_div = entry.get("rank")
                         lp = entry.get("leaguePoints")
                         break
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "Timeout fetching rank",
+                    puuid=puuid[:8],
+                    game_name=account["game_name"],
+                    timeout=API_TIMEOUT,
+                )
             except RiotAPIError as e:
                 logger.debug("Could not fetch rank", puuid=puuid, error=str(e))
 

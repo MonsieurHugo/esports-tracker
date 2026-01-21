@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-export type ThemeKey = 'terminal' | 'emerald' | 'mint' | 'snow' | 'daylight'
+export type ThemeKey = 'terminal' | 'emerald' | 'mint'
 
 export interface ThemeVars {
   '--bg-primary': string
@@ -17,6 +17,8 @@ export interface ThemeVars {
   '--negative': string
   '--warning': string
   '--text-on-accent': string
+  // Couleur secondaire pour les graphiques (accessible daltoniens)
+  '--chart-compare': string
 }
 
 export interface Theme {
@@ -44,6 +46,7 @@ export const themes: Record<ThemeKey, Theme> = {
       '--negative': '#ff4757',
       '--warning': '#f59e0b',
       '--text-on-accent': '#0f172a',
+      '--chart-compare': '#3B82F6', // Bleu - contraste avec vert
     },
   },
   emerald: {
@@ -64,6 +67,7 @@ export const themes: Record<ThemeKey, Theme> = {
       '--negative': '#f43f5e',
       '--warning': '#f59e0b',
       '--text-on-accent': '#0f172a',
+      '--chart-compare': '#3B82F6', // Bleu - contraste avec vert
     },
   },
   mint: {
@@ -84,46 +88,7 @@ export const themes: Record<ThemeKey, Theme> = {
       '--negative': '#fb7185',
       '--warning': '#f59e0b',
       '--text-on-accent': '#0f172a',
-    },
-  },
-  snow: {
-    name: 'Snow',
-    description: 'Thème clair, accent vert',
-    vars: {
-      '--bg-primary': '#ffffff',
-      '--bg-secondary': '#f8fafc',
-      '--bg-card': '#f1f5f9',
-      '--bg-hover': '#e2e8f0',
-      '--border': '#cbd5e1',
-      '--text-primary': '#0f172a',
-      '--text-secondary': '#475569',
-      '--text-muted': '#94a3b8',
-      '--accent': '#10b981',
-      '--accent-hover': '#059669',
-      '--positive': '#10b981',
-      '--negative': '#ef4444',
-      '--warning': '#d97706',
-      '--text-on-accent': '#ffffff',
-    },
-  },
-  daylight: {
-    name: 'Daylight',
-    description: 'Thème clair, tons chauds',
-    vars: {
-      '--bg-primary': '#fffbf5',
-      '--bg-secondary': '#fef7ed',
-      '--bg-card': '#fef3e2',
-      '--bg-hover': '#fde9d0',
-      '--border': '#f5d0a9',
-      '--text-primary': '#1c1917',
-      '--text-secondary': '#57534e',
-      '--text-muted': '#a8a29e',
-      '--accent': '#f59e0b',
-      '--accent-hover': '#d97706',
-      '--positive': '#22c55e',
-      '--negative': '#ef4444',
-      '--warning': '#b45309',
-      '--text-on-accent': '#ffffff',
+      '--chart-compare': '#F59E0B', // Orange - contraste avec cyan
     },
   },
 }
@@ -137,3 +102,18 @@ export const useThemeStore = create<ThemeState>()((set) => ({
   currentTheme: 'terminal',
   setTheme: (theme) => set({ currentTheme: theme }),
 }))
+
+/**
+ * Hook pour récupérer les couleurs de graphiques du thème actif
+ * Team 1 = accent du thème, Team 2 = couleur de comparaison accessible daltoniens
+ */
+export function useChartColors() {
+  const currentTheme = useThemeStore((state) => state.currentTheme)
+  const themeVars = themes[currentTheme].vars
+
+  return {
+    team1: themeVars['--accent'],
+    team2: themeVars['--chart-compare'],
+    colors: [themeVars['--accent'], themeVars['--chart-compare']] as const,
+  }
+}

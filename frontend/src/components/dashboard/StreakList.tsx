@@ -1,5 +1,4 @@
 import { memo } from 'react'
-import Link from 'next/link'
 import type { StreakEntry } from '@/lib/types'
 import { getRankTextClass } from '@/lib/utils'
 import TeamLogo from '@/components/ui/TeamLogo'
@@ -51,12 +50,9 @@ function StreakList({ entries, type, isLoading, sortDirection, onSortChange }: S
               </span>
               <div className="flex items-center gap-1.5 sm:gap-2 flex-1 min-w-0">
                 <TeamLogo slug={entry.team.slug} shortName={entry.team.shortName} />
-                <Link
-                  href={`/lol/player/${entry.player.slug}`}
-                  className="font-medium text-[11px] sm:text-xs truncate hover:text-(--accent) hover:underline transition-colors"
-                >
+                <span className="font-medium text-[11px] sm:text-xs truncate">
                   {entry.player.pseudo}
-                </Link>
+                </span>
               </div>
               <span className={`font-mono font-semibold text-[10px] sm:text-[11px] w-10 text-right ${colorClass}`}>
                 {prefix}{entry.streak}

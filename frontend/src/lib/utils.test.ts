@@ -8,6 +8,8 @@ import {
   formatLp,
   VALID_ROLES,
   LEAGUE_COLORS,
+  sanitizeColorValue,
+  getLeagueStyleFromColor,
 } from './utils'
 
 describe('utils', () => {
@@ -104,9 +106,9 @@ describe('utils', () => {
       expect(result).toBe('bg-(--bg-secondary) text-(--text-muted)')
     })
 
-    it('is case sensitive - lowercase returns default', () => {
-      // getLeagueTagClasses does not handle case insensitivity
-      expect(getLeagueTagClasses('lec')).toBe('bg-(--bg-secondary) text-(--text-muted)')
+    it('is case insensitive - lowercase returns same as uppercase', () => {
+      // getLeagueTagClasses normalizes to uppercase
+      expect(getLeagueTagClasses('lec')).toBe(getLeagueTagClasses('LEC'))
     })
   })
 
@@ -190,6 +192,129 @@ describe('utils', () => {
       expect(LEAGUE_COLORS.LEC).toHaveProperty('text')
       expect(LEAGUE_COLORS.LEC).toHaveProperty('border')
       expect(LEAGUE_COLORS.LEC).toHaveProperty('dot')
+    })
+  })
+
+  describe('sanitizeColorValue', () => {
+    it('accepts valid 6-digit hex colors', () => {
+      expect(sanitizeColorValue('#00e5bf')).toBe('#00e5bf')
+      expect(sanitizeColorValue('#FFFFFF')).toBe('#FFFFFF')
+      expect(sanitizeColorValue('#000000')).toBe('#000000')
+      expect(sanitizeColorValue('#123ABC')).toBe('#123ABC')
+    })
+
+    it('accepts valid 3-digit hex colors', () => {
+      expect(sanitizeColorValue('#fff')).toBe('#fff')
+      expect(sanitizeColorValue('#000')).toBe('#000')
+      expect(sanitizeColorValue('#F0A')).toBe('#F0A')
+    })
+
+    it('rejects colors without # prefix', () => {
+      expect(sanitizeColorValue('00e5bf')).toBeNull()
+      expect(sanitizeColorValue('FFFFFF')).toBeNull()
+      expect(sanitizeColorValue('fff')).toBeNull()
+    })
+
+    it('rejects invalid hex characters', () => {
+      expect(sanitizeColorValue('#GGGGGG')).toBeNull()
+      expect(sanitizeColorValue('#00e5bz')).toBeNull()
+      expect(sanitizeColorValue('#xyz')).toBeNull()
+    })
+
+    it('rejects wrong length colors', () => {
+      expect(sanitizeColorValue('#00')).toBeNull()
+      expect(sanitizeColorValue('#0000')).toBeNull()
+      expect(sanitizeColorValue('#00000')).toBeNull()
+      expect(sanitizeColorValue('#0000000')).toBeNull()
+    })
+
+    it('rejects XSS injection attempts', () => {
+      expect(sanitizeColorValue('javascript:alert(1)')).toBeNull()
+      expect(sanitizeColorValue('<script>alert("xss")</script>')).toBeNull()
+      expect(sanitizeColorValue('"); alert("xss"); //')).toBeNull()
+      expect(sanitizeColorValue('#fff; background: red; //')).toBeNull()
+      expect(sanitizeColorValue('#fff\'); alert(1); //')).toBeNull()
+    })
+
+    it('returns null for null or undefined input', () => {
+      expect(sanitizeColorValue(null)).toBeNull()
+      expect(sanitizeColorValue(undefined)).toBeNull()
+    })
+
+    it('returns null for empty string', () => {
+      expect(sanitizeColorValue('')).toBeNull()
+    })
+
+    it('rejects colors with additional characters', () => {
+      expect(sanitizeColorValue('#00e5bf extra')).toBeNull()
+      expect(sanitizeColorValue(' #00e5bf')).toBeNull()
+      expect(sanitizeColorValue('#00e5bf;')).toBeNull()
+    })
+  })
+
+  describe('getLeagueStyleFromColor', () => {
+    it('returns style object for valid hex color', () => {
+      const style = getLeagueStyleFromColor('#00e5bf')
+      expect(style).toEqual({
+        backgroundColor: '#00e5bf20',
+        color: '#00e5bf',
+        borderColor: '#00e5bf4D',
+      })
+    })
+
+    it('returns default style for null color', () => {
+      const style = getLeagueStyleFromColor(null)
+      expect(style).toEqual({
+        backgroundColor: 'var(--bg-secondary)',
+        color: 'var(--text-muted)',
+        borderColor: 'var(--border)',
+      })
+    })
+
+    it('returns default style for invalid color format', () => {
+      const style = getLeagueStyleFromColor('not-a-color')
+      expect(style).toEqual({
+        backgroundColor: 'var(--bg-secondary)',
+        color: 'var(--text-muted)',
+        borderColor: 'var(--border)',
+      })
+    })
+
+    it('sanitizes XSS injection attempts', () => {
+      const malicious1 = getLeagueStyleFromColor('javascript:alert(1)')
+      expect(malicious1).toEqual({
+        backgroundColor: 'var(--bg-secondary)',
+        color: 'var(--text-muted)',
+        borderColor: 'var(--border)',
+      })
+
+      const malicious2 = getLeagueStyleFromColor('<script>alert("xss")</script>')
+      expect(malicious2).toEqual({
+        backgroundColor: 'var(--bg-secondary)',
+        color: 'var(--text-muted)',
+        borderColor: 'var(--border)',
+      })
+
+      const malicious3 = getLeagueStyleFromColor('#fff; background: url("javascript:alert(1)")')
+      expect(malicious3).toEqual({
+        backgroundColor: 'var(--bg-secondary)',
+        color: 'var(--text-muted)',
+        borderColor: 'var(--border)',
+      })
+    })
+
+    it('works with 3-digit hex colors', () => {
+      const style = getLeagueStyleFromColor('#fff')
+      expect(style).toEqual({
+        backgroundColor: '#fff20',
+        color: '#fff',
+        borderColor: '#fff4D',
+      })
+    })
+
+    it('preserves case of valid hex colors', () => {
+      const style = getLeagueStyleFromColor('#ABC123')
+      expect(style.color).toBe('#ABC123')
     })
   })
 })

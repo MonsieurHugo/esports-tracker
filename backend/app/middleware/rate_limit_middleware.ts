@@ -1,7 +1,26 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import type { NextFn } from '@adonisjs/core/types/http'
+import logger from '@adonisjs/core/services/logger'
 import { DateTime } from 'luxon'
-import redis from '@adonisjs/redis/services/main'
+import { getClientIp } from '#utils/http_utils'
+
+// Lazy-load Redis - will be null if Redis provider is not loaded
+let redisService: Awaited<typeof import('@adonisjs/redis/services/main')>['default'] | null = null
+let redisInitialized = false
+
+async function getRedis() {
+  if (!redisInitialized) {
+    redisInitialized = true
+    try {
+      const module = await import('@adonisjs/redis/services/main')
+      redisService = module.default
+    } catch {
+      // Redis provider not loaded - use memory fallback
+      redisService = null
+    }
+  }
+  return redisService
+}
 
 interface RateLimitConfig {
   maxAttempts: number
@@ -37,6 +56,16 @@ const RATE_LIMIT_CONFIGS: Record<string, RateLimitConfig> = {
     windowMs: 10 * 60 * 1000, // 10 minutes window
     blockDurationMs: 30 * 60 * 1000, // 30 minute block
   },
+  api: {
+    maxAttempts: 500, // 500 requests per minute - allows active dashboard usage
+    windowMs: 60 * 1000, // 1 minute window
+    blockDurationMs: 60 * 1000, // 1 minute block
+  },
+  worker: {
+    maxAttempts: 200, // 200 requests per minute - worker metrics/logs
+    windowMs: 60 * 1000, // 1 minute window
+    blockDurationMs: 60 * 1000, // 1 minute block
+  },
   default: {
     maxAttempts: 100, // 100 requests
     windowMs: 60 * 1000, // 1 minute window
@@ -46,18 +75,167 @@ const RATE_LIMIT_CONFIGS: Record<string, RateLimitConfig> = {
 
 // Fallback in-memory store when Redis is unavailable
 const memoryStore = new Map<string, RateLimitEntry>()
+const MAX_MEMORY_ENTRIES = 10000
 
-// Clean up old entries periodically (for memory fallback)
-setInterval(() => {
-  const now = Date.now()
-  for (const [key, entry] of memoryStore.entries()) {
-    if (entry.blockedUntil && entry.blockedUntil < now) {
-      memoryStore.delete(key)
-    } else if (now - entry.firstAttempt > RATE_LIMIT_CONFIGS.default.windowMs * 2) {
-      memoryStore.delete(key)
+// Eviction percentages for memory management
+const EVICTION_PERCENTAGE = 0.2 // Evict 20% of entries when limit reached
+const EMERGENCY_EVICTION_PERCENTAGE = 0.3 // Evict 30% during emergency cleanup
+
+interface CleanupStats {
+  lastSize: number
+  lastDeleted: number
+  lastCleanupAt: number
+  emergencyCleanups: number
+}
+
+const cleanupStats: CleanupStats = {
+  lastSize: 0,
+  lastDeleted: 0,
+  lastCleanupAt: Date.now(),
+  emergencyCleanups: 0,
+}
+
+/**
+ * Evict oldest entries when memory limit is reached
+ * Removes 20% of entries based on firstAttempt timestamp
+ */
+function evictOldestEntriesIfNeeded(): void {
+  if (memoryStore.size < MAX_MEMORY_ENTRIES) return
+
+  const entriesToDelete = Math.floor(MAX_MEMORY_ENTRIES * EVICTION_PERCENTAGE)
+  const sorted = Array.from(memoryStore.entries()).sort(
+    (a, b) => a[1].firstAttempt - b[1].firstAttempt
+  )
+
+  sorted.slice(0, entriesToDelete).forEach(([key]) => {
+    memoryStore.delete(key)
+  })
+
+  logger.warn({ evicted: entriesToDelete, remaining: memoryStore.size }, 'Rate limiter memory limit reached, evicting oldest entries')
+}
+
+/**
+ * Emergency cleanup when approaching memory limit
+ * Removes 30% of oldest entries
+ */
+function performEmergencyCleanup(): void {
+  logger.error(
+    {
+      component: 'rate-limiter',
+      size: memoryStore.size,
+    },
+    'Emergency cleanup triggered'
+  )
+
+  cleanupStats.emergencyCleanups++
+
+  // Sort by age and delete oldest entries
+  const entries = [...memoryStore.entries()].sort((a, b) => a[1].firstAttempt - b[1].firstAttempt)
+
+  const toDelete = Math.floor(entries.length * EMERGENCY_EVICTION_PERCENTAGE)
+  for (let i = 0; i < toDelete; i++) {
+    memoryStore.delete(entries[i][0])
+  }
+
+  logger.info(
+    {
+      component: 'rate-limiter',
+      deleted: toDelete,
+      remaining: memoryStore.size,
+    },
+    'Emergency cleanup completed'
+  )
+}
+
+/**
+ * Cleanup manager for rate limiter memory store
+ */
+class CleanupManager {
+  private cleanupInterval: NodeJS.Timeout | null = null
+  private shutdownHandler: (() => void) | null = null
+
+  /**
+   * Start cleanup interval - idempotent, only creates one interval
+   */
+  startCleanup() {
+    // Prevent duplicate intervals
+    if (this.cleanupInterval) {
+      return
+    }
+
+    // Clean up old entries periodically (for memory fallback) - 30s interval
+    this.cleanupInterval = setInterval(() => {
+      this.cleanup()
+    }, 30 * 1000)
+
+    // Handle graceful shutdown
+    if (!this.shutdownHandler) {
+      this.shutdownHandler = () => {
+        this.stopCleanup()
+      }
+      process.once('SIGTERM', this.shutdownHandler)
+      process.once('SIGINT', this.shutdownHandler)
+    }
+
+    logger.debug({ component: 'rate-limiter' }, 'Cleanup interval started')
+  }
+
+  /**
+   * Stop cleanup interval
+   */
+  stopCleanup() {
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval)
+      this.cleanupInterval = null
+      logger.debug({ component: 'rate-limiter' }, 'Cleanup interval stopped')
     }
   }
-}, 60 * 1000)
+
+  /**
+   * Perform cleanup of expired entries
+   */
+  private cleanup() {
+    const now = Date.now()
+    let deleted = 0
+
+    for (const [key, entry] of memoryStore.entries()) {
+      const isExpired = entry.blockedUntil
+        ? entry.blockedUntil < now
+        : now - entry.firstAttempt > RATE_LIMIT_CONFIGS.default.windowMs * 2
+
+      if (isExpired) {
+        memoryStore.delete(key)
+        deleted++
+      }
+    }
+
+    cleanupStats.lastSize = memoryStore.size
+    cleanupStats.lastDeleted = deleted
+    cleanupStats.lastCleanupAt = now
+
+    // Warning if usage is high
+    if (memoryStore.size > 5000) {
+      logger.warn(
+        {
+          component: 'rate-limiter',
+          memoryStoreSize: memoryStore.size,
+          deleted,
+          maxEntries: MAX_MEMORY_ENTRIES,
+        },
+        'Rate limiter memory fallback high usage - possible attack'
+      )
+    }
+
+    // Emergency cleanup if approaching limit
+    if (memoryStore.size > MAX_MEMORY_ENTRIES * 0.9) {
+      performEmergencyCleanup()
+    }
+  }
+}
+
+const cleanupManager = new CleanupManager()
+// Start cleanup on module load
+cleanupManager.startCleanup()
 
 /**
  * Rate limit store abstraction - uses Redis with memory fallback
@@ -66,6 +244,10 @@ class RateLimitStore {
   private prefix = 'ratelimit:'
 
   async get(key: string): Promise<RateLimitEntry | null> {
+    const redis = await getRedis()
+    if (!redis) {
+      return memoryStore.get(key) || null
+    }
     try {
       const data = await redis.get(`${this.prefix}${key}`)
       return data ? JSON.parse(data) : null
@@ -76,15 +258,27 @@ class RateLimitStore {
   }
 
   async set(key: string, entry: RateLimitEntry, ttlMs: number): Promise<void> {
+    const redis = await getRedis()
+    if (!redis) {
+      evictOldestEntriesIfNeeded()
+      memoryStore.set(key, entry)
+      return
+    }
     try {
       await redis.set(`${this.prefix}${key}`, JSON.stringify(entry), 'PX', ttlMs)
     } catch {
       // Fallback to memory on Redis error
+      evictOldestEntriesIfNeeded()
       memoryStore.set(key, entry)
     }
   }
 
   async delete(key: string): Promise<void> {
+    const redis = await getRedis()
+    if (!redis) {
+      memoryStore.delete(key)
+      return
+    }
     try {
       await redis.del(`${this.prefix}${key}`)
     } catch {
@@ -94,8 +288,28 @@ class RateLimitStore {
   }
 
   async getStats(): Promise<{ total: number; blocked: number }> {
+    const redis = await getRedis()
+    if (!redis) {
+      const now = Date.now()
+      let blocked = 0
+      for (const entry of memoryStore.values()) {
+        if (entry.blockedUntil && entry.blockedUntil > now) {
+          blocked++
+        }
+      }
+      return { total: memoryStore.size, blocked }
+    }
     try {
-      const keys = await redis.keys(`${this.prefix}*`)
+      // Use SCAN instead of KEYS to avoid blocking Redis
+      const keys: string[] = []
+      let cursor = '0'
+
+      do {
+        const result = await redis.scan(cursor, 'MATCH', `${this.prefix}*`, 'COUNT', 100)
+        cursor = result[0]
+        keys.push(...result[1])
+      } while (cursor !== '0')
+
       let blocked = 0
       const now = Date.now()
 
@@ -127,23 +341,12 @@ const store = new RateLimitStore()
 
 export default class RateLimitMiddleware {
   /**
-   * Get client IP from request
-   */
-  private getClientIp(ctx: HttpContext): string {
-    const forwarded = ctx.request.header('x-forwarded-for')
-    if (forwarded) {
-      return forwarded.split(',')[0].trim()
-    }
-    return ctx.request.ip() || 'unknown'
-  }
-
-  /**
    * Handle rate limiting
    */
   async handle(ctx: HttpContext, next: NextFn, options?: { type?: string }) {
     const type = options?.type || 'default'
     const config = RATE_LIMIT_CONFIGS[type] || RATE_LIMIT_CONFIGS.default
-    const ip = this.getClientIp(ctx)
+    const ip = getClientIp(ctx)
     const key = `${type}:${ip}`
     const now = Date.now()
 
@@ -223,4 +426,18 @@ export async function resetRateLimit(type: string, ip: string): Promise<void> {
  */
 export async function getRateLimitStatus(): Promise<{ total: number; blocked: number }> {
   return store.getStats()
+}
+
+/**
+ * Get rate limiter stats including cleanup metrics
+ */
+export async function getRateLimiterStats(): Promise<
+  CleanupStats & { currentSize: number; usingRedis: boolean }
+> {
+  const redis = await getRedis()
+  return {
+    ...cleanupStats,
+    currentSize: memoryStore.size,
+    usingRedis: redis !== null,
+  }
 }

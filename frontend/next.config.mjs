@@ -19,6 +19,21 @@ const nextConfig = {
       },
     ]
   },
+  async headers() {
+    // CSP headers are handled by the backend middleware
+    // This config ensures Next.js doesn't override them
+    return [
+      {
+        source: '/:path*',
+        headers: [
+          {
+            key: 'X-DNS-Prefetch-Control',
+            value: 'on',
+          },
+        ],
+      },
+    ]
+  },
 }
 
 export default nextConfig

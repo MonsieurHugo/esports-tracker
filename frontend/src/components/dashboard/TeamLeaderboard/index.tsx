@@ -91,10 +91,13 @@ export default function TeamLeaderboard({
     return [...pinnedTeams, ...otherTeams]
   }, [data, selectedTeams, lockedTeamIds])
 
-  // Helper pour obtenir l'index de sélection d'une équipe
-  const getSelectionIndex = useCallback((teamId: number): number | null => {
-    const index = selectedTeams.findIndex((t) => t.team.teamId === teamId)
-    return index === -1 ? null : index
+  // Map pour obtenir l'index de sélection d'une équipe en O(1)
+  const selectionMap = useMemo(() => {
+    const map = new Map<number, number>()
+    selectedTeams.forEach((team, index) => {
+      map.set(team.team.teamId, index)
+    })
+    return map
   }, [selectedTeams])
 
   const handleToggleExpand = useCallback((teamId: number) => {
@@ -131,23 +134,23 @@ export default function TeamLeaderboard({
           <span className="flex-1 min-w-0">Équipe</span>
           <span
             onClick={() => onSortChange('lp')}
-            className={`w-16 sm:w-20 pr-4 text-right whitespace-nowrap cursor-pointer hover:text-(--text-primary) transition-colors ${sortBy === 'lp' ? 'text-(--text-primary)' : ''}`}
+            className={`w-16 sm:w-20 text-center whitespace-nowrap cursor-pointer hover:text-(--text-primary) transition-colors ${sortBy === 'lp' ? 'text-(--text-primary)' : ''}`}
           >
             LP<SortIcon active={sortBy === 'lp'} />
           </span>
           <span
             onClick={() => onSortChange('games')}
-            className={`w-14 sm:w-16 pr-4 text-right whitespace-nowrap cursor-pointer hover:text-(--text-primary) transition-colors ${sortBy === 'games' ? 'text-(--text-primary)' : ''}`}
+            className={`w-16 sm:w-20 text-center whitespace-nowrap cursor-pointer hover:text-(--text-primary) transition-colors ${sortBy === 'games' ? 'text-(--text-primary)' : ''}`}
           >
             Games<SortIcon active={sortBy === 'games'} />
           </span>
           <span
             onClick={() => onSortChange('winrate')}
-            className={`w-[4.5rem] sm:w-20 pr-4 text-right whitespace-nowrap cursor-pointer hover:text-(--text-primary) transition-colors ${sortBy === 'winrate' ? 'text-(--text-primary)' : ''}`}
+            className={`w-16 sm:w-20 text-center whitespace-nowrap cursor-pointer hover:text-(--text-primary) transition-colors ${sortBy === 'winrate' ? 'text-(--text-primary)' : ''}`}
           >
             Winrate<SortIcon active={sortBy === 'winrate'} />
           </span>
-          <span className="w-7 sm:w-8 ml-2"></span>
+          <span className="w-7 sm:w-8"></span>
         </div>
       </div>
 
@@ -167,8 +170,8 @@ export default function TeamLeaderboard({
         </div>
         {/* Content */}
         <div>
-          {displayData.map((entry, index) => {
-            const selectionIndex = getSelectionIndex(entry.team.teamId)
+          {displayData.map((entry) => {
+            const selectionIndex = selectionMap.get(entry.team.teamId) ?? null
             return (
               <TeamRow
                 key={entry.team.teamId}

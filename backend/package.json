@@ -22,6 +22,7 @@
     "#validators/*": "./app/validators/*.ts",
     "#exceptions/*": "./app/exceptions/*.ts",
     "#middleware/*": "./app/middleware/*.ts",
+    "#utils/*": "./app/utils/*.ts",
     "#config/*": "./config/*.ts",
     "#start/*": "./start/*.ts",
     "#commands/*": "./commands/*.ts"
@@ -55,7 +56,8 @@
     "@vinejs/vine": "^2.1.0",
     "luxon": "^3.5.0",
     "pg": "^8.13.0",
-    "reflect-metadata": "^0.2.2"
+    "reflect-metadata": "^0.2.2",
+    "yaml": "^2.8.2"
   },
   "prettier": "@adonisjs/prettier-config",
   "eslintConfig": {

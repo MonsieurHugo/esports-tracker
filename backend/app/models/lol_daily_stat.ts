@@ -5,6 +5,18 @@ import LolAccount from './lol_account.js'
 
 export default class LolDailyStat extends BaseModel {
   static table = 'lol_daily_stats'
+  static selfAssignPrimaryKey = false
+
+  /**
+   * Disable automatic timestamps since the table doesn't have created_at/updated_at columns
+   */
+  static get createdAtColumn() {
+    return null
+  }
+
+  static get updatedAtColumn() {
+    return null
+  }
 
   @column({ isPrimary: true })
   declare id: number

@@ -118,13 +118,16 @@ describe('api', () => {
         json: async () => ({}),
       })
 
+      let caughtError: ApiError | null = null
       try {
         await api.get('/test')
       } catch (error) {
-        expect(error).toBeInstanceOf(ApiError)
-        expect((error as ApiError).status).toBe(401)
-        expect((error as ApiError).isUnauthorized).toBe(true)
+        caughtError = error as ApiError
       }
+
+      expect(caughtError).toBeInstanceOf(ApiError)
+      expect(caughtError?.status).toBe(401)
+      expect(caughtError?.isUnauthorized).toBe(true)
     })
 
     it('should handle non-JSON error responses', async () => {
@@ -135,7 +138,16 @@ describe('api', () => {
         json: async () => { throw new Error('Not JSON') },
       })
 
-      await expect(api.get('/test')).rejects.toThrow(ApiError)
+      let caughtError: ApiError | null = null
+      try {
+        await api.get('/test')
+      } catch (error) {
+        caughtError = error as ApiError
+      }
+
+      expect(caughtError).toBeInstanceOf(ApiError)
+      expect(caughtError?.status).toBe(500)
+      expect(caughtError?.isServerError).toBe(true)
     })
   })
 
@@ -219,6 +231,166 @@ describe('api', () => {
       const url = mockFetch.mock.calls[0][0] as string
       expect(url).not.toContain('\x00')
       expect(url).not.toContain('\x1f')
+    })
+  })
+
+  describe('request deduplication', () => {
+    it('should deduplicate GET requests without signal', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: 'test' }),
+      })
+
+      // Deux appels simultanés = une seule requête fetch
+      const promise1 = api.get('/test')
+      const promise2 = api.get('/test')
+
+      expect(mockFetch).toHaveBeenCalledTimes(1)
+
+      const [result1, result2] = await Promise.all([promise1, promise2])
+      expect(result1).toEqual(result2)
+    })
+
+    it('should deduplicate GET requests with signal', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: 'test' }),
+      })
+
+      const controller = new AbortController()
+
+      const promise1 = api.get('/test')
+      const promise2 = api.get('/test', { signal: controller.signal })
+
+      expect(mockFetch).toHaveBeenCalledTimes(1)
+
+      const [result1, result2] = await Promise.all([promise1, promise2])
+      expect(result1).toEqual(result2)
+    })
+
+    it('should abort deduplicated request without affecting others', async () => {
+      // Créer une promesse qui se résout avec un délai
+      mockFetch.mockImplementationOnce(() => {
+        return new Promise((resolve) => {
+          setTimeout(() => {
+            resolve({
+              ok: true,
+              json: async () => ({ data: 'test' }),
+            })
+          }, 100)
+        })
+      })
+
+      const controller = new AbortController()
+
+      const promise1 = api.get('/test')
+      const promise2 = api.get('/test', { signal: controller.signal })
+
+      // Abort la deuxième requête
+      controller.abort()
+
+      // La deuxième doit être aborted - on vérifie d'abord celle-ci
+      await expect(promise2).rejects.toThrow('Aborted')
+
+      // La première doit réussir
+      const result1 = await promise1
+      expect(result1).toBeDefined()
+      expect(result1).toEqual({ data: 'test' })
+    })
+
+    it('should reject immediately with already aborted signal', async () => {
+      mockFetch.mockImplementationOnce(() => {
+        return new Promise((resolve) => {
+          setTimeout(() => {
+            resolve({
+              ok: true,
+              json: async () => ({ data: 'test' }),
+            })
+          }, 100)
+        })
+      })
+
+      const controller = new AbortController()
+      controller.abort()
+
+      // Première requête en cours
+      const promise1 = api.get('/test')
+
+      // Deuxième avec signal déjà aborted
+      const promise2 = api.get('/test', { signal: controller.signal })
+
+      await expect(promise2).rejects.toThrow('Aborted')
+      await expect(promise1).resolves.toBeDefined()
+    })
+
+    it('should not deduplicate POST requests', async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ id: 1 }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ id: 2 }),
+        })
+
+      const promise1 = api.post('/test', { data: 'test1' })
+      const promise2 = api.post('/test', { data: 'test2' })
+
+      await Promise.all([promise1, promise2])
+
+      // Les deux doivent avoir été appelées
+      expect(mockFetch).toHaveBeenCalledTimes(2)
+    })
+
+    it('should deduplicate sequential GET requests before first completes', async () => {
+      let resolveFirst: (value: unknown) => void
+      const firstPromise = new Promise((resolve) => {
+        resolveFirst = resolve
+      })
+
+      mockFetch.mockImplementationOnce(() => firstPromise)
+
+      // Première requête
+      const promise1 = api.get('/test')
+
+      // Deuxième requête avant que la première ne se termine
+      const promise2 = api.get('/test')
+
+      // Une seule requête fetch
+      expect(mockFetch).toHaveBeenCalledTimes(1)
+
+      // Résoudre maintenant
+      resolveFirst!({
+        ok: true,
+        json: async () => ({ data: 'shared' }),
+      })
+
+      const [result1, result2] = await Promise.all([promise1, promise2])
+      expect(result1).toEqual(result2)
+    })
+
+    it('should make new request after first completes', async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ data: 'first' }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ data: 'second' }),
+        })
+
+      // Première requête
+      const result1 = await api.get('/test')
+      expect(result1).toEqual({ data: 'first' })
+
+      // Deuxième requête après la première
+      const result2 = await api.get('/test')
+      expect(result2).toEqual({ data: 'second' })
+
+      // Deux appels fetch
+      expect(mockFetch).toHaveBeenCalledTimes(2)
     })
   })
 })

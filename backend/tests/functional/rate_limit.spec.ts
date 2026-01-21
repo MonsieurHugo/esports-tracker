@@ -1,67 +1,73 @@
 import { test } from '@japa/runner'
+import testUtils from '@adonisjs/core/services/test_utils'
 
-test.group('Rate Limiting Middleware', () => {
-  test('login endpoint returns 429 after too many requests', async ({ client, assert }) => {
-    // Make many rapid requests to trigger rate limit
-    const requests = []
+/**
+ * Rate Limiting Tests
+ *
+ * Tests for rate limiting enforcement on API endpoints:
+ * - API endpoints (500 requests per minute)
+ * - Rate limit headers
+ */
+
+// ============================================
+// API RATE LIMITING
+// ============================================
+
+test.group('Rate Limiting - API Endpoints', (group) => {
+  group.each.setup(() => testUtils.db().withGlobalTransaction())
+
+  test('API endpoints have high rate limits', async ({ client, assert }) => {
+    // Make 10 requests quickly (limit is 500 per minute)
+    const responses = []
     for (let i = 0; i < 10; i++) {
-      requests.push(
-        client.post('/api/v1/auth/login').json({
-          email: `test${i}@example.com`,
-          password: 'anypassword',
-        })
-      )
+      const response = await client.get('/api/v1/lol/dashboard/teams').qs({
+        period: '7d',
+      })
+      responses.push(response)
     }
 
-    const responses = await Promise.all(requests)
-
-    // At least one should be rate limited (429) if rate limiting is working
-    // Or all should be 401 (invalid credentials) if under the limit
-    const statusCodes = responses.map((r) => r.status())
-    const hasRateLimitOrAuth = statusCodes.every((code) => code === 401 || code === 429)
-
-    assert.isTrue(hasRateLimitOrAuth, 'Should return 401 or 429 for login attempts')
+    // All should succeed
+    responses.forEach((response) => {
+      assert.equal(response.status(), 200)
+    })
   })
 
-  test('rate limited response includes Retry-After header', async ({ client, assert }) => {
-    // Make many requests quickly to trigger rate limit
-    for (let i = 0; i < 20; i++) {
-      await client.post('/api/v1/auth/login').json({
-        email: 'test@example.com',
-        password: 'wrongpassword',
-      })
-    }
-
-    // This request should be rate limited
-    const response = await client.post('/api/v1/auth/login').json({
-      email: 'test@example.com',
-      password: 'wrongpassword',
+  test('API rate limit headers are present', async ({ client, assert }) => {
+    const response = await client.get('/api/v1/lol/dashboard/teams').qs({
+      period: '7d',
     })
 
-    // If rate limited, should have Retry-After header
-    if (response.status() === 429) {
-      assert.isNotNull(response.header('retry-after'))
-    }
+    assert.exists(response.header('x-ratelimit-limit'))
+    assert.exists(response.header('x-ratelimit-remaining'))
+    assert.exists(response.header('x-ratelimit-reset'))
   })
 
-  test('registration endpoint has rate limiting', async ({ client, assert }) => {
-    // Make rapid registration attempts
-    const requests = []
-    for (let i = 0; i < 15; i++) {
-      requests.push(
-        client.post('/api/v1/auth/register').json({
-          email: `newuser${i}@example.com`,
-          password: 'StrongP@ss123',
-          confirmPassword: 'StrongP@ss123',
-        })
-      )
+  test('API rate limit is 500 requests per minute', async ({ client, assert }) => {
+    const response = await client.get('/api/v1/lol/dashboard/teams').qs({
+      period: '7d',
+    })
+
+    const limit = parseInt(response.header('x-ratelimit-limit') || '0')
+    assert.equal(limit, 500, 'API rate limit should be 500 per minute')
+  })
+
+  test('rate limit countdown in remaining header', async ({ client, assert }) => {
+    const responses = []
+
+    // Make 3 requests and check remaining count
+    for (let i = 0; i < 3; i++) {
+      const response = await client.get('/api/v1/lol/dashboard/teams').qs({
+        period: '7d',
+      })
+      responses.push(response)
     }
 
-    const responses = await Promise.all(requests)
-    const statusCodes = responses.map((r) => r.status())
+    // Verify remaining count decreases
+    const remaining1 = parseInt(responses[0].header('x-ratelimit-remaining') || '0')
+    const remaining2 = parseInt(responses[1].header('x-ratelimit-remaining') || '0')
+    const remaining3 = parseInt(responses[2].header('x-ratelimit-remaining') || '0')
 
-    // Should either succeed (201), fail validation (422), or be rate limited (429)
-    const validCodes = statusCodes.every((code) => [201, 422, 429, 400].includes(code))
-    assert.isTrue(validCodes, 'Should return valid status codes for registration attempts')
+    assert.isBelow(remaining2, remaining1)
+    assert.isBelow(remaining3, remaining2)
   })
 })

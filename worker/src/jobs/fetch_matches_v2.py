@@ -211,14 +211,27 @@ class FetchMatchesJobV2:
                 # Update last_fetched_at in accounts table
                 await self.db.update_account_last_fetched(account.puuid)
 
-                # Get fresh activity data if we found matches
-                activity_data = None
+                # Reschedule with updated priority
+                # Use row locking when we found new matches to prevent race conditions
                 if new_matches > 0:
-                    activity_data = await self.db.get_account_activity_data(
-                        account.puuid
-                    )
+                    # Use transaction with FOR UPDATE SKIP LOCKED to prevent
+                    # concurrent updates from overwriting each other's changes
+                    async with self.db.transaction() as conn:
+                        activity_data = await self.db.get_account_activity_data(
+                            account.puuid,
+                            for_update=True,
+                            connection=conn,
+                        )
+                        if activity_data:
+                            # Reschedule within the same transaction
+                            await self._selector.reschedule(
+                                account, new_matches, activity_data, connection=conn
+                            )
+                        else:
+                            # Row was locked by another worker (SKIP LOCKED), reschedule without fresh data
+                            await self._selector.reschedule(account, new_matches, None)
 
-                    # Update worker stats
+                    # Update worker stats (outside transaction, non-critical)
                     await self.db.increment_worker_stats(
                         matches_added=new_matches,
                         accounts_processed=1,
@@ -232,9 +245,8 @@ class FetchMatchesJobV2:
                     )
                 else:
                     await self.db.increment_worker_stats(accounts_processed=1)
-
-                # Reschedule with updated priority
-                await self._selector.reschedule(account, new_matches, activity_data)
+                    # No lock needed for empty fetches - simple decay
+                    await self._selector.reschedule(account, 0, None)
 
             except Exception as e:
                 logger.error(
@@ -284,11 +296,15 @@ class FetchMatchesJobV2:
         """Fetch matches for a single account.
 
         This is largely the same as V1, but works with PrioritizedAccount.
+        Includes timeout protection to avoid blocking indefinitely on API calls.
         """
         puuid = account.puuid
         new_matches = 0
         champions_to_update: set[int] = set()
         dates_to_update: set = set()
+
+        # Timeout for API calls (30 seconds)
+        API_TIMEOUT = 30.0
 
         # Determine start_time
         if account.last_match_at:
@@ -301,13 +317,25 @@ class FetchMatchesJobV2:
             start_time = DEFAULT_START_TIME
 
         try:
-            # Get recent match IDs
-            match_ids = await riot_api.get_match_ids(
-                puuid=puuid,
-                count=100,
-                queue=QUEUE_SOLO_DUO,
-                start_time=start_time,
-            )
+            # Get recent match IDs with timeout protection
+            try:
+                match_ids = await asyncio.wait_for(
+                    riot_api.get_match_ids(
+                        puuid=puuid,
+                        count=100,
+                        queue=QUEUE_SOLO_DUO,
+                        start_time=start_time,
+                    ),
+                    timeout=API_TIMEOUT,
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "Timeout fetching match IDs",
+                    puuid=puuid[:8],
+                    game_name=f"{account.game_name}#{account.tag_line}",
+                    timeout=API_TIMEOUT,
+                )
+                return 0
 
             if not match_ids:
                 return 0
@@ -322,9 +350,21 @@ class FetchMatchesJobV2:
                 if await self.db.match_exists(match_id):
                     continue
 
-                # Fetch and process new match
+                # Fetch and process new match with timeout protection
                 try:
-                    match_data = await riot_api.get_match(match_id)
+                    try:
+                        match_data = await asyncio.wait_for(
+                            riot_api.get_match(match_id),
+                            timeout=API_TIMEOUT,
+                        )
+                    except asyncio.TimeoutError:
+                        logger.warning(
+                            "Timeout fetching match",
+                            match_id=match_id,
+                            puuid=puuid[:8],
+                            timeout=API_TIMEOUT,
+                        )
+                        continue  # Skip this match and continue with others
                     result = await self._process_match(match_data, puuid)
 
                     if result:
@@ -353,13 +393,23 @@ class FetchMatchesJobV2:
             tier, rank_div, lp = None, None, None
 
             try:
-                league_entries = await riot_api.get_league_entries_by_puuid(puuid)
+                league_entries = await asyncio.wait_for(
+                    riot_api.get_league_entries_by_puuid(puuid),
+                    timeout=API_TIMEOUT,
+                )
                 for entry in league_entries:
                     if entry.get("queueType") == "RANKED_SOLO_5x5":
                         tier = entry.get("tier")
                         rank_div = entry.get("rank")
                         lp = entry.get("leaguePoints")
                         break
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "Timeout fetching rank",
+                    puuid=puuid[:8],
+                    game_name=f"{account.game_name}#{account.tag_line}",
+                    timeout=API_TIMEOUT,
+                )
             except RiotAPIError as e:
                 logger.debug("Could not fetch rank", puuid=puuid[:8], error=str(e))
 

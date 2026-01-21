@@ -102,6 +102,10 @@
     --league-lfl: #ff7b57;
     --league-lck: #f5e6d3;
     --league-lcs: #0a7cff;
+    --league-lpl: #de2910;
+    --league-lckcl: #a855f7;
+    --league-lcp: #22c55e;
+    --league-cblol: #10b981;
 
     /* Rôles */
     --role-top: #f59e0b;
@@ -150,4 +154,25 @@
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+/* Modal charts - larger labels */
+.modal-charts .recharts-cartesian-axis-tick text {
+  font-size: 13px !important;
+}
+
+.modal-charts .recharts-label-list text {
+  font-size: 12px !important;
+}
+
+.modal-charts .text-\[11px\] {
+  font-size: 14px !important;
+}
+
+.modal-charts .text-\[9px\] {
+  font-size: 11px !important;
+}
+
+.modal-charts .text-\[10px\] {
+  font-size: 12px !important;
 }

@@ -22,6 +22,9 @@ export default class League extends BaseModel {
   @column()
   declare isActive: boolean
 
+  @column()
+  declare color: string | null
+
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
 }

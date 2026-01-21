@@ -7,6 +7,7 @@ import {
   navigateDate,
   getDateRangeForPeriod,
   getRelativeTime,
+  generateCompleteDateRange,
 } from './dateUtils'
 
 describe('dateUtils', () => {
@@ -69,82 +70,137 @@ describe('dateUtils', () => {
   })
 
   describe('formatDateRange', () => {
-    it('formats day period correctly', () => {
-      const result = formatDateRange('day', '2024-06-15', '2024-06-15')
+    it('formats 7d period correctly', () => {
+      const result = formatDateRange('7d', '2024-06-09', '2024-06-15')
       expect(result).toContain('2024')
+      expect(result).toContain('9')
       expect(result).toContain('15')
     })
 
-    it('formats month period correctly', () => {
-      const result = formatDateRange('month', '2024-06-01', '2024-06-30')
-      expect(result.toLowerCase()).toContain('juin')
-      expect(result).toContain('2024')
+    it('formats 14d period correctly', () => {
+      const result = formatDateRange('14d', '2024-06-02', '2024-06-15')
+      expect(result).toContain('2')
+      expect(result).toContain('15')
     })
 
-    it('formats year period correctly', () => {
-      const result = formatDateRange('year', '2024-01-01', '2024-12-31')
-      expect(result).toBe('2024')
+    it('formats 30d period correctly', () => {
+      const result = formatDateRange('30d', '2024-05-17', '2024-06-15')
+      expect(result).toContain('17')
+      expect(result).toContain('15')
     })
 
-    it('formats custom period correctly', () => {
-      const result = formatDateRange('custom', '2024-06-10', '2024-06-20')
-      expect(result).toContain('10')
-      expect(result).toContain('20')
+    it('formats 90d period correctly', () => {
+      const result = formatDateRange('90d', '2024-03-18', '2024-06-15')
+      expect(result).toContain('18')
+      expect(result).toContain('15')
     })
   })
 
   describe('navigateDate', () => {
-    it('navigates day period by 7 days forward', () => {
-      const result = navigateDate('day', '2024-06-15', 'next')
+    it('navigates 7d period by 7 days forward', () => {
+      const result = navigateDate('7d', '2024-06-15', 'next')
       expect(result).toBe('2024-06-22')
     })
 
-    it('navigates day period by 7 days backward', () => {
-      const result = navigateDate('day', '2024-06-15', 'prev')
+    it('navigates 7d period by 7 days backward', () => {
+      const result = navigateDate('7d', '2024-06-15', 'prev')
       expect(result).toBe('2024-06-08')
     })
 
-    it('navigates month period forward', () => {
-      const result = navigateDate('month', '2024-06-15', 'next')
+    it('navigates 14d period by 14 days forward', () => {
+      const result = navigateDate('14d', '2024-06-15', 'next')
+      expect(result).toBe('2024-06-29')
+    })
+
+    it('navigates 14d period by 14 days backward', () => {
+      const result = navigateDate('14d', '2024-06-15', 'prev')
+      expect(result).toBe('2024-06-01')
+    })
+
+    it('navigates 30d period by 30 days forward', () => {
+      const result = navigateDate('30d', '2024-06-15', 'next')
       expect(result).toBe('2024-07-15')
     })
 
-    it('navigates month period backward', () => {
-      const result = navigateDate('month', '2024-06-15', 'prev')
-      expect(result).toBe('2024-05-15')
+    it('navigates 30d period by 30 days backward', () => {
+      const result = navigateDate('30d', '2024-06-15', 'prev')
+      expect(result).toBe('2024-05-16')
     })
 
-    it('navigates year period forward', () => {
-      const result = navigateDate('year', '2024-06-15', 'next')
-      expect(result).toBe('2025-06-15')
+    it('navigates 90d period by 90 days forward', () => {
+      const result = navigateDate('90d', '2024-06-15', 'next')
+      expect(result).toBe('2024-09-13')
     })
 
-    it('navigates year period backward', () => {
-      const result = navigateDate('year', '2024-06-15', 'prev')
-      expect(result).toBe('2023-06-15')
+    it('navigates 90d period by 90 days backward', () => {
+      const result = navigateDate('90d', '2024-06-15', 'prev')
+      expect(result).toBe('2024-03-17')
     })
   })
 
   describe('getDateRangeForPeriod', () => {
-    it('returns 7 day range for day period', () => {
+    it('returns 7 day range for 7d period', () => {
       const refDate = new Date('2024-06-20')
-      const { startDate, endDate } = getDateRangeForPeriod('day', refDate)
+      const { startDate, endDate } = getDateRangeForPeriod('7d', refDate)
       expect(startDate).toBe('2024-06-14')
       expect(endDate).toBe('2024-06-20')
     })
 
-    it('returns month range for month period', () => {
-      const refDate = new Date('2024-06-15')
-      const { startDate, endDate } = getDateRangeForPeriod('month', refDate)
-      expect(startDate).toBe('2024-06-01')
-      expect(endDate).toBe('2024-06-30')
+    it('returns 14 day range for 14d period', () => {
+      const refDate = new Date('2024-06-20')
+      const { startDate, endDate } = getDateRangeForPeriod('14d', refDate)
+      expect(startDate).toBe('2024-06-07')
+      expect(endDate).toBe('2024-06-20')
     })
 
-    it('returns year range for year period', () => {
-      const refDate = new Date('2024-06-15')
-      const { startDate, endDate } = getDateRangeForPeriod('year', refDate)
-      expect(startDate).toBe('2024-01-01')
-      expect(endDate).toBe('2024-12-31')
+    it('returns 30 day range for 30d period', () => {
+      const refDate = new Date('2024-06-20')
+      const { startDate, endDate } = getDateRangeForPeriod('30d', refDate)
+      expect(startDate).toBe('2024-05-22')
+      expect(endDate).toBe('2024-06-20')
+    })
+
+    it('returns 90 day range for 90d period', () => {
+      const refDate = new Date('2024-06-20')
+      const { startDate, endDate } = getDateRangeForPeriod('90d', refDate)
+      expect(startDate).toBe('2024-03-23')
+      expect(endDate).toBe('2024-06-20')
+    })
+  })
+
+  describe('generateCompleteDateRange', () => {
+    it('generates 7 entries for 7d period', () => {
+      const result = generateCompleteDateRange({ period: '7d', refDate: '2024-06-20' })
+      expect(result).toHaveLength(7)
+      expect(result[0].date).toBe('2024-06-14')
+      expect(result[6].date).toBe('2024-06-20')
+    })
+
+    it('generates 14 entries for 14d period', () => {
+      const result = generateCompleteDateRange({ period: '14d', refDate: '2024-06-20' })
+      expect(result).toHaveLength(14)
+      expect(result[0].date).toBe('2024-06-07')
+      expect(result[13].date).toBe('2024-06-20')
+    })
+
+    it('generates 30 entries for 30d period', () => {
+      const result = generateCompleteDateRange({ period: '30d', refDate: '2024-06-20' })
+      expect(result).toHaveLength(30)
+      expect(result[0].date).toBe('2024-05-22')
+      expect(result[29].date).toBe('2024-06-20')
+    })
+
+    it('generates 90 entries for 90d period', () => {
+      const result = generateCompleteDateRange({ period: '90d', refDate: '2024-06-20' })
+      expect(result).toHaveLength(90)
+      expect(result[0].date).toBe('2024-03-23')
+      expect(result[89].date).toBe('2024-06-20')
+    })
+
+    it('includes formatted labels', () => {
+      const result = generateCompleteDateRange({ period: '7d', refDate: '2024-06-20' })
+      expect(result[0].label).toBeDefined()
+      expect(typeof result[0].label).toBe('string')
     })
   })
 

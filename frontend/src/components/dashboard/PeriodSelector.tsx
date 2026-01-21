@@ -6,15 +6,13 @@ import type { DashboardPeriod } from '@/lib/types'
 interface PeriodSelectorProps {
   value: DashboardPeriod
   onChange: (period: DashboardPeriod) => void
-  customStartDate?: Date | null
-  customEndDate?: Date | null
-  onCustomDateChange?: (startDate: Date, endDate: Date) => void
 }
 
 const periods: { value: DashboardPeriod; label: string }[] = [
-  { value: 'day', label: '7 jours' },
-  { value: 'month', label: 'Mois' },
-  { value: 'year', label: 'Année' },
+  { value: '7d', label: '7J' },
+  { value: '14d', label: '14J' },
+  { value: '30d', label: '30J' },
+  { value: '90d', label: '90J' },
 ]
 
 function PeriodSelector({ value, onChange }: PeriodSelectorProps) {

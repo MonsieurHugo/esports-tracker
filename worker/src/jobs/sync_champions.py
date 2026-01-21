@@ -26,12 +26,23 @@ class SyncChampionsJob:
     def __init__(self):
         self._client: httpx.AsyncClient | None = None
         self._current_version: str | None = None
+        self._running = False
 
     async def _get_client(self) -> httpx.AsyncClient:
         """Get or create HTTP client."""
         if self._client is None:
             self._client = httpx.AsyncClient(timeout=60.0)
         return self._client
+
+    async def _close_client(self) -> None:
+        """Close HTTP client safely."""
+        if self._client is not None:
+            try:
+                await self._client.aclose()
+            except Exception as e:
+                logger.debug("Error closing HTTP client", error=str(e))
+            finally:
+                self._client = None
 
     async def get_latest_version(self) -> str:
         """Get the latest DDragon version."""
@@ -69,6 +80,7 @@ class SyncChampionsJob:
 
     async def run(self):
         """Run the champion sync job."""
+        self._running = True
         logger.info("Starting champion sync job")
 
         try:
@@ -115,6 +127,8 @@ class SyncChampionsJob:
             semaphore = asyncio.Semaphore(10)  # Max 10 concurrent downloads
 
             async def download_with_limit(champ_key: str):
+                if not self._running:
+                    return False
                 async with semaphore:
                     return await self.download_champion_image(version, champ_key)
 
@@ -131,12 +145,18 @@ class SyncChampionsJob:
         except Exception as e:
             logger.exception("Champion sync failed", error=str(e))
             raise
+        finally:
+            await self._close_client()
+            self._running = False
+
+    async def stop(self) -> None:
+        """Stop the job gracefully."""
+        self._running = False
+        await self._close_client()
 
     async def close(self):
-        """Close HTTP client."""
-        if self._client:
-            await self._client.aclose()
-            self._client = None
+        """Close HTTP client (alias for backward compatibility)."""
+        await self._close_client()
 
 
 async def main():

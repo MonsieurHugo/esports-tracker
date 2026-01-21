@@ -1,0 +1,2218 @@
+openapi: 3.1.0
+info:
+  title: Esports Tracker API
+  description: |
+    API for tracking esports player performance and statistics for League of Legends.
+
+    ## Authentication
+    The API uses cookie-based session authentication. After logging in, subsequent requests will automatically include the session cookie.
+
+    ## Rate Limiting
+    - Login: 10 requests per 5 minutes
+    - Register: 5 requests per 15 minutes
+    - Password Reset: 3 requests per 15 minutes
+    - 2FA Operations: 10 requests per 5 minutes
+    - General API: 60 requests per minute
+
+    ## Error Responses
+    All endpoints return standardized error responses:
+    - 400: Bad Request - Invalid input
+    - 401: Unauthorized - Authentication required
+    - 403: Forbidden - Insufficient permissions
+    - 404: Not Found - Resource not found
+    - 422: Unprocessable Entity - Validation error
+    - 423: Locked - Account locked due to failed attempts
+    - 429: Too Many Requests - Rate limit exceeded
+    - 500: Internal Server Error
+
+  version: 1.0.0
+  contact:
+    name: API Support
+    email: support@esports-tracker.com
+
+servers:
+  - url: http://localhost:3333
+    description: Development server
+  - url: https://api.esports-tracker.com
+    description: Production server
+
+tags:
+  - name: Health
+    description: Health check and status endpoints
+  - name: Authentication
+    description: User authentication, registration, and profile management
+  - name: Two-Factor Auth
+    description: Two-factor authentication setup and management
+  - name: OAuth
+    description: OAuth provider integration (Google, Discord, etc.)
+  - name: Dashboard
+    description: League of Legends dashboard statistics and leaderboards
+  - name: Players
+    description: Individual player profiles and statistics
+  - name: Workers
+    description: Worker monitoring and background job status
+  - name: Admin
+    description: Administrative operations (requires admin role)
+
+paths:
+  /:
+    get:
+      tags: [Health]
+      summary: API Root
+      description: Returns basic API information
+      responses:
+        '200':
+          description: API information
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  name:
+                    type: string
+                    example: Esports Tracker API
+                  version:
+                    type: string
+                    example: 1.0.0
+
+  /health:
+    get:
+      tags: [Health]
+      summary: Health Check
+      description: Check API and database health status
+      responses:
+        '200':
+          description: System is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: healthy
+                  timestamp:
+                    type: string
+                    format: date-time
+                  database:
+                    type: string
+                    example: connected
+        '503':
+          description: System is unhealthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: unhealthy
+                  timestamp:
+                    type: string
+                    format: date-time
+                  database:
+                    type: string
+                    example: disconnected
+                  error:
+                    type: string
+
+  /api/auth/register:
+    post:
+      tags: [Authentication]
+      summary: Register new user
+      description: Create a new user account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: User registered successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Account created successfully. Please check your email to verify your account.
+                  user:
+                    $ref: '#/components/schemas/User'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+
+  /api/auth/login:
+    post:
+      tags: [Authentication]
+      summary: Login user
+      description: |
+        Authenticate user and create session.
+        - After 5 failed attempts, account will be locked for 30 minutes
+        - If 2FA is enabled, must provide twoFactorCode or recoveryCode
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Login successful
+                  user:
+                    $ref: '#/components/schemas/User'
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                        example: Email ou mot de passe incorrect
+                      attemptsRemaining:
+                        type: integer
+                        example: 3
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                        example: Code 2FA requis
+        '423':
+          description: Account locked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: Compte verrouillé suite à trop de tentatives
+                  lockedUntil:
+                    type: string
+                    format: date-time
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+
+  /api/auth/logout:
+    post:
+      tags: [Authentication]
+      summary: Logout user
+      description: End current session
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Logout successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Logged out successfully
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/auth/me:
+    get:
+      tags: [Authentication]
+      summary: Get current user
+      description: Get authenticated user profile
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: User profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/auth/forgot-password:
+    post:
+      tags: [Authentication]
+      summary: Request password reset
+      description: Send password reset email
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  format: email
+      responses:
+        '200':
+          description: Reset email sent (always returns success for security)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: If an account exists, a reset email has been sent
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+
+  /api/auth/reset-password:
+    post:
+      tags: [Authentication]
+      summary: Reset password
+      description: Reset password using token from email
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, password, confirmPassword]
+              properties:
+                token:
+                  type: string
+                password:
+                  type: string
+                  format: password
+                  minLength: 8
+                  maxLength: 128
+                confirmPassword:
+                  type: string
+                  format: password
+      responses:
+        '200':
+          description: Password reset successful
+        '400':
+          description: Invalid or expired token
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/auth/change-password:
+    post:
+      tags: [Authentication]
+      summary: Change password
+      description: Change password for authenticated user
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [currentPassword, newPassword, confirmNewPassword]
+              properties:
+                currentPassword:
+                  type: string
+                  format: password
+                newPassword:
+                  type: string
+                  format: password
+                  minLength: 8
+                confirmNewPassword:
+                  type: string
+                  format: password
+      responses:
+        '200':
+          description: Password changed successfully
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/auth/profile:
+    patch:
+      tags: [Authentication]
+      summary: Update profile
+      description: Update user profile information
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                fullName:
+                  type: string
+                  minLength: 2
+                  maxLength: 100
+      responses:
+        '200':
+          description: Profile updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/auth/verify-email:
+    post:
+      tags: [Authentication]
+      summary: Verify email
+      description: Verify email address using token from email
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token:
+                  type: string
+      responses:
+        '200':
+          description: Email verified successfully
+        '400':
+          description: Invalid or expired token
+
+  /api/auth/resend-verification:
+    post:
+      tags: [Authentication]
+      summary: Resend verification email
+      description: Resend email verification link
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Verification email sent
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/auth/audit-logs:
+    get:
+      tags: [Authentication]
+      summary: Get user audit logs
+      description: Get security audit logs for current user
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Audit logs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  logs:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AuditLog'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/auth/2fa/setup:
+    post:
+      tags: [Two-Factor Auth]
+      summary: Setup 2FA
+      description: Initialize two-factor authentication setup
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password:
+                  type: string
+                  format: password
+      responses:
+        '200':
+          description: 2FA setup initiated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  secret:
+                    type: string
+                    example: JBSWY3DPEHPK3PXP
+                  qrCode:
+                    type: string
+                    description: Data URL for QR code image
+                  recoveryCodes:
+                    type: array
+                    items:
+                      type: string
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/auth/2fa/verify:
+    post:
+      tags: [Two-Factor Auth]
+      summary: Verify 2FA setup
+      description: Complete 2FA setup by verifying TOTP code
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code:
+                  type: string
+                  pattern: '^\d{6}$'
+                  example: '123456'
+      responses:
+        '200':
+          description: 2FA enabled successfully
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/auth/2fa/disable:
+    post:
+      tags: [Two-Factor Auth]
+      summary: Disable 2FA
+      description: Disable two-factor authentication
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password, code]
+              properties:
+                password:
+                  type: string
+                  format: password
+                code:
+                  type: string
+                  pattern: '^\d{6}$'
+      responses:
+        '200':
+          description: 2FA disabled successfully
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/auth/2fa/recovery-codes:
+    post:
+      tags: [Two-Factor Auth]
+      summary: Regenerate recovery codes
+      description: Generate new 2FA recovery codes
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: New recovery codes generated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  recoveryCodes:
+                    type: array
+                    items:
+                      type: string
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/auth/oauth/accounts:
+    get:
+      tags: [OAuth]
+      summary: List OAuth accounts
+      description: Get linked OAuth provider accounts
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: List of OAuth accounts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    provider:
+                      type: string
+                      example: google
+                    email:
+                      type: string
+                      format: email
+                    linkedAt:
+                      type: string
+                      format: date-time
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/auth/oauth/{provider}:
+    get:
+      tags: [OAuth]
+      summary: OAuth redirect
+      description: Initiate OAuth flow with provider
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [google, discord, github]
+      responses:
+        '302':
+          description: Redirect to OAuth provider
+
+    delete:
+      tags: [OAuth]
+      summary: Unlink OAuth account
+      description: Remove OAuth provider link
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [google, discord, github]
+      responses:
+        '200':
+          description: OAuth account unlinked
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/auth/oauth/{provider}/callback:
+    get:
+      tags: [OAuth]
+      summary: OAuth callback
+      description: Handle OAuth provider callback
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [google, discord, github]
+        - name: code
+          in: query
+          schema:
+            type: string
+        - name: state
+          in: query
+          schema:
+            type: string
+      responses:
+        '302':
+          description: Redirect to application
+
+  /api/v1/lol/dashboard/batch:
+    get:
+      tags: [Dashboard]
+      summary: Batch dashboard data
+      description: |
+        Get multiple dashboard data points in a single request for performance optimization.
+        Returns summary, teams, players, top grinders, LP gainers/losers, and streaks.
+      parameters:
+        - $ref: '#/components/parameters/LeagueIdQuery'
+        - $ref: '#/components/parameters/StartDateQuery'
+        - $ref: '#/components/parameters/EndDateQuery'
+        - $ref: '#/components/parameters/PeriodQuery'
+      responses:
+        '200':
+          description: Batch dashboard data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  summary:
+                    $ref: '#/components/schemas/DashboardSummary'
+                  teams:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TeamStats'
+                  players:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PlayerStats'
+                  topGrinders:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PlayerGames'
+                  topLpGainers:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PlayerLpChange'
+                  topLpLosers:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PlayerLpChange'
+                  streaks:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PlayerStreak'
+                  lossStreaks:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PlayerStreak'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+
+  /api/v1/lol/dashboard/teams:
+    get:
+      tags: [Dashboard]
+      summary: Get team leaderboard
+      description: Get teams ranked by LP change
+      parameters:
+        - $ref: '#/components/parameters/LeagueIdQuery'
+        - $ref: '#/components/parameters/StartDateQuery'
+        - $ref: '#/components/parameters/EndDateQuery'
+        - $ref: '#/components/parameters/PeriodQuery'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Team leaderboard
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TeamStats'
+
+  /api/v1/lol/dashboard/players:
+    get:
+      tags: [Dashboard]
+      summary: Get player leaderboard
+      description: Get players ranked by LP change
+      parameters:
+        - $ref: '#/components/parameters/LeagueIdQuery'
+        - $ref: '#/components/parameters/StartDateQuery'
+        - $ref: '#/components/parameters/EndDateQuery'
+        - $ref: '#/components/parameters/PeriodQuery'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Player leaderboard
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PlayerStats'
+
+  /api/v1/lol/dashboard/top-grinders:
+    get:
+      tags: [Dashboard]
+      summary: Get top grinders
+      description: Get players with most games played
+      parameters:
+        - $ref: '#/components/parameters/LeagueIdQuery'
+        - $ref: '#/components/parameters/StartDateQuery'
+        - $ref: '#/components/parameters/EndDateQuery'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 10
+      responses:
+        '200':
+          description: Top grinders
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PlayerGames'
+
+  /api/v1/lol/dashboard/top-lp-gainers:
+    get:
+      tags: [Dashboard]
+      summary: Get top LP gainers
+      description: Get players with highest LP gains
+      parameters:
+        - $ref: '#/components/parameters/LeagueIdQuery'
+        - $ref: '#/components/parameters/StartDateQuery'
+        - $ref: '#/components/parameters/EndDateQuery'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 10
+      responses:
+        '200':
+          description: Top LP gainers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PlayerLpChange'
+
+  /api/v1/lol/dashboard/top-lp-losers:
+    get:
+      tags: [Dashboard]
+      summary: Get top LP losers
+      description: Get players with highest LP losses
+      parameters:
+        - $ref: '#/components/parameters/LeagueIdQuery'
+        - $ref: '#/components/parameters/StartDateQuery'
+        - $ref: '#/components/parameters/EndDateQuery'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 10
+      responses:
+        '200':
+          description: Top LP losers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PlayerLpChange'
+
+  /api/v1/lol/dashboard/streaks:
+    get:
+      tags: [Dashboard]
+      summary: Get win streaks
+      description: Get current win streaks
+      parameters:
+        - $ref: '#/components/parameters/LeagueIdQuery'
+        - name: minStreak
+          in: query
+          schema:
+            type: integer
+            minimum: 2
+            default: 3
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 10
+      responses:
+        '200':
+          description: Win streaks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PlayerStreak'
+
+  /api/v1/lol/dashboard/loss-streaks:
+    get:
+      tags: [Dashboard]
+      summary: Get loss streaks
+      description: Get current loss streaks
+      parameters:
+        - $ref: '#/components/parameters/LeagueIdQuery'
+        - name: minStreak
+          in: query
+          schema:
+            type: integer
+            minimum: 2
+            default: 3
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 10
+      responses:
+        '200':
+          description: Loss streaks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PlayerStreak'
+
+  /api/v1/lol/dashboard/team-history:
+    get:
+      tags: [Dashboard]
+      summary: Get team LP history
+      description: Get historical LP data for a specific team
+      parameters:
+        - name: teamId
+          in: query
+          required: true
+          schema:
+            type: integer
+        - $ref: '#/components/parameters/StartDateQuery'
+        - $ref: '#/components/parameters/EndDateQuery'
+      responses:
+        '200':
+          description: Team LP history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/HistoryPoint'
+
+  /api/v1/lol/dashboard/team-history-batch:
+    get:
+      tags: [Dashboard]
+      summary: Get multiple teams LP history
+      description: Get historical LP data for multiple teams in one request
+      parameters:
+        - name: teamIds
+          in: query
+          required: true
+          schema:
+            type: array
+            items:
+              type: integer
+          style: form
+          explode: false
+        - $ref: '#/components/parameters/StartDateQuery'
+        - $ref: '#/components/parameters/EndDateQuery'
+      responses:
+        '200':
+          description: Teams LP history
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/HistoryPoint'
+
+  /api/v1/lol/dashboard/player-history:
+    get:
+      tags: [Dashboard]
+      summary: Get player LP history
+      description: Get historical LP data for a specific player
+      parameters:
+        - name: playerId
+          in: query
+          required: true
+          schema:
+            type: integer
+        - $ref: '#/components/parameters/StartDateQuery'
+        - $ref: '#/components/parameters/EndDateQuery'
+      responses:
+        '200':
+          description: Player LP history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/HistoryPoint'
+
+  /api/v1/lol/dashboard/player-history-batch:
+    get:
+      tags: [Dashboard]
+      summary: Get multiple players LP history
+      description: Get historical LP data for multiple players in one request
+      parameters:
+        - name: playerIds
+          in: query
+          required: true
+          schema:
+            type: array
+            items:
+              type: integer
+          style: form
+          explode: false
+        - $ref: '#/components/parameters/StartDateQuery'
+        - $ref: '#/components/parameters/EndDateQuery'
+      responses:
+        '200':
+          description: Players LP history
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/HistoryPoint'
+
+  /api/v1/lol/dashboard/leagues:
+    get:
+      tags: [Dashboard]
+      summary: Get all leagues
+      description: Get list of all available leagues
+      responses:
+        '200':
+          description: List of leagues
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/League'
+
+  /api/v1/lol/dashboard/splits:
+    get:
+      tags: [Dashboard]
+      summary: Get splits
+      description: Get available splits/seasons
+      parameters:
+        - name: leagueId
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: List of splits
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Split'
+
+  /api/v1/players/{slug}/profile:
+    get:
+      tags: [Players]
+      summary: Get player profile
+      description: Get detailed player profile and statistics
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Player profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlayerProfile'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /api/v1/players/{slug}/play-hours:
+    get:
+      tags: [Players]
+      summary: Get player play hours
+      description: Get player activity by hour of day
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: days
+          in: query
+          schema:
+            type: integer
+            default: 30
+      responses:
+        '200':
+          description: Play hours distribution
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    hour:
+                      type: integer
+                      minimum: 0
+                      maximum: 23
+                    games:
+                      type: integer
+
+  /api/v1/players/{slug}/duos:
+    get:
+      tags: [Players]
+      summary: Get player duos
+      description: Get most played with teammates
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: days
+          in: query
+          schema:
+            type: integer
+            default: 30
+      responses:
+        '200':
+          description: Duo statistics
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    player:
+                      $ref: '#/components/schemas/BasicPlayer'
+                    gamesPlayed:
+                      type: integer
+                    wins:
+                      type: integer
+                    winRate:
+                      type: number
+
+  /api/v1/players/{slug}/champions:
+    get:
+      tags: [Players]
+      summary: Get player champion statistics
+      description: Get player performance by champion
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: days
+          in: query
+          schema:
+            type: integer
+            default: 30
+      responses:
+        '200':
+          description: Champion statistics
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    championId:
+                      type: integer
+                    championName:
+                      type: string
+                    games:
+                      type: integer
+                    wins:
+                      type: integer
+                    winRate:
+                      type: number
+                    kda:
+                      type: number
+
+  /api/v1/players/{slug}/compare/{compareSlug}:
+    get:
+      tags: [Players]
+      summary: Compare two players
+      description: Get comparative statistics for two players
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: compareSlug
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: days
+          in: query
+          schema:
+            type: integer
+            default: 30
+      responses:
+        '200':
+          description: Comparison data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  player1:
+                    $ref: '#/components/schemas/PlayerProfile'
+                  player2:
+                    $ref: '#/components/schemas/PlayerProfile'
+                  comparison:
+                    type: object
+
+  /api/v1/worker/status:
+    get:
+      tags: [Workers]
+      summary: Get worker status
+      description: Get current status of background workers
+      responses:
+        '200':
+          description: Worker status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [running, stopped, error]
+                  lastUpdate:
+                    type: string
+                    format: date-time
+                  jobs:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        status:
+                          type: string
+                        lastRun:
+                          type: string
+                          format: date-time
+
+  /api/v1/worker/metrics/history:
+    get:
+      tags: [Workers]
+      summary: Get worker metrics history
+      description: Get historical worker performance metrics
+      parameters:
+        - name: hours
+          in: query
+          schema:
+            type: integer
+            default: 24
+      responses:
+        '200':
+          description: Metrics history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    timestamp:
+                      type: string
+                      format: date-time
+                    accountsProcessed:
+                      type: integer
+                    matchesFetched:
+                      type: integer
+                    errors:
+                      type: integer
+
+  /api/v1/worker/metrics/daily:
+    get:
+      tags: [Workers]
+      summary: Get daily metrics
+      description: Get aggregated daily worker metrics
+      parameters:
+        - name: days
+          in: query
+          schema:
+            type: integer
+            default: 7
+      responses:
+        '200':
+          description: Daily metrics
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+
+  /api/v1/worker/logs:
+    get:
+      tags: [Workers]
+      summary: Get worker logs
+      description: Get recent worker logs
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+        - name: level
+          in: query
+          schema:
+            type: string
+            enum: [info, warn, error]
+      responses:
+        '200':
+          description: Worker logs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    timestamp:
+                      type: string
+                      format: date-time
+                    level:
+                      type: string
+                    message:
+                      type: string
+
+  /api/v1/worker/players/search:
+    get:
+      tags: [Workers]
+      summary: Search players
+      description: Search for players by name
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 2
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+            maximum: 50
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BasicPlayer'
+
+  /api/v1/worker/daily-coverage:
+    get:
+      tags: [Workers]
+      summary: Get daily coverage
+      description: Get daily account coverage statistics
+      parameters:
+        - name: days
+          in: query
+          schema:
+            type: integer
+            default: 7
+      responses:
+        '200':
+          description: Daily coverage stats
+
+  /api/v1/worker/accounts:
+    get:
+      tags: [Workers]
+      summary: Get accounts summary
+      description: Get summary of tracked accounts
+      responses:
+        '200':
+          description: Accounts summary
+
+  /api/v1/worker/accounts/list:
+    get:
+      tags: [Workers]
+      summary: List all accounts
+      description: Get detailed list of all tracked accounts
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        '200':
+          description: Accounts list
+
+  /api/v1/worker/coverage-stats:
+    get:
+      tags: [Workers]
+      summary: Get coverage statistics
+      description: Get account coverage statistics
+      responses:
+        '200':
+          description: Coverage stats
+
+  /api/v1/worker/priority-stats:
+    get:
+      tags: [Workers]
+      summary: Get priority queue statistics
+      description: Get priority queue statistics for account processing
+      responses:
+        '200':
+          description: Priority queue stats
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /api/v1/admin/teams-accounts:
+    get:
+      tags: [Admin]
+      summary: Get teams with accounts
+      description: Get all teams with their associated accounts (admin only)
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Teams with accounts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    team:
+                      $ref: '#/components/schemas/Team'
+                    accounts:
+                      type: array
+                      items:
+                        $ref: '#/components/schemas/Account'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+
+  /api/v1/admin/players:
+    get:
+      tags: [Admin]
+      summary: Get players list (admin)
+      description: Get paginated list of all players (admin only)
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: perPage
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: teamId
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Players list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PlayerProfile'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+
+  /api/v1/admin/players/{id}:
+    patch:
+      tags: [Admin]
+      summary: Update player
+      description: Update player information (admin only)
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                currentPseudo:
+                  type: string
+                  maxLength: 50
+                firstName:
+                  type: string
+                  maxLength: 100
+                  nullable: true
+                lastName:
+                  type: string
+                  maxLength: 100
+                  nullable: true
+                nationality:
+                  type: string
+                  maxLength: 3
+                  nullable: true
+                twitter:
+                  type: string
+                  maxLength: 100
+                  nullable: true
+                twitch:
+                  type: string
+                  maxLength: 100
+                  nullable: true
+      responses:
+        '200':
+          description: Player updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlayerProfile'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/v1/admin/players/{id}/contract:
+    post:
+      tags: [Admin]
+      summary: Create/update player contract
+      description: Create or update player contract (admin only)
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [teamId, isStarter]
+              properties:
+                teamId:
+                  type: integer
+                role:
+                  type: string
+                  maxLength: 20
+                  nullable: true
+                isStarter:
+                  type: boolean
+                startDate:
+                  type: string
+                  format: date
+                  nullable: true
+                endDate:
+                  type: string
+                  format: date
+                  nullable: true
+      responses:
+        '200':
+          description: Contract created/updated
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+    delete:
+      tags: [Admin]
+      summary: End player contract
+      description: End current player contract (admin only)
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Contract ended
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /api/auth/users:
+    get:
+      tags: [Admin]
+      summary: List all users
+      description: Get list of all users (admin only)
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Users list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/User'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+
+    post:
+      tags: [Admin]
+      summary: Create user
+      description: Create new user account (admin only)
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  format: password
+                  minLength: 8
+                fullName:
+                  type: string
+                role:
+                  type: string
+                  enum: [user, admin]
+      responses:
+        '201':
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/auth/users/{id}:
+    delete:
+      tags: [Admin]
+      summary: Delete user
+      description: Delete user account (admin only)
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: User deleted
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /api/auth/users/{id}/unlock:
+    post:
+      tags: [Admin]
+      summary: Unlock user account
+      description: Unlock locked user account (admin only)
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: User unlocked
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: session
+      description: Session cookie automatically set after login
+
+  parameters:
+    LeagueIdQuery:
+      name: leagueId
+      in: query
+      description: Filter by league ID
+      schema:
+        type: integer
+
+    StartDateQuery:
+      name: startDate
+      in: query
+      description: Start date for date range (ISO 8601 format)
+      schema:
+        type: string
+        format: date
+        example: '2024-01-01'
+
+    EndDateQuery:
+      name: endDate
+      in: query
+      description: End date for date range (ISO 8601 format)
+      schema:
+        type: string
+        format: date
+        example: '2024-01-31'
+
+    PeriodQuery:
+      name: period
+      in: query
+      description: Time period for aggregation
+      schema:
+        type: string
+        enum: [day, week, month, year]
+        default: day
+
+  schemas:
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+        email:
+          type: string
+          format: email
+        fullName:
+          type: string
+          nullable: true
+        role:
+          type: string
+          enum: [user, admin]
+        emailVerified:
+          type: boolean
+        twoFactorEnabled:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        lastLoginAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    RegisterRequest:
+      type: object
+      required: [email, password, confirmPassword]
+      properties:
+        email:
+          type: string
+          format: email
+          example: user@example.com
+        password:
+          type: string
+          format: password
+          minLength: 8
+          maxLength: 128
+          description: Must contain uppercase, lowercase, number, and special character
+          example: 'SecurePass123!'
+        confirmPassword:
+          type: string
+          format: password
+        fullName:
+          type: string
+          minLength: 2
+          maxLength: 100
+          example: John Doe
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          example: user@example.com
+        password:
+          type: string
+          format: password
+          example: 'SecurePass123!'
+        twoFactorCode:
+          type: string
+          pattern: '^\d{6}$'
+          description: Required if 2FA is enabled
+          example: '123456'
+        recoveryCode:
+          type: string
+          description: Alternative to twoFactorCode for 2FA
+          example: 'abc123xyz'
+
+    AuditLog:
+      type: object
+      properties:
+        id:
+          type: integer
+        action:
+          type: string
+        ipAddress:
+          type: string
+        userAgent:
+          type: string
+        success:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+
+    DashboardSummary:
+      type: object
+      properties:
+        totalGames:
+          type: integer
+          example: 1234
+        totalPlayers:
+          type: integer
+          example: 45
+        averageLpChange:
+          type: number
+          format: float
+          example: 12.5
+        winRate:
+          type: number
+          format: float
+          example: 52.3
+
+    TeamStats:
+      type: object
+      properties:
+        teamId:
+          type: integer
+        slug:
+          type: string
+        name:
+          type: string
+        shortName:
+          type: string
+        logoUrl:
+          type: string
+          nullable: true
+        lpChange:
+          type: integer
+        games:
+          type: integer
+
+    PlayerStats:
+      type: object
+      properties:
+        playerId:
+          type: integer
+        slug:
+          type: string
+        pseudo:
+          type: string
+        teamSlug:
+          type: string
+          nullable: true
+        teamShortName:
+          type: string
+          nullable: true
+        lpChange:
+          type: integer
+        games:
+          type: integer
+
+    PlayerGames:
+      type: object
+      properties:
+        playerId:
+          type: integer
+        slug:
+          type: string
+        pseudo:
+          type: string
+        teamSlug:
+          type: string
+          nullable: true
+        games:
+          type: integer
+
+    PlayerLpChange:
+      type: object
+      properties:
+        playerId:
+          type: integer
+        slug:
+          type: string
+        pseudo:
+          type: string
+        teamSlug:
+          type: string
+          nullable: true
+        lpChange:
+          type: integer
+        games:
+          type: integer
+
+    PlayerStreak:
+      type: object
+      properties:
+        playerId:
+          type: integer
+        slug:
+          type: string
+        pseudo:
+          type: string
+        teamSlug:
+          type: string
+          nullable: true
+        streak:
+          type: integer
+        streakType:
+          type: string
+          enum: [win, loss]
+
+    HistoryPoint:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date-time
+        lp:
+          type: integer
+        games:
+          type: integer
+
+    League:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        slug:
+          type: string
+        region:
+          type: string
+        priority:
+          type: integer
+        color:
+          type: string
+          nullable: true
+
+    Split:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        leagueId:
+          type: integer
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+
+    Team:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        slug:
+          type: string
+        shortName:
+          type: string
+        logoUrl:
+          type: string
+          nullable: true
+
+    Account:
+      type: object
+      properties:
+        id:
+          type: integer
+        gameName:
+          type: string
+        tagLine:
+          type: string
+        puuid:
+          type: string
+        summonerId:
+          type: string
+        tier:
+          type: string
+        rank:
+          type: string
+        lp:
+          type: integer
+        lastUpdated:
+          type: string
+          format: date-time
+
+    BasicPlayer:
+      type: object
+      properties:
+        id:
+          type: integer
+        slug:
+          type: string
+        pseudo:
+          type: string
+        teamSlug:
+          type: string
+          nullable: true
+
+    PlayerProfile:
+      type: object
+      properties:
+        id:
+          type: integer
+        slug:
+          type: string
+        currentPseudo:
+          type: string
+        firstName:
+          type: string
+          nullable: true
+        lastName:
+          type: string
+          nullable: true
+        nationality:
+          type: string
+          nullable: true
+        twitter:
+          type: string
+          nullable: true
+        twitch:
+          type: string
+          nullable: true
+        team:
+          $ref: '#/components/schemas/Team'
+        accounts:
+          type: array
+          items:
+            $ref: '#/components/schemas/Account'
+        stats:
+          type: object
+          properties:
+            totalGames:
+              type: integer
+            winRate:
+              type: number
+            averageKda:
+              type: number
+            currentLp:
+              type: integer
+
+    PaginationMeta:
+      type: object
+      properties:
+        total:
+          type: integer
+        perPage:
+          type: integer
+        currentPage:
+          type: integer
+        lastPage:
+          type: integer
+        firstPage:
+          type: integer
+        firstPageUrl:
+          type: string
+        lastPageUrl:
+          type: string
+        nextPageUrl:
+          type: string
+          nullable: true
+        previousPageUrl:
+          type: string
+          nullable: true
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+          description: Detailed error message
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+              rule:
+                type: string
+              message:
+                type: string
+
+  responses:
+    BadRequestError:
+      description: Bad Request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: Invalid request parameters
+
+    UnauthorizedError:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: Authentication required
+
+    ForbiddenError:
+      description: Forbidden
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: Insufficient permissions
+
+    NotFoundError:
+      description: Not Found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: Resource not found
+
+    ValidationError:
+      description: Validation Error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: Validation failed
+            errors:
+              - field: email
+                rule: email
+                message: The email field must be a valid email address
+
+    RateLimitError:
+      description: Too Many Requests
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: Rate limit exceeded
+            message: Too many requests. Please try again later.

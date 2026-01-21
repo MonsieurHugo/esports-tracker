@@ -3,7 +3,9 @@ Database Service
 """
 
 import asyncio
-from datetime import date, datetime
+import json
+from contextlib import asynccontextmanager
+from datetime import date, datetime, timezone
 from typing import Any
 
 import asyncpg
@@ -12,12 +14,22 @@ import structlog
 logger = structlog.get_logger(__name__)
 
 
+def ensure_utc(dt: datetime | None) -> datetime | None:
+    """Ensure datetime is UTC-aware. Returns None if input is None."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
 class DatabaseService:
     """Service for database operations."""
 
     def __init__(self, database_url: str):
         self.database_url = database_url
         self._pool: asyncpg.Pool | None = None
+        self._semaphore = asyncio.Semaphore(15)  # Limit concurrent ops (pool max=20)
 
     async def connect(self) -> None:
         """Create connection pool with proper timeout handling."""
@@ -74,25 +86,67 @@ class DatabaseService:
             await self._pool.close()
             logger.info("Database pool closed")
 
+    async def force_terminate(self) -> None:
+        """Forcefully terminate pool (emergency shutdown only)."""
+        if self._pool:
+            self._pool.terminate()
+
+    def _ensure_connected(self) -> None:
+        """Ensure the database connection pool is available.
+
+        Raises:
+            RuntimeError: If the pool is not initialized (connect() not called).
+        """
+        if self._pool is None:
+            raise RuntimeError("Database not connected. Call connect() first.")
+
     async def execute(self, query: str, *args) -> str:
         """Execute a query."""
-        async with self._pool.acquire() as conn:
-            return await conn.execute(query, *args)
+        self._ensure_connected()
+        async with self._semaphore:
+            async with self._pool.acquire() as conn:
+                return await conn.execute(query, *args)
 
     async def fetch(self, query: str, *args) -> list[asyncpg.Record]:
         """Fetch multiple rows."""
-        async with self._pool.acquire() as conn:
-            return await conn.fetch(query, *args)
+        self._ensure_connected()
+        async with self._semaphore:
+            async with self._pool.acquire() as conn:
+                return await conn.fetch(query, *args)
 
     async def fetchrow(self, query: str, *args) -> asyncpg.Record | None:
         """Fetch a single row."""
-        async with self._pool.acquire() as conn:
-            return await conn.fetchrow(query, *args)
+        self._ensure_connected()
+        async with self._semaphore:
+            async with self._pool.acquire() as conn:
+                return await conn.fetchrow(query, *args)
 
     async def fetchval(self, query: str, *args) -> Any:
         """Fetch a single value."""
-        async with self._pool.acquire() as conn:
-            return await conn.fetchval(query, *args)
+        self._ensure_connected()
+        async with self._semaphore:
+            async with self._pool.acquire() as conn:
+                return await conn.fetchval(query, *args)
+
+    @asynccontextmanager
+    async def transaction(self):
+        """Context manager for database transactions.
+
+        Usage:
+            async with db.transaction() as conn:
+                # All operations use the same connection/transaction
+                await conn.execute(...)
+                await conn.fetch(...)
+                # Automatically commits on success, rolls back on exception
+
+        Yields:
+            asyncpg.Connection: A connection within an active transaction
+        """
+        self._ensure_connected()
+        async with self._semaphore:
+            async with self._pool.acquire() as connection:
+                async with connection.transaction():
+                    yield connection
 
     # ==========================================
     # LoL Accounts Operations
@@ -529,7 +583,10 @@ class DatabaseService:
     # ==========================================
 
     async def update_player_synergies(self, puuid: str, match_id: str) -> None:
-        """Update synergies between tracked players for a match."""
+        """Update synergies between tracked players for a match.
+
+        Uses batched INSERT with UNNEST to avoid N+1 queries.
+        """
         # Get all participants of this match
         participants = await self.fetch(
             """
@@ -559,7 +616,14 @@ class DatabaseService:
         # Get tracked PUUIDs
         tracked_puuids = await self.get_tracked_puuids()
 
-        # Update synergies with other tracked players
+        # Collect all synergy updates for batching
+        puuids: list[str] = []
+        ally_puuids: list[str] = []
+        games_together: list[int] = []
+        wins_together: list[int] = []
+        games_against: list[int] = []
+        wins_against: list[int] = []
+
         for p in participants:
             if p["puuid"] == puuid:
                 continue
@@ -568,12 +632,23 @@ class DatabaseService:
 
             is_ally = p["team_id"] == our_team
 
+            puuids.append(puuid)
+            ally_puuids.append(p["puuid"])
+            games_together.append(1 if is_ally else 0)
+            wins_together.append(1 if is_ally and our_win else 0)
+            games_against.append(0 if is_ally else 1)
+            wins_against.append(0 if is_ally else (1 if our_win else 0))
+
+        # Batch insert all synergies in a single query
+        if puuids:
             await self.execute(
                 """
                 INSERT INTO lol_player_synergy (
                     puuid, ally_puuid, games_together, wins_together, games_against, wins_against, updated_at
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, NOW())
+                SELECT * FROM UNNEST($1::text[], $2::text[], $3::int[], $4::int[], $5::int[], $6::int[])
+                    AS t(puuid, ally_puuid, games_together, wins_together, games_against, wins_against),
+                    LATERAL (SELECT NOW() AS updated_at) AS ts
                 ON CONFLICT (puuid, ally_puuid)
                 DO UPDATE SET
                     games_together = lol_player_synergy.games_together + EXCLUDED.games_together,
@@ -582,12 +657,12 @@ class DatabaseService:
                     wins_against = lol_player_synergy.wins_against + EXCLUDED.wins_against,
                     updated_at = NOW()
                 """,
-                puuid,
-                p["puuid"],
-                1 if is_ally else 0,
-                1 if is_ally and our_win else 0,
-                0 if is_ally else 1,
-                0 if is_ally else (1 if our_win else 0),
+                puuids,
+                ally_puuids,
+                games_together,
+                wins_together,
+                games_against,
+                wins_against,
             )
 
     # ==========================================
@@ -688,7 +763,6 @@ class DatabaseService:
         details: dict | None = None,
     ) -> None:
         """Log worker activity to worker_logs table."""
-        import json
         await self.execute(
             """
             INSERT INTO worker_logs (timestamp, log_type, severity, message, account_name, account_puuid, details)
@@ -789,51 +863,104 @@ class DatabaseService:
             """
         )
 
-    async def get_account_activity_data(self, puuid: str) -> dict:
+    async def get_account_activity_data(
+        self,
+        puuid: str,
+        for_update: bool = False,
+        connection: asyncpg.Connection | None = None,
+    ) -> dict | None:
         """Get fresh activity data for a single account.
 
         Used when recalculating score after finding new matches.
+
+        Args:
+            puuid: Account PUUID
+            for_update: If True, locks the row for update (use within transaction).
+                        Uses SKIP LOCKED to avoid blocking on already-locked rows.
+            connection: Optional connection for transaction support. If provided,
+                        the query runs on this connection (required for FOR UPDATE).
+
+        Returns:
+            Dict with activity data, or None if account not found or row was locked.
         """
-        row = await self.fetchrow(
+        if for_update:
+            query = """
+                SELECT
+                    a.puuid,
+                    a.activity_score,
+                    a.activity_tier,
+                    a.consecutive_empty_fetches,
+                    a.last_match_at,
+                    a.next_fetch_at,
+                    COALESCE(today.games_played, 0) as games_today,
+                    COALESCE(recent.games, 0) as games_last_3_days,
+                    COALESCE(weekly.games, 0) as games_last_7_days
+                FROM lol_accounts a
+                LEFT JOIN lol_daily_stats today
+                    ON a.puuid = today.puuid AND today.date = CURRENT_DATE
+                LEFT JOIN (
+                    SELECT puuid, SUM(games_played) as games
+                    FROM lol_daily_stats
+                    WHERE date >= CURRENT_DATE - INTERVAL '3 days'
+                    GROUP BY puuid
+                ) recent ON a.puuid = recent.puuid
+                LEFT JOIN (
+                    SELECT puuid, SUM(games_played) as games
+                    FROM lol_daily_stats
+                    WHERE date >= CURRENT_DATE - INTERVAL '7 days'
+                    GROUP BY puuid
+                ) weekly ON a.puuid = weekly.puuid
+                WHERE a.puuid = $1
+                FOR UPDATE SKIP LOCKED
             """
-            SELECT
-                a.last_match_at,
-                COALESCE(today.games_played, 0) as games_today,
-                COALESCE(recent.games, 0) as games_last_3_days,
-                COALESCE(weekly.games, 0) as games_last_7_days
-            FROM lol_accounts a
-            LEFT JOIN lol_daily_stats today
-                ON a.puuid = today.puuid AND today.date = CURRENT_DATE
-            LEFT JOIN (
-                SELECT puuid, SUM(games_played) as games
-                FROM lol_daily_stats
-                WHERE date >= CURRENT_DATE - INTERVAL '3 days'
-                GROUP BY puuid
-            ) recent ON a.puuid = recent.puuid
-            LEFT JOIN (
-                SELECT puuid, SUM(games_played) as games
-                FROM lol_daily_stats
-                WHERE date >= CURRENT_DATE - INTERVAL '7 days'
-                GROUP BY puuid
-            ) weekly ON a.puuid = weekly.puuid
-            WHERE a.puuid = $1
-            """,
-            puuid,
-        )
+        else:
+            query = """
+                SELECT
+                    a.puuid,
+                    a.activity_score,
+                    a.activity_tier,
+                    a.consecutive_empty_fetches,
+                    a.last_match_at,
+                    a.next_fetch_at,
+                    COALESCE(today.games_played, 0) as games_today,
+                    COALESCE(recent.games, 0) as games_last_3_days,
+                    COALESCE(weekly.games, 0) as games_last_7_days
+                FROM lol_accounts a
+                LEFT JOIN lol_daily_stats today
+                    ON a.puuid = today.puuid AND today.date = CURRENT_DATE
+                LEFT JOIN (
+                    SELECT puuid, SUM(games_played) as games
+                    FROM lol_daily_stats
+                    WHERE date >= CURRENT_DATE - INTERVAL '3 days'
+                    GROUP BY puuid
+                ) recent ON a.puuid = recent.puuid
+                LEFT JOIN (
+                    SELECT puuid, SUM(games_played) as games
+                    FROM lol_daily_stats
+                    WHERE date >= CURRENT_DATE - INTERVAL '7 days'
+                    GROUP BY puuid
+                ) weekly ON a.puuid = weekly.puuid
+                WHERE a.puuid = $1
+            """
+
+        if connection:
+            row = await connection.fetchrow(query, puuid)
+        else:
+            row = await self.fetchrow(query, puuid)
 
         if row:
             return {
+                "puuid": row["puuid"],
+                "activity_score": row["activity_score"],
+                "activity_tier": row["activity_tier"],
+                "consecutive_empty_fetches": row["consecutive_empty_fetches"],
                 "last_match_at": row["last_match_at"],
+                "next_fetch_at": row["next_fetch_at"],
                 "games_today": row["games_today"] or 0,
                 "games_last_3_days": row["games_last_3_days"] or 0,
                 "games_last_7_days": row["games_last_7_days"] or 0,
             }
-        return {
-            "last_match_at": None,
-            "games_today": 0,
-            "games_last_3_days": 0,
-            "games_last_7_days": 0,
-        }
+        return None
 
     async def update_account_priority(
         self,
@@ -842,10 +969,19 @@ class DatabaseService:
         tier: str,
         next_fetch_at: datetime,
         consecutive_empty_fetches: int,
+        connection: asyncpg.Connection | None = None,
     ) -> None:
-        """Update account priority queue data."""
-        await self.execute(
-            """
+        """Update account priority queue data.
+
+        Args:
+            puuid: Account PUUID
+            activity_score: New activity score (0-100)
+            tier: New activity tier (very_active, active, moderate, inactive)
+            next_fetch_at: When to next fetch this account
+            consecutive_empty_fetches: Count of consecutive fetches with no new matches
+            connection: Optional connection for transaction support
+        """
+        query = """
             UPDATE lol_accounts
             SET
                 activity_score = $2,
@@ -854,13 +990,12 @@ class DatabaseService:
                 consecutive_empty_fetches = $5,
                 updated_at = NOW()
             WHERE puuid = $1
-            """,
-            puuid,
-            activity_score,
-            tier,
-            next_fetch_at,
-            consecutive_empty_fetches,
-        )
+        """
+
+        if connection:
+            await connection.execute(query, puuid, activity_score, tier, next_fetch_at, consecutive_empty_fetches)
+        else:
+            await self.execute(query, puuid, activity_score, tier, next_fetch_at, consecutive_empty_fetches)
 
     async def get_priority_queue_stats(self) -> asyncpg.Record | None:
         """Get statistics about the priority queue state."""

@@ -2,7 +2,7 @@
  * Liste des ligues disponibles
  * Source unique de vérité pour toute l'application
  */
-export const ALL_LEAGUES = ['LEC', 'LFL', 'LCK', 'LCS'] as const
+export const ALL_LEAGUES = ['LEC', 'LFL', 'LCK', 'LCS', 'LPL', 'LCKCL', 'LCP', 'CBLOL'] as const
 
 export type League = (typeof ALL_LEAGUES)[number]
 
@@ -40,4 +40,8 @@ export const LEAGUE_COLORS: Record<string, { bg: string; text: string; border: s
   'LFL': { bg: 'bg-(--league-lfl)/20', text: 'text-(--league-lfl)', border: 'border-(--league-lfl)/30', dot: 'bg-(--league-lfl)' },
   'LCK': { bg: 'bg-(--league-lck)/20', text: 'text-(--league-lck)', border: 'border-(--league-lck)/30', dot: 'bg-(--league-lck)' },
   'LCS': { bg: 'bg-(--league-lcs)/20', text: 'text-(--league-lcs)', border: 'border-(--league-lcs)/30', dot: 'bg-(--league-lcs)' },
+  'LPL': { bg: 'bg-(--league-lpl)/20', text: 'text-(--league-lpl)', border: 'border-(--league-lpl)/30', dot: 'bg-(--league-lpl)' },
+  'LCKCL': { bg: 'bg-(--league-lckcl)/20', text: 'text-(--league-lckcl)', border: 'border-(--league-lckcl)/30', dot: 'bg-(--league-lckcl)' },
+  'LCP': { bg: 'bg-(--league-lcp)/20', text: 'text-(--league-lcp)', border: 'border-(--league-lcp)/30', dot: 'bg-(--league-lcp)' },
+  'CBLOL': { bg: 'bg-(--league-cblol)/20', text: 'text-(--league-cblol)', border: 'border-(--league-cblol)/30', dot: 'bg-(--league-cblol)' },
 }

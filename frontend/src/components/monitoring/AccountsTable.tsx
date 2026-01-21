@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import api from '@/lib/api'
+import { logError } from '@/lib/logger'
 import type {
   WorkerAccountsListResponse,
   EnhancedWorkerAccountInfo,
@@ -59,7 +60,7 @@ export default function AccountsTable({ regions = [] }: AccountsTableProps) {
       setMeta(response.meta)
       setSummary(response.summary)
     } catch (error) {
-      console.error('Failed to fetch accounts:', error)
+      logError('Failed to fetch accounts', error)
     } finally {
       setIsLoading(false)
     }

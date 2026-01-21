@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useLayoutEffect } from 'react'
 import { useThemeStore, themes, type ThemeKey } from '@/stores/themeStore'
 
 // Safe localStorage helpers
@@ -30,22 +30,22 @@ export default function ThemeSelector() {
 
   const currentThemeData = themes[currentTheme]
 
-  // Load theme from localStorage on mount
-  useEffect(() => {
+  // Load saved theme on mount and apply CSS variables
+  useLayoutEffect(() => {
+    // Load saved theme on mount
     const savedTheme = getStoredTheme()
-    if (savedTheme) {
+    if (savedTheme && savedTheme !== currentTheme) {
       setTheme(savedTheme)
+      return // Will re-run with new theme
     }
-  }, [setTheme])
 
-  // Apply theme CSS variables to document
-  useEffect(() => {
+    // Apply CSS variables
     const themeVars = themes[currentTheme].vars
     Object.entries(themeVars).forEach(([key, value]) => {
       document.documentElement.style.setProperty(key, value)
     })
     setStoredTheme(currentTheme)
-  }, [currentTheme])
+  }, [currentTheme, setTheme])
 
   // Close dropdown on click outside
   useEffect(() => {
@@ -102,12 +102,6 @@ export default function ThemeSelector() {
             </span>
           </div>
           <div className="py-1">
-            {/* Dark themes section */}
-            <div className="px-3 py-1.5">
-              <span className="text-[9px] font-semibold text-(--text-muted) uppercase tracking-wider">
-                Sombres
-              </span>
-            </div>
             {(['terminal', 'emerald', 'mint'] as ThemeKey[]).map((key) => {
               const theme = themes[key]
               const isSelected = key === currentTheme
@@ -145,51 +139,6 @@ export default function ThemeSelector() {
               )
             })}
 
-            {/* Separator */}
-            <div className="my-1 border-t border-(--border)" />
-
-            {/* Light themes section */}
-            <div className="px-3 py-1.5">
-              <span className="text-[9px] font-semibold text-(--text-muted) uppercase tracking-wider">
-                Clairs
-              </span>
-            </div>
-            {(['snow', 'daylight'] as ThemeKey[]).map((key) => {
-              const theme = themes[key]
-              const isSelected = key === currentTheme
-              return (
-                <button
-                  key={key}
-                  onClick={() => {
-                    setTheme(key)
-                    setIsOpen(false)
-                  }}
-                  className={`w-full flex items-center gap-3 px-3 py-2 text-left transition-colors ${
-                    isSelected
-                      ? 'bg-(--bg-hover)'
-                      : 'hover:bg-(--bg-hover)'
-                  }`}
-                >
-                  <div
-                    className="w-4 h-4 rounded-full shrink-0"
-                    style={{ backgroundColor: theme.vars['--accent'] }}
-                  />
-                  <div className="flex-1 min-w-0">
-                    <div className={`text-xs font-medium ${isSelected ? 'text-(--accent)' : 'text-(--text-primary)'}`}>
-                      {theme.name}
-                    </div>
-                    <div className="text-[10px] text-(--text-muted) truncate">
-                      {theme.description}
-                    </div>
-                  </div>
-                  {isSelected && (
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="text-(--accent) shrink-0">
-                      <path d="M5 13l4 4L19 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  )}
-                </button>
-              )
-            })}
           </div>
         </div>
       )}

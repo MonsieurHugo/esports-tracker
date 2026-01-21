@@ -2,13 +2,13 @@
 
 import { memo, useState, useCallback, useMemo } from 'react'
 import Image from 'next/image'
-import Link from 'next/link'
 import type { PlayerLeaderboardEntry } from '@/lib/types'
 import type { SortOption, ItemsPerPageOption, LeaderboardView } from '@/stores/dashboardStore'
-import { getRankTextClass, getLeagueTagClasses, getRoleImagePath } from '@/lib/utils'
+import { getRankTextClass, getRoleImagePath, cn } from '@/lib/utils'
 import Pagination from '../TeamLeaderboard/Pagination'
 import AccountAccordion from './AccountAccordion'
 import LeaderboardHeader from '../LeaderboardHeader'
+import LeagueTag from '@/components/ui/LeagueTag'
 
 interface PlayerLeaderboardProps {
   data: PlayerLeaderboardEntry[]
@@ -66,15 +66,19 @@ interface PlayerRowProps {
   onToggleLock?: (playerId: number) => void
 }
 
-function PlayerRow({ entry, sortBy, selectionIndex, isExpanded, onSelect, onToggle, isPinned, isLocked, onToggleLock }: PlayerRowProps) {
+const PlayerRow = memo(function PlayerRow({ entry, sortBy, selectionIndex, isExpanded, onSelect, onToggle, isPinned, isLocked, onToggleLock }: PlayerRowProps) {
   const [logoError, setLogoError] = useState(false)
   const [roleError, setRoleError] = useState(false)
   const [rankError, setRankError] = useState(false)
   const isSelected = selectionIndex !== null
 
-  const teamLogoPath = entry.team ? `/images/teams/${entry.team.slug}.png` : null
-  const roleImagePath = getRoleImagePath(entry.role)
-  const rankImagePath = getRankImagePath(entry.tier)
+  // Memoize computed paths
+  const teamLogoPath = useMemo(
+    () => entry.team ? `/images/teams/${entry.team.shortName.toLowerCase()}.png` : null,
+    [entry.team]
+  )
+  const roleImagePath = useMemo(() => getRoleImagePath(entry.role), [entry.role])
+  const rankImagePath = useMemo(() => getRankImagePath(entry.tier), [entry.tier])
 
   const handleRowClick = () => {
     onSelect(entry)
@@ -127,13 +131,9 @@ function PlayerRow({ entry, sortBy, selectionIndex, isExpanded, onSelect, onTogg
           ) : null}
 
           {/* Player name */}
-          <Link
-            href={`/lol/player/${entry.player.slug}`}
-            onClick={(e) => e.stopPropagation()}
-            className="font-medium text-[11px] sm:text-xs truncate hover:text-(--accent) hover:underline transition-colors"
-          >
+          <span className="font-medium text-[11px] sm:text-xs truncate">
             {entry.player.pseudo}
-          </Link>
+          </span>
 
           {/* Role image */}
           {!roleError ? (
@@ -153,9 +153,7 @@ function PlayerRow({ entry, sortBy, selectionIndex, isExpanded, onSelect, onTogg
 
           {/* League tag */}
           {entry.team?.league && (
-            <span className={`hidden sm:inline text-[9px] px-1.5 py-0.5 rounded-sm shrink-0 ${getLeagueTagClasses(entry.team.league)}`}>
-              {entry.team.league}
-            </span>
+            <LeagueTag league={entry.team.league} className="hidden sm:inline shrink-0" />
           )}
           {/* Lock button - only visible for selected players */}
           {isSelected && onToggleLock && (
@@ -186,7 +184,7 @@ function PlayerRow({ entry, sortBy, selectionIndex, isExpanded, onSelect, onTogg
         </div>
 
         {/* Rank image */}
-        <div className="hidden sm:flex items-center justify-end w-12 pr-2">
+        <div className="hidden sm:flex items-center justify-center w-16 sm:w-20">
           {rankImagePath && !rankError ? (
             <Image
               src={rankImagePath}
@@ -202,17 +200,22 @@ function PlayerRow({ entry, sortBy, selectionIndex, isExpanded, onSelect, onTogg
         </div>
 
         {/* LP */}
-        <span className={`font-mono font-semibold text-[10px] sm:text-[11px] w-16 sm:w-20 text-right pr-4 ${sortBy === 'lp' ? 'text-(--text-primary)' : 'text-(--text-secondary)'}`}>
+        <span className={`font-mono font-semibold text-[10px] sm:text-[11px] w-16 sm:w-20 text-center ${sortBy === 'lp' ? 'text-(--text-primary)' : 'text-(--text-secondary)'}`}>
           {entry.totalLp > 0 ? entry.totalLp.toLocaleString() : '-'}
         </span>
 
         {/* Games */}
-        <span className={`font-mono font-semibold text-[10px] sm:text-[11px] w-14 sm:w-16 text-right pr-4 ${sortBy === 'games' ? 'text-(--text-primary)' : 'text-(--text-secondary)'}`}>
+        <span className={`font-mono font-semibold text-[10px] sm:text-[11px] w-16 sm:w-20 text-center ${sortBy === 'games' ? 'text-(--text-primary)' : 'text-(--text-secondary)'}`}>
           {entry.games}
         </span>
 
         {/* Winrate */}
-        <span className={`font-mono font-semibold text-[10px] sm:text-[11px] w-[4.5rem] sm:w-20 text-right pr-4 ${sortBy === 'winrate' ? 'text-(--text-primary)' : 'text-(--text-secondary)'}`}>
+        <span className={cn(
+          'font-mono font-semibold text-[10px] sm:text-[11px] w-16 sm:w-20 text-center',
+          entry.games > 0 && entry.winrate >= 60
+            ? 'text-(--positive)'
+            : sortBy === 'winrate' ? 'text-(--text-primary)' : 'text-(--text-secondary)'
+        )}>
           {entry.games > 0 ? `${entry.winrate.toFixed(0)}%` : '-'}
         </span>
 
@@ -220,7 +223,7 @@ function PlayerRow({ entry, sortBy, selectionIndex, isExpanded, onSelect, onTogg
         <button
           onClick={handleToggleClick}
           className={`
-            w-7 h-7 sm:w-8 sm:h-8 -my-1 flex items-center justify-center rounded-md text-(--text-muted) hover:text-(--text-primary) hover:bg-(--bg-secondary) ml-2 transition-all duration-200
+            w-7 h-7 sm:w-8 sm:h-8 -my-1 flex items-center justify-center rounded-md text-(--text-muted) hover:text-(--text-primary) hover:bg-(--bg-secondary) transition-all duration-200
           `}
           title={isExpanded ? 'Masquer les comptes' : 'Afficher les comptes'}
         >
@@ -238,9 +241,24 @@ function PlayerRow({ entry, sortBy, selectionIndex, isExpanded, onSelect, onTogg
       <AccountAccordion accounts={entry.accounts} isOpen={isExpanded} />
     </div>
   )
-}
-
-const MemoizedPlayerRow = memo(PlayerRow)
+}, (prevProps, nextProps) => {
+  // Return true if props are equal (no re-render needed)
+  return (
+    prevProps.entry.player.playerId === nextProps.entry.player.playerId &&
+    prevProps.entry.rank === nextProps.entry.rank &&
+    prevProps.entry.totalLp === nextProps.entry.totalLp &&
+    prevProps.entry.games === nextProps.entry.games &&
+    prevProps.entry.winrate === nextProps.entry.winrate &&
+    prevProps.entry.tier === nextProps.entry.tier &&
+    prevProps.entry.accounts === nextProps.entry.accounts &&
+    prevProps.sortBy === nextProps.sortBy &&
+    prevProps.selectionIndex === nextProps.selectionIndex &&
+    prevProps.isExpanded === nextProps.isExpanded &&
+    prevProps.isPinned === nextProps.isPinned &&
+    prevProps.isLocked === nextProps.isLocked
+    // Callbacks should be stable via useCallback in parent
+  )
+})
 
 export default function PlayerLeaderboard({
   data,
@@ -289,10 +307,13 @@ export default function PlayerLeaderboard({
     return [...pinnedPlayers, ...otherPlayers]
   }, [data, selectedPlayers, lockedPlayerIds])
 
-  // Helper to get selection index
-  const getSelectionIndex = useCallback((playerId: number): number | null => {
-    const index = selectedPlayers.findIndex((p) => p.player.playerId === playerId)
-    return index === -1 ? null : index
+  // Map pour obtenir l'index de sélection d'un joueur en O(1)
+  const selectionMap = useMemo(() => {
+    const map = new Map<number, number>()
+    selectedPlayers.forEach((player, index) => {
+      map.set(player.player.playerId, index)
+    })
+    return map
   }, [selectedPlayers])
 
   const handleToggleExpand = useCallback((playerId: number) => {
@@ -323,26 +344,26 @@ export default function PlayerLeaderboard({
         <div className="flex items-center px-2 sm:px-3 py-2 text-[10px] sm:text-[11px] uppercase tracking-wider text-(--text-muted) font-medium">
           <span className="w-6 sm:w-7">#</span>
           <span className="flex-1 min-w-0">Joueur</span>
-          <span className="hidden sm:block w-12 pr-2 text-right">Rang</span>
+          <span className="hidden sm:block w-16 sm:w-20 text-center">Rang</span>
           <span
             onClick={() => onSortChange('lp')}
-            className={`w-16 sm:w-20 pr-4 text-right whitespace-nowrap cursor-pointer hover:text-(--text-primary) transition-colors ${sortBy === 'lp' ? 'text-(--text-primary)' : ''}`}
+            className={`w-16 sm:w-20 text-center whitespace-nowrap cursor-pointer hover:text-(--text-primary) transition-colors ${sortBy === 'lp' ? 'text-(--text-primary)' : ''}`}
           >
             LP<SortIcon active={sortBy === 'lp'} />
           </span>
           <span
             onClick={() => onSortChange('games')}
-            className={`w-14 sm:w-16 pr-4 text-right whitespace-nowrap cursor-pointer hover:text-(--text-primary) transition-colors ${sortBy === 'games' ? 'text-(--text-primary)' : ''}`}
+            className={`w-16 sm:w-20 text-center whitespace-nowrap cursor-pointer hover:text-(--text-primary) transition-colors ${sortBy === 'games' ? 'text-(--text-primary)' : ''}`}
           >
             Games<SortIcon active={sortBy === 'games'} />
           </span>
           <span
             onClick={() => onSortChange('winrate')}
-            className={`w-[4.5rem] sm:w-20 pr-4 text-right whitespace-nowrap cursor-pointer hover:text-(--text-primary) transition-colors ${sortBy === 'winrate' ? 'text-(--text-primary)' : ''}`}
+            className={`w-16 sm:w-20 text-center whitespace-nowrap cursor-pointer hover:text-(--text-primary) transition-colors ${sortBy === 'winrate' ? 'text-(--text-primary)' : ''}`}
           >
             Winrate<SortIcon active={sortBy === 'winrate'} />
           </span>
-          <span className="w-7 sm:w-8 ml-2"></span>
+          <span className="w-7 sm:w-8"></span>
         </div>
       </div>
 
@@ -362,10 +383,10 @@ export default function PlayerLeaderboard({
         </div>
         {/* Content */}
         <div>
-          {displayData.map((entry, index) => {
-            const selectionIndex = getSelectionIndex(entry.player.playerId)
+          {displayData.map((entry) => {
+            const selectionIndex = selectionMap.get(entry.player.playerId) ?? null
             return (
-              <MemoizedPlayerRow
+              <PlayerRow
                 key={entry.player.playerId}
                 entry={entry}
                 sortBy={sortBy}

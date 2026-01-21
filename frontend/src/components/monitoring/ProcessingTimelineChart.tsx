@@ -10,6 +10,7 @@ import {
   AreaChart,
 } from 'recharts'
 import api from '@/lib/api'
+import { logError } from '@/lib/logger'
 import type { WorkerMetricsHourly, WorkerDailyStats } from '@/lib/types'
 
 type TimeRange = '24h' | '7d' | '30d'
@@ -69,7 +70,7 @@ export default function ProcessingTimelineChart({ isLoading: parentLoading }: Pr
         setData(formatted)
       }
     } catch (error) {
-      console.error('Failed to fetch timeline data:', error)
+      logError('Failed to fetch timeline data', error)
       setData([])
     } finally {
       setIsLoading(false)

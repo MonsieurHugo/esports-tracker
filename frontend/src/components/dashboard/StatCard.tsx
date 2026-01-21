@@ -26,21 +26,21 @@ function StatCard({ label, value, change, changeUnit = '%', teams }: StatCardPro
 
       {/* Mode comparaison : 2 équipes */}
       {teams && teams.length === 2 ? (
-        <div className="flex flex-col gap-0.5">
+        <div className="flex flex-col gap-1">
           {teams.map((team, index) => {
             const teamIsPositive = team.change !== undefined && team.change >= 0
             return (
-              <div key={index} className="flex items-center gap-2">
+              <div key={index} className="flex items-center gap-1.5">
                 <div
                   className="w-2 h-2 rounded-full shrink-0"
                   style={{ backgroundColor: index === 0 ? 'var(--accent)' : 'var(--lol)' }}
                 />
-                <span className="font-mono text-base font-bold leading-none flex-1">
+                <span className="font-mono text-sm font-bold leading-none">
                   {typeof team.value === 'number' ? team.value.toLocaleString('fr-FR') : team.value}
                 </span>
                 {team.change !== undefined && (
-                  <span className={`text-[9px] font-medium ${teamIsPositive ? 'text-(--positive)' : 'text-(--negative)'}`}>
-                    {teamIsPositive ? '↑' : '↓'}{Math.abs(team.change).toLocaleString('fr-FR')}{changeUnit}
+                  <span className={`text-[9px] font-medium whitespace-nowrap ${teamIsPositive ? 'text-(--positive)' : 'text-(--negative)'}`}>
+                    {teamIsPositive ? '+' : ''}{team.change.toLocaleString('fr-FR')}{changeUnit}
                   </span>
                 )}
               </div>

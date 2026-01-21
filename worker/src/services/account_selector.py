@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 import structlog
 
 from src.services.activity_scorer import ActivityScorer
+from src.services.database import ensure_utc
 
 if TYPE_CHECKING:
     from src.services.database import DatabaseService
@@ -137,9 +138,7 @@ class AccountSelector:
             # Determine next_fetch_at
             # If stored in DB, use it; otherwise schedule immediately
             if acc["next_fetch_at"]:
-                next_fetch = acc["next_fetch_at"]
-                if next_fetch.tzinfo is None:
-                    next_fetch = next_fetch.replace(tzinfo=timezone.utc)
+                next_fetch = ensure_utc(acc["next_fetch_at"])
             else:
                 next_fetch = datetime.now(timezone.utc)
 
@@ -278,11 +277,7 @@ class AccountSelector:
 
                 # Peek and pop atomically within the same lock
                 top = self.queues[region][0]
-                top_time = top.next_fetch_at
-
-                # Ensure timezone-aware comparison
-                if top_time.tzinfo is None:
-                    top_time = top_time.replace(tzinfo=timezone.utc)
+                top_time = ensure_utc(top.next_fetch_at)
 
                 if top_time <= now:
                     account = heappop(self.queues[region])
@@ -298,6 +293,7 @@ class AccountSelector:
         account: PrioritizedAccount,
         new_matches: int,
         activity_data: dict | None = None,
+        connection=None,
     ) -> None:
         """Reschedule an account after processing.
 
@@ -305,6 +301,9 @@ class AccountSelector:
             account: The account that was processed
             new_matches: Number of new matches found
             activity_data: Optional fresh activity data from DB
+            connection: Optional asyncpg connection for transaction support.
+                        When provided, the DB update uses this connection to
+                        maintain atomicity with any prior locked reads.
         """
         now = datetime.now(timezone.utc)
 
@@ -362,13 +361,14 @@ class AccountSelector:
         # Update account map
         self._account_map[account.puuid] = account
 
-        # Persist to database
+        # Persist to database (use provided connection for transaction atomicity)
         await self.db.update_account_priority(
             puuid=account.puuid,
             activity_score=account.activity_score,
             tier=account.tier,
             next_fetch_at=account.next_fetch_at,
             consecutive_empty_fetches=account.consecutive_empty_fetches,
+            connection=connection,
         )
 
         logger.debug(
@@ -430,14 +430,7 @@ class AccountSelector:
 
         for region, queue in self.queues.items():
             region_ready = sum(
-                1
-                for acc in queue
-                if (
-                    acc.next_fetch_at.replace(tzinfo=timezone.utc)
-                    if acc.next_fetch_at.tzinfo is None
-                    else acc.next_fetch_at
-                )
-                <= now
+                1 for acc in queue if ensure_utc(acc.next_fetch_at) <= now
             )
             stats["by_region"][region] = {
                 "total": len(queue),

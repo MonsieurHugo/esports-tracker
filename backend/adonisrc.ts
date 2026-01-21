@@ -26,9 +26,9 @@ export default defineConfig({
     },
     () => import('@adonisjs/cors/cors_provider'),
     () => import('@adonisjs/lucid/database_provider'),
-    () => import('@adonisjs/redis/redis_provider'),
     () => import('@adonisjs/session/session_provider'),
-    () => import('@adonisjs/auth/auth_provider')
+    // Redis provider - loaded conditionally based on REDIS_ENABLED env var
+    ...(process.env.REDIS_ENABLED === 'true' ? [() => import('@adonisjs/redis/redis_provider')] : []),
   ],
 
   /*
@@ -39,6 +39,8 @@ export default defineConfig({
   preloads: [
     () => import('#start/routes'),
     () => import('#start/kernel'),
+    // Redis event handlers - loaded conditionally with provider
+    ...(process.env.REDIS_ENABLED === 'true' ? [() => import('#start/redis')] : []),
   ],
 
   /*
@@ -49,12 +51,12 @@ export default defineConfig({
   tests: {
     suites: [
       {
-        files: ['tests/unit/**/*.spec(.ts|.js)'],
+        files: ['tests/unit/**/*.spec.{ts,js}'],
         name: 'unit',
         timeout: 2000,
       },
       {
-        files: ['tests/functional/**/*.spec(.ts|.js)'],
+        files: ['tests/functional/**/*.spec.{ts,js}'],
         name: 'functional',
         timeout: 30000,
       },

@@ -24,7 +24,7 @@ export const http = defineConfig({
   generateRequestId: true,
   allowMethodSpoofing: false,
   useAsyncLocalStorage: true,
-  trustProxy: () => true,
+  trustProxy: getTrustedProxyConfig(),
   cookie: {
     domain: '',
     path: '/',
@@ -34,6 +34,32 @@ export const http = defineConfig({
     sameSite: 'lax',
   },
 })
+
+/**
+ * Get proxy trust configuration
+ * Returns function that validates proxy IPs, or false if no proxies configured (secure default)
+ */
+function getTrustedProxyConfig() {
+  const trustedProxiesEnv = env.get('TRUSTED_PROXY_IPS', '')
+
+  if (!trustedProxiesEnv) {
+    // Not behind a proxy - don't trust X-Forwarded-* headers
+    return () => false
+  }
+
+  // Parse comma-separated list of trusted proxy IPs
+  const trustedProxies = trustedProxiesEnv
+    .split(',')
+    .map((ip) => ip.trim())
+    .filter((ip) => ip.length > 0)
+
+  if (trustedProxies.length === 0) {
+    return () => false
+  }
+
+  // Return function that checks if IP is in trusted list
+  return (address: string) => trustedProxies.includes(address)
+}
 
 /*
 |--------------------------------------------------------------------------

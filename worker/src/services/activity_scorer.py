@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 
 import structlog
 
+from src.services.database import ensure_utc
+
 logger = structlog.get_logger(__name__)
 
 
@@ -53,9 +55,8 @@ class ActivityScorer:
         # Recency component (0-30) - exponential decay
         # Half-life of ~8 hours: after 8h score is ~15, after 24h ~5, after 48h ~1
         if last_match_at:
-            # Handle both naive and aware datetimes
-            if last_match_at.tzinfo is None:
-                last_match_at = last_match_at.replace(tzinfo=timezone.utc)
+            # Ensure datetime is UTC-aware
+            last_match_at = ensure_utc(last_match_at)
             now = datetime.now(timezone.utc)
             hours_since = (now - last_match_at).total_seconds() / 3600
             # Clamp to 0 in case of future timestamps

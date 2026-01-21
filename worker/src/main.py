@@ -233,7 +233,10 @@ class Worker:
                 await asyncio.wait_for(self.db.disconnect(), timeout=10.0)
             except asyncio.TimeoutError:
                 errors.append("Database disconnect timeout")
-                logger.warning("Timeout disconnecting database")
+                logger.warning("Timeout disconnecting database, forcing pool termination")
+                # Force terminate on timeout to prevent connection leaks
+                await self.db.force_terminate()
+                logger.warning("Database pool terminated forcefully due to timeout")
             except Exception as e:
                 errors.append(f"Database disconnect: {e}")
                 logger.warning("Failed to disconnect database", error=str(e))

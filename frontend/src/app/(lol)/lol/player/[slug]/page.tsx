@@ -18,12 +18,13 @@ import type {
   PlayHourMatrix,
   PlayerLeaderboardEntry,
 } from '@/lib/types'
+import { PERIOD_DAYS } from '@/lib/types'
 
 import PeriodSelector from '@/components/dashboard/PeriodSelector'
 import PeriodNavigator from '@/components/dashboard/PeriodNavigator'
 import StatCard from '@/components/dashboard/StatCard'
 import { getChampionName, getChampionIconUrl } from '@/lib/champions'
-import { getRoleImagePath, getRankImagePath } from '@/lib/utils'
+import { getRoleImagePath, getRankImagePath, sanitizeSlug, sanitizeSearchQuery, isValidSlug } from '@/lib/utils'
 
 function formatDuration(seconds: number): string {
   const hours = Math.floor(seconds / 3600)
@@ -38,13 +39,14 @@ const DAY_NAMES = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam']
 
 export default function PlayerProfilePage() {
   const params = useParams()
-  const slug = params.slug as string
+  const rawSlug = params.slug as string
+
+  // Validate slug - must be alphanumeric with hyphens only
+  const slug = isValidSlug(rawSlug) ? rawSlug.toLowerCase() : null
 
   // Period state
-  const [period, setPeriod] = useState<DashboardPeriod>('day')
+  const [period, setPeriod] = useState<DashboardPeriod>('7d')
   const [refDate, setRefDate] = useState(new Date())
-  const [customStartDate, setCustomStartDate] = useState<Date | null>(null)
-  const [customEndDate, setCustomEndDate] = useState<Date | null>(null)
 
   // Data state
   const [profile, setProfile] = useState<PlayerProfileData | null>(null)
@@ -63,70 +65,46 @@ export default function PlayerProfilePage() {
   const [playHoursView, setPlayHoursView] = useState<'histogram' | 'heatmap'>('histogram')
 
   // Navigation helpers
-  const canGoNext = refDate < new Date()
+  const todayStr = new Date().toISOString().split('T')[0]
+  const refDateStr = refDate.toISOString().split('T')[0]
+  const canGoNext = refDateStr < todayStr
 
-  const getRefDateString = () => refDate.toISOString().split('T')[0]
+  const getRefDateString = () => refDateStr
 
   const navigatePeriod = (direction: 'prev' | 'next') => {
     const newDate = new Date(refDate)
-    switch (period) {
-      case 'day':
-        newDate.setDate(newDate.getDate() + (direction === 'next' ? 7 : -7))
-        break
-      case 'month':
-        newDate.setMonth(newDate.getMonth() + (direction === 'next' ? 1 : -1))
-        break
-      case 'year':
-        newDate.setFullYear(newDate.getFullYear() + (direction === 'next' ? 1 : -1))
-        break
-      case 'custom':
-        if (customStartDate && customEndDate) {
-          const days = Math.ceil((customEndDate.getTime() - customStartDate.getTime()) / (1000 * 60 * 60 * 24))
-          const newStart = new Date(customStartDate)
-          const newEnd = new Date(customEndDate)
-          if (direction === 'next') {
-            newStart.setDate(newStart.getDate() + days + 1)
-            newEnd.setDate(newEnd.getDate() + days + 1)
-          } else {
-            newStart.setDate(newStart.getDate() - days - 1)
-            newEnd.setDate(newEnd.getDate() - days - 1)
-          }
-          setCustomStartDate(newStart)
-          setCustomEndDate(newEnd)
-        }
-        return
-    }
+    const days = PERIOD_DAYS[period]
+    newDate.setDate(newDate.getDate() + (direction === 'next' ? days : -days))
     setRefDate(newDate)
   }
 
   const getPeriodLabel = () => {
-    if (period === 'custom' && customStartDate && customEndDate) {
-      const format = (d: Date) => d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })
-      return `${format(customStartDate)} - ${format(customEndDate)}`
+    const days = PERIOD_DAYS[period]
+    const endDate = refDate
+    const startDate = new Date(refDate)
+    startDate.setDate(refDate.getDate() - days + 1)
+
+    const formatDate = (d: Date) => d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })
+
+    if (startDate.getMonth() === endDate.getMonth()) {
+      return `${startDate.getDate()} - ${formatDate(endDate)} ${endDate.getFullYear()}`
     }
-    switch (period) {
-      case 'day':
-        return '7 derniers jours'
-      case 'month':
-        return refDate.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })
-      case 'year':
-        return refDate.getFullYear().toString()
-      default:
-        return ''
-    }
+    return `${formatDate(startDate)} - ${formatDate(endDate)} ${endDate.getFullYear()}`
   }
 
   // Fetch profile data
   const fetchProfileData = useCallback(async () => {
+    // Skip fetch if slug is invalid
+    if (!slug) {
+      setIsLoading(false)
+      return
+    }
+
     setIsLoading(true)
     try {
       const baseParams: Record<string, string | undefined> = {
         period,
         date: getRefDateString(),
-      }
-      if (period === 'custom' && customStartDate && customEndDate) {
-        baseParams.startDate = customStartDate.toISOString().split('T')[0]
-        baseParams.endDate = customEndDate.toISOString().split('T')[0]
       }
 
       const [profileRes, playHoursHistRes, playHoursHeatRes, duosRes, championsRes] = await Promise.all([
@@ -148,22 +126,35 @@ export default function PlayerProfilePage() {
     } finally {
       setIsLoading(false)
     }
-  }, [slug, period, refDate, customStartDate, customEndDate])
+  }, [slug, period, refDate])
 
   useEffect(() => {
     fetchProfileData()
   }, [fetchProfileData])
 
   // Search for comparison player
+  const MAX_SEARCH_LENGTH = 100
+
   const searchPlayers = useCallback(async (query: string) => {
-    if (query.length < 2) {
+    // Validate min AND max length
+    if (query.length < 2 || query.length > MAX_SEARCH_LENGTH) {
       setSearchResults([])
       return
     }
+
+    // Sanitize: remove dangerous characters
+    const sanitizedQuery = sanitizeSearchQuery(query, MAX_SEARCH_LENGTH)
+
+    // Check sanitized length is still valid
+    if (sanitizedQuery.length < 2) {
+      setSearchResults([])
+      return
+    }
+
     setIsSearching(true)
     try {
       const res = await api.get<{ data: PlayerLeaderboardEntry[] }>('/lol/dashboard/players', {
-        params: { search: query, perPage: 5 },
+        params: { search: sanitizedQuery, perPage: 5 },
       })
       setSearchResults(res.data.filter(p => p.player.slug !== slug))
     } catch {
@@ -191,15 +182,20 @@ export default function PlayerProfilePage() {
         period,
         date: getRefDateString(),
       }
-      if (period === 'custom' && customStartDate && customEndDate) {
-        baseParams.startDate = customStartDate.toISOString().split('T')[0]
-        baseParams.endDate = customEndDate.toISOString().split('T')[0]
-      }
       const res = await api.get<PlayerCompareData>(`/players/${slug}/compare/${compareSlug}`, { params: baseParams })
       setCompareData(res)
     }
     fetchCompare()
-  }, [compareSlug, slug, period, refDate, customStartDate, customEndDate])
+  }, [compareSlug, slug, period, refDate])
+
+  // Invalid slug check - show not found for malformed URLs
+  if (!slug) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-(--text-muted)">Joueur non trouvé</div>
+      </div>
+    )
+  }
 
   if (isLoading && !profile) {
     return (
@@ -241,20 +237,7 @@ export default function PlayerProfilePage() {
       <div className="flex flex-wrap items-center gap-3 mb-6">
         <PeriodSelector
           value={period}
-          onChange={(p) => {
-            setPeriod(p)
-            if (p !== 'custom') {
-              setCustomStartDate(null)
-              setCustomEndDate(null)
-            }
-          }}
-          customStartDate={customStartDate}
-          customEndDate={customEndDate}
-          onCustomDateChange={(start, end) => {
-            setPeriod('custom')
-            setCustomStartDate(start)
-            setCustomEndDate(end)
-          }}
+          onChange={setPeriod}
         />
         <PeriodNavigator
           label={getPeriodLabel()}
@@ -271,7 +254,7 @@ export default function PlayerProfilePage() {
           <div className="flex items-center gap-4 flex-1">
             {profile.player.team && (
               <Image
-                src={`/images/teams/${profile.player.team.slug}.png`}
+                src={`/images/teams/${sanitizeSlug(profile.player.team.shortName)}.png`}
                 alt={profile.player.team.shortName}
                 width={48}
                 height={48}

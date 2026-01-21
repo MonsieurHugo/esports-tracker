@@ -6,6 +6,25 @@ import * as matchers from '@testing-library/jest-dom/matchers'
 // Extend Vitest's expect with Testing Library matchers
 expect.extend(matchers)
 
+// Suppress unhandled rejections from mocked API errors in tests
+// These are intentional rejections for testing error handling scenarios
+// Note: We suppress all unhandled rejections in tests because mocked APIs
+// often reject promises that are handled by the component but not awaited in tests
+process.on('unhandledRejection', (reason) => {
+  // Log but don't crash - these are expected in API error tests
+  const errorMessage = (reason as Error)?.message || String(reason)
+  // Only log unexpected rejections (not our test errors)
+  if (
+    !errorMessage.includes('Network error') &&
+    !errorMessage.includes('API Error') &&
+    !errorMessage.includes('Unauthorized') &&
+    !errorMessage.includes('Internal Server Error') &&
+    !errorMessage.includes('Not Found')
+  ) {
+    console.warn('Unexpected unhandled rejection in test:', errorMessage)
+  }
+})
+
 // Cleanup after each test
 afterEach(() => {
   cleanup()

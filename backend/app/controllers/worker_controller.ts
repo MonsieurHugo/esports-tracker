@@ -4,17 +4,31 @@ import { DateTime } from 'luxon'
 import WorkerStatus from '#models/worker_status'
 import WorkerLog from '#models/worker_log'
 import WorkerMetrics from '#models/worker_metrics'
+import { sanitizeLikeInput } from '#utils/validation'
+import { getRateLimiterStats } from '#middleware/rate_limit_middleware'
 
-/**
- * Sanitize input for use in SQL LIKE queries.
- * Escapes wildcard characters (%, _) and backslashes to prevent injection.
- */
-function sanitizeLikeInput(input: string, maxLength: number = 100): string {
-  // Trim and limit length
-  let sanitized = input.trim().slice(0, maxLength)
-  // Escape backslashes first, then LIKE wildcards
-  sanitized = sanitized.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_')
-  return sanitized
+interface AccountRow {
+  puuid: string
+  game_name: string
+  tag_line: string
+  region: string
+  last_fetched_at: Date | null
+  last_match_at: Date | null
+  player_name: string
+  health_status: string
+}
+
+interface TierStatsRow {
+  activity_tier: string
+  count: number
+  avg_score: string | null
+  avg_staleness_sec: string | null
+  ready_now: number
+}
+
+interface ScoreDistributionRow {
+  score_range: string
+  count: number
 }
 
 export default class WorkerController {
@@ -49,6 +63,7 @@ export default class WorkerController {
       })
     }
 
+    // SECURITY: No user input - static query safe for rawQuery
     // Get region stats (only active players)
     const regionStats = await db.rawQuery(`
       SELECT
@@ -211,177 +226,6 @@ export default class WorkerController {
   }
 
   /**
-   * GET /api/v1/worker/players/search
-   */
-  async searchPlayers(ctx: HttpContext) {
-    const { q } = ctx.request.qs()
-
-    // Validate input: must be string with 2-100 characters
-    if (!q || typeof q !== 'string' || q.trim().length < 2) {
-      return ctx.response.ok({ players: [] })
-    }
-
-    // Sanitize input to escape LIKE wildcards
-    const sanitizedQuery = sanitizeLikeInput(q, 100)
-
-    const players = await db
-      .from('players as p')
-      .leftJoin('player_contracts as pc', (query) => {
-        query.on('p.player_id', 'pc.player_id').andOnNull('pc.end_date')
-      })
-      .leftJoin('teams as t', 'pc.team_id', 't.team_id')
-      .whereILike('p.current_pseudo', `%${sanitizedQuery}%`)
-      .select('p.player_id', 'p.current_pseudo', 'p.slug', 't.current_name as team_name', 't.region')
-      .limit(10)
-
-    // Get accounts for each player
-    const playerIds = players.map((p) => p.player_id)
-    const accounts = await db
-      .from('lol_accounts')
-      .whereIn('player_id', playerIds)
-      .select('player_id', 'puuid', 'game_name', 'tag_line', 'region', 'last_fetched_at', 'last_match_at')
-
-    const accountsByPlayer = accounts.reduce((acc, a) => {
-      if (!acc[a.player_id]) acc[a.player_id] = []
-      acc[a.player_id].push({
-        puuid: a.puuid,
-        game_name: a.game_name,
-        tag_line: a.tag_line,
-        region: a.region,
-        last_fetched: a.last_fetched_at,
-        last_match_at: a.last_match_at,
-        player_name: null,
-      })
-      return acc
-    }, {} as Record<number, unknown[]>)
-
-    return ctx.response.ok({
-      players: players.map((p) => ({
-        player_id: p.player_id,
-        pseudo: p.current_pseudo,
-        slug: p.slug,
-        team_name: p.team_name,
-        team_region: p.region,
-        accounts: accountsByPlayer[p.player_id] || [],
-      })),
-    })
-  }
-
-  /**
-   * GET /api/v1/worker/daily-coverage
-   */
-  async dailyCoverage(ctx: HttpContext) {
-    const { days = 7 } = ctx.request.qs()
-
-    const since = DateTime.now().minus({ days: Number(days) })
-
-    const coverage = await db
-      .from('lol_daily_stats')
-      .where('date', '>=', since.toSQLDate()!)
-      .select(
-        'date',
-        db.raw('COUNT(DISTINCT puuid)::int as accounts_with_games'),
-        db.raw('SUM(games_played)::int as total_games')
-      )
-      .groupBy('date')
-      .orderBy('date', 'asc')
-
-    // Get total accounts count (only active players)
-    const [{ total_accounts }] = await db
-      .from('lol_accounts as a')
-      .join('players as p', 'a.player_id', 'p.player_id')
-      .where('p.is_active', true)
-      .count('* as total_accounts')
-
-    return ctx.response.ok({
-      totalAccounts: Number(total_accounts),
-      data: coverage.map((c) => ({
-        date: c.date,
-        accountsWithGames: c.accounts_with_games,
-        totalGames: c.total_games,
-        coverage: Math.round((c.accounts_with_games / Number(total_accounts)) * 1000) / 10,
-      })),
-    })
-  }
-
-  /**
-   * GET /api/v1/worker/accounts
-   */
-  async accounts(ctx: HttpContext) {
-    const { limit = 5 } = ctx.request.qs()
-
-    // Get recently updated accounts (only active players)
-    const recent = await db
-      .from('lol_accounts as a')
-      .join('players as p', 'a.player_id', 'p.player_id')
-      .where('p.is_active', true)
-      .orderBy('a.last_fetched_at', 'desc')
-      .limit(Number(limit))
-      .select(
-        'a.puuid',
-        'a.game_name',
-        'a.tag_line',
-        'a.region',
-        'a.last_fetched_at',
-        'a.last_match_at',
-        'p.current_pseudo as player_name'
-      )
-
-    // Get oldest (need update) accounts (only active players)
-    const oldest = await db
-      .from('lol_accounts as a')
-      .join('players as p', 'a.player_id', 'p.player_id')
-      .where('p.is_active', true)
-      .orderByRaw('a.last_fetched_at ASC NULLS FIRST')
-      .limit(Number(limit))
-      .select(
-        'a.puuid',
-        'a.game_name',
-        'a.tag_line',
-        'a.region',
-        'a.last_fetched_at',
-        'a.last_match_at',
-        'p.current_pseudo as player_name'
-      )
-
-    // Get count by region (only active players)
-    const byRegion = await db
-      .from('lol_accounts as a')
-      .join('players as p', 'a.player_id', 'p.player_id')
-      .where('p.is_active', true)
-      .select('a.region')
-      .count('* as count')
-      .groupBy('a.region')
-      .orderBy('count', 'desc')
-
-    const [{ total }] = await db
-      .from('lol_accounts as a')
-      .join('players as p', 'a.player_id', 'p.player_id')
-      .where('p.is_active', true)
-      .count('* as total')
-
-    const formatAccount = (a: any) => ({
-      puuid: a.puuid,
-      game_name: a.game_name,
-      tag_line: a.tag_line,
-      region: a.region,
-      last_fetched: a.last_fetched_at,
-      last_match_at: a.last_match_at,
-      player_name: a.player_name,
-    })
-
-    return ctx.response.ok({
-      recent: recent.map(formatAccount),
-      oldest: oldest.map(formatAccount),
-      total: Number(total),
-      by_region: byRegion.map((r) => ({
-        region: r.region,
-        count: Number(r.count),
-      })),
-    })
-  }
-
-  /**
    * GET /api/v1/worker/accounts/list
    * Paginated, filterable account list with health status
    */
@@ -396,9 +240,19 @@ export default class WorkerController {
       search,
     } = ctx.request.qs()
 
+    // Validate sort column against whitelist to prevent SQL injection
     const validSortColumns = ['last_fetched_at', 'game_name', 'region']
-    const sortColumn = validSortColumns.includes(sortBy) ? sortBy : 'last_fetched_at'
-    const sortDirection = sortDir === 'asc' ? 'ASC' : 'DESC'
+    if (sortBy && !validSortColumns.includes(sortBy)) {
+      return ctx.response.badRequest({ error: 'Invalid sort column' })
+    }
+    const sortColumn = sortBy && validSortColumns.includes(sortBy) ? sortBy : 'last_fetched_at'
+
+    // Validate sort direction
+    const normalizedSortDir = sortDir?.toLowerCase()
+    if (sortDir && !['asc', 'desc'].includes(normalizedSortDir)) {
+      return ctx.response.badRequest({ error: 'Invalid sort direction' })
+    }
+    const sortDirection = normalizedSortDir === 'asc' ? 'ASC' : 'DESC'
 
     let query = db
       .from('lol_accounts as a')
@@ -463,8 +317,16 @@ export default class WorkerController {
       }
     }
 
-    // Sorting
-    query = query.orderByRaw(`a.${sortColumn} ${sortDirection} NULLS LAST`)
+    // Sorting - use safe orderBy method with validated column
+    // Handle NULLS LAST for nullable timestamp columns
+    if (sortColumn === 'last_fetched_at') {
+      query = query
+        .orderByRaw('CASE WHEN a.last_fetched_at IS NULL THEN 1 ELSE 0 END')
+        .orderBy('a.last_fetched_at', sortDirection.toLowerCase() as 'asc' | 'desc')
+    } else {
+      // For other columns (game_name, region, etc.), standard ordering
+      query = query.orderBy(`a.${sortColumn}`, sortDirection.toLowerCase() as 'asc' | 'desc')
+    }
 
     // Pagination
     const pageNum = Math.max(1, Number(page))
@@ -499,7 +361,7 @@ export default class WorkerController {
       .first()
 
     return ctx.response.ok({
-      data: accounts.map((a: any) => ({
+      data: accounts.map((a: AccountRow) => ({
         puuid: a.puuid,
         game_name: a.game_name,
         tag_line: a.tag_line,
@@ -638,5 +500,92 @@ export default class WorkerController {
       accountsUpdatedToday,
       dailyCoverage,
     })
+  }
+
+  /**
+   * GET /api/v1/worker/priority-stats
+   * Priority queue statistics for V2 worker
+   */
+  async priorityStats(ctx: HttpContext) {
+    // SECURITY: No user input - static query safe for rawQuery
+    // Get tier statistics
+    const tierStats = await db.rawQuery(`
+      SELECT
+        activity_tier,
+        COUNT(*)::int as count,
+        ROUND(AVG(activity_score)::numeric, 2) as avg_score,
+        ROUND(AVG(EXTRACT(EPOCH FROM (NOW() - last_fetched_at)))::numeric, 0) as avg_staleness_sec,
+        COUNT(*) FILTER (WHERE next_fetch_at <= NOW())::int as ready_now
+      FROM lol_accounts a
+      JOIN players p ON a.player_id = p.player_id
+      WHERE p.is_active = true AND activity_tier IS NOT NULL
+      GROUP BY activity_tier
+      ORDER BY CASE activity_tier
+        WHEN 'very_active' THEN 1
+        WHEN 'active' THEN 2
+        WHEN 'moderate' THEN 3
+        WHEN 'inactive' THEN 4
+      END
+    `)
+
+    // SECURITY: No user input - static query safe for rawQuery
+    // Get score distribution
+    const scoreDistribution = await db.rawQuery(`
+      SELECT
+        CASE
+          WHEN activity_score >= 70 THEN '70-100 (very_active)'
+          WHEN activity_score >= 40 THEN '40-69 (active)'
+          WHEN activity_score >= 20 THEN '20-39 (moderate)'
+          ELSE '0-19 (inactive)'
+        END as score_range,
+        COUNT(*)::int as count
+      FROM lol_accounts a
+      JOIN players p ON a.player_id = p.player_id
+      WHERE p.is_active = true
+      GROUP BY 1
+      ORDER BY 1 DESC
+    `)
+
+    // Get totals
+    const [totals] = await db
+      .from('lol_accounts as a')
+      .join('players as p', 'a.player_id', 'p.player_id')
+      .where('p.is_active', true)
+      .select(
+        db.raw('COUNT(*)::int as total_accounts'),
+        db.raw('ROUND(AVG(activity_score)::numeric, 2) as overall_avg_score'),
+        db.raw('COUNT(*) FILTER (WHERE next_fetch_at <= NOW())::int as total_ready'),
+        db.raw('COUNT(*) FILTER (WHERE activity_tier IS NULL)::int as unscored')
+      )
+
+    return ctx.response.ok({
+      by_tier: tierStats.rows.map((r: TierStatsRow) => ({
+        tier: r.activity_tier,
+        count: r.count,
+        avg_score: parseFloat(r.avg_score ?? '0') || 0,
+        avg_staleness_sec: parseInt(r.avg_staleness_sec ?? '0') || 0,
+        ready_now: r.ready_now,
+      })),
+      score_distribution: scoreDistribution.rows.map((r: ScoreDistributionRow) => ({
+        range: r.score_range,
+        count: r.count,
+      })),
+      totals: {
+        total_accounts: totals?.total_accounts || 0,
+        overall_avg_score: parseFloat(totals?.overall_avg_score) || 0,
+        total_ready: totals?.total_ready || 0,
+        unscored: totals?.unscored || 0,
+      },
+      generated_at: new Date().toISOString(),
+    })
+  }
+
+  /**
+   * GET /api/v1/worker/rate-limiter-stats
+   * Rate limiter memory management statistics
+   */
+  async rateLimiterStats(ctx: HttpContext) {
+    const stats = await getRateLimiterStats()
+    return ctx.response.ok(stats)
   }
 }

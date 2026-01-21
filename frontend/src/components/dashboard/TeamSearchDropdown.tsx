@@ -4,8 +4,9 @@ import { useCallback } from 'react'
 import type { TeamLeaderboardEntry } from '@/lib/types'
 import type { DashboardPeriod } from '@/lib/types'
 import api from '@/lib/api'
-import { getLeagueTagClasses } from '@/lib/utils'
+import { sanitizeSlug } from '@/lib/utils'
 import SearchDropdown, { type SearchDropdownItem } from './SearchDropdown'
+import LeagueTag from '@/components/ui/LeagueTag'
 
 interface TeamSearchItem extends SearchDropdownItem {
   entry: TeamLeaderboardEntry
@@ -36,14 +37,12 @@ export default function TeamSearchDropdown({
   const toSearchItem = (entry: TeamLeaderboardEntry): TeamSearchItem => ({
     id: entry.team.teamId,
     name: entry.team.currentName,
-    secondaryText: entry.team.region,
-    imageUrl: entry.team.logoUrl,
+    secondaryText: entry.team.league || entry.team.region,
+    imageUrl: `/images/teams/${sanitizeSlug(entry.team.shortName)}.png`,
     imageFallback: entry.team.shortName.substring(0, 2),
-    badge: (
-      <span className={`text-[9px] px-1.5 py-0.5 rounded-sm ${getLeagueTagClasses(entry.team.region)}`}>
-        {entry.team.region}
-      </span>
-    ),
+    badge: entry.team.league ? (
+      <LeagueTag league={entry.team.league} />
+    ) : null,
     entry,
   })
 
@@ -74,6 +73,7 @@ export default function TeamSearchDropdown({
     return items.filter((item) =>
       item.entry.team.currentName.toLowerCase().includes(searchLower) ||
       item.entry.team.shortName.toLowerCase().includes(searchLower) ||
+      item.entry.team.league?.toLowerCase().includes(searchLower) ||
       item.entry.team.region.toLowerCase().includes(searchLower)
     )
   }, [])

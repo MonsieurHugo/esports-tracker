@@ -3,6 +3,7 @@ Riot Games API Service with Rate Limiting
 """
 
 import asyncio
+import random
 import time
 from collections import deque
 from typing import Any
@@ -11,6 +12,37 @@ import httpx
 import structlog
 
 logger = structlog.get_logger(__name__)
+
+
+# Exponential backoff configuration
+BACKOFF_BASE_DELAY = 1.0  # Base delay in seconds
+BACKOFF_MULTIPLIER = 2.0  # Multiply delay by this on each retry
+BACKOFF_MAX_DELAY = 60.0  # Maximum delay in seconds
+BACKOFF_JITTER = 0.2  # ±20% jitter
+BACKOFF_MAX_RETRIES = 5  # Maximum number of retries
+
+
+def calculate_backoff_delay(retry_count: int, retry_after: int | None = None) -> float:
+    """Calculate exponential backoff delay with jitter.
+
+    Args:
+        retry_count: Current retry attempt (0-indexed)
+        retry_after: Optional Retry-After header value from API (capped at max delay)
+
+    Returns:
+        Delay in seconds with jitter applied
+    """
+    if retry_after is not None:
+        # Respect Retry-After but cap at max delay
+        base_delay = min(retry_after, BACKOFF_MAX_DELAY)
+    else:
+        # Exponential backoff: base * (multiplier ^ retry_count)
+        base_delay = BACKOFF_BASE_DELAY * (BACKOFF_MULTIPLIER ** retry_count)
+        base_delay = min(base_delay, BACKOFF_MAX_DELAY)
+
+    # Apply ±20% jitter to avoid thundering herd
+    jitter_factor = 1.0 - BACKOFF_JITTER + (random.random() * 2 * BACKOFF_JITTER)
+    return base_delay * jitter_factor
 
 
 class RiotAPIError(Exception):
@@ -33,8 +65,8 @@ class RateLimiter:
     def __init__(self, requests_per_second: int = 20, requests_per_2min: int = 100):
         self.short_limit = requests_per_second
         self.long_limit = requests_per_2min
-        self.short_window: deque[float] = deque()
-        self.long_window: deque[float] = deque()
+        self.short_window: deque[float] = deque(maxlen=self.short_limit * 2)
+        self.long_window: deque[float] = deque(maxlen=self.long_limit * 2)
         self._lock = asyncio.Lock()
 
     async def acquire(self) -> None:
@@ -70,7 +102,12 @@ class RateLimiter:
 
 
 class RiotAPIService:
-    """Service for interacting with Riot Games API."""
+    """Service for interacting with Riot Games API.
+
+    SECURITY NOTE: Never log self.api_key, self._client.headers, or full request/response
+    objects as they may contain the API key. Only log sanitized information like URL paths,
+    status codes, and timing data.
+    """
 
     REGIONS = {
         "EUW": "https://euw1.api.riotgames.com",
@@ -105,12 +142,21 @@ class RiotAPIService:
         self._client: httpx.AsyncClient | None = None
         self._rate_limiter = rate_limiter or RateLimiter()
 
+    def __repr__(self) -> str:
+        """Return a safe string representation that does not expose the API key."""
+        return f"RiotAPIService(region={self.region!r}, base_url={self.base_url!r})"
+
+    def __str__(self) -> str:
+        """Return a safe string representation that does not expose the API key."""
+        return self.__repr__()
+
     async def _get_client(self) -> httpx.AsyncClient:
         """Get or create HTTP client."""
         if self._client is None:
             self._client = httpx.AsyncClient(
                 headers={"X-Riot-Token": self.api_key},
-                timeout=30.0,
+                timeout=httpx.Timeout(10.0, connect=5.0, pool=5.0),
+                limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
             )
         return self._client
 
@@ -120,9 +166,18 @@ class RiotAPIService:
         params: dict | None = None,
         _retry_count: int = 0,
     ) -> dict[str, Any] | list[Any]:
-        """Make a request to the Riot API with rate limiting."""
-        MAX_RETRIES = 3
+        """Make a request to the Riot API with rate limiting and exponential backoff.
 
+        Implements exponential backoff with jitter for retries:
+        - Base delay: 1s, multiplied by 2x on each retry
+        - Max delay: 60s (caps both calculated backoff and Retry-After header)
+        - Jitter: ±20% to avoid thundering herd
+        - Max retries: 5
+
+        SECURITY NOTE: This method must never log full request/response objects, headers,
+        or the URL with query parameters as they may contain sensitive information.
+        Only log status codes, timing data, and sanitized URL paths.
+        """
         # Wait for rate limiter
         await self._rate_limiter.acquire()
 
@@ -132,12 +187,25 @@ class RiotAPIService:
             response = await client.get(url, params=params)
 
             if response.status_code == 429:
-                # Rate limited by API - wait and retry
-                if _retry_count >= MAX_RETRIES:
-                    raise RiotAPIError(429, f"Rate limited after {MAX_RETRIES} retries")
-                retry_after = int(response.headers.get("Retry-After", 60))
-                logger.warning("Rate limited by API", retry_after=retry_after, retry=_retry_count + 1)
-                await asyncio.sleep(retry_after)
+                # Rate limited by API - use exponential backoff
+                if _retry_count >= BACKOFF_MAX_RETRIES:
+                    raise RiotAPIError(429, f"Rate limited after {BACKOFF_MAX_RETRIES} retries")
+
+                # Get Retry-After header if present (may be very long like 1800s)
+                retry_after_header = response.headers.get("Retry-After")
+                retry_after = int(retry_after_header) if retry_after_header else None
+
+                # Calculate backoff delay (caps Retry-After at 60s)
+                delay = calculate_backoff_delay(_retry_count, retry_after)
+
+                logger.warning(
+                    "Rate limited by API, using exponential backoff",
+                    retry_after_header=retry_after,
+                    actual_delay=round(delay, 2),
+                    retry=_retry_count + 1,
+                    max_retries=BACKOFF_MAX_RETRIES,
+                )
+                await asyncio.sleep(delay)
                 return await self._request(url, params, _retry_count + 1)
 
             if response.status_code == 404:

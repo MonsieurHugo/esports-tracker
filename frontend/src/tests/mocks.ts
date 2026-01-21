@@ -1,9 +1,10 @@
-import type { 
-  TeamLeaderboardEntry, 
-  PlayerLeaderboardEntry, 
-  DashboardSummary,
+import type {
+  TeamLeaderboardEntry,
+  PlayerLeaderboardEntry,
   TopGrinderEntry,
-  StreakEntry 
+  StreakEntry,
+  GrinderEntry,
+  LeagueInfo,
 } from '@/lib/types'
 
 export const mockTeam: TeamLeaderboardEntry = {
@@ -13,7 +14,7 @@ export const mockTeam: TeamLeaderboardEntry = {
     slug: 'karmine-corp',
     currentName: 'Karmine Corp',
     shortName: 'KC',
-    logoUrl: '/images/teams/karmine-corp.png',
+    logoUrl: '/images/teams/kc.png',
     region: 'LEC',
   },
   games: 150,
@@ -36,6 +37,7 @@ export const mockTeam: TeamLeaderboardEntry = {
       rank: 'I',
       lp: 500,
       totalLp: 2500,
+      countsForStats: true,
     },
     {
       playerId: 2,
@@ -48,6 +50,7 @@ export const mockTeam: TeamLeaderboardEntry = {
       rank: 'I',
       lp: 400,
       totalLp: 2400,
+      countsForStats: true,
     },
   ],
 }
@@ -95,17 +98,6 @@ export const mockPlayer: PlayerLeaderboardEntry = {
   ],
 }
 
-export const mockSummary: DashboardSummary = {
-  totalGames: 5420,
-  totalGamesChange: 156,
-  avgWinrate: 52.3,
-  avgWinrateChange: 0.5,
-  totalMinutes: 162600,
-  totalMinutesChange: 4680,
-  totalLp: 850000,
-  lastUpdated: '2024-01-15T12:00:00Z',
-}
-
 export const mockTopGrinders: TopGrinderEntry[] = [
   {
     rank: 1,
@@ -140,3 +132,69 @@ export const mockStreaks: StreakEntry[] = [
 
 export const mockTeams = [mockTeam]
 export const mockPlayers = [mockPlayer]
+
+// GrinderEntry mocks for TopGrinders component (new format)
+export const mockGrinderEntries: GrinderEntry[] = [
+  {
+    rank: 1,
+    entity: {
+      id: 1,
+      slug: 'karmine-corp',
+      name: 'Karmine Corp',
+      shortName: 'KC',
+      logoUrl: '/images/teams/kc.png',
+    },
+    entityType: 'team',
+    games: 85,
+  },
+  {
+    rank: 2,
+    entity: {
+      id: 2,
+      slug: 'player-grinder',
+      name: 'TopGrinder',
+    },
+    entityType: 'player',
+    team: { shortName: 'G2', slug: 'g2-esports' },
+    role: 'MID',
+    games: 78,
+  },
+  {
+    rank: 3,
+    entity: {
+      id: 3,
+      slug: 'fnatic',
+      name: 'Fnatic',
+      shortName: 'FNC',
+      logoUrl: '/images/teams/fnc.png',
+    },
+    entityType: 'team',
+    games: 72,
+  },
+]
+
+// LeagueInfo mocks for LeagueDropdown
+export const mockLeagues: LeagueInfo[] = [
+  { leagueId: 1, name: 'League of Legends EMEA Championship', shortName: 'LEC', region: 'EMEA', color: '#00e5bf' },
+  { leagueId: 2, name: 'Ligue Française de League of Legends', shortName: 'LFL', region: 'FR', color: '#ff7b57' },
+  { leagueId: 3, name: 'League of Legends Champions Korea', shortName: 'LCK', region: 'KR', color: '#f5e6d3' },
+]
+
+// LpChart mock data
+export const mockLpChartTeams = [
+  {
+    teamName: 'Karmine Corp',
+    shortName: 'KC',
+    data: [
+      { date: '2024-01-15', label: '15/01', totalLp: 2500 },
+      { date: '2024-01-16', label: '16/01', totalLp: 2650 },
+      { date: '2024-01-17', label: '17/01', totalLp: 2800 },
+    ],
+  },
+]
+
+export const mockDateRange = [
+  { date: '2024-01-15', label: '15/01' },
+  { date: '2024-01-16', label: '16/01' },
+  { date: '2024-01-17', label: '17/01' },
+]

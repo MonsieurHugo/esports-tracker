@@ -1,10 +1,17 @@
-import type { DashboardPeriod } from './types'
+import { PERIOD_DAYS, type DashboardPeriod } from './types'
+
+// Re-export weekly aggregation utilities
+export { shouldAggregateByWeek, generateWeekBuckets } from './weekAggregation'
+export type { WeekBucket } from './weekAggregation'
 
 /**
- * Formate une date en chaîne ISO (YYYY-MM-DD)
+ * Formate une date en chaîne ISO (YYYY-MM-DD) en heure locale
  */
 export function formatToDateString(date: Date): string {
-  return date.toISOString().split('T')[0]
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
 /**
@@ -36,22 +43,13 @@ export function formatDateRange(
   const options: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short' }
   const optionsWithYear: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short', year: 'numeric' }
 
-  switch (period) {
-    case 'day':
-      return start.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
-    case 'month':
-      return start.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })
-    case 'year':
-      return start.getFullYear().toString()
-    case 'custom':
-      return `${start.toLocaleDateString('fr-FR', options)} - ${end.toLocaleDateString('fr-FR', optionsWithYear)}`
-    default:
-      return ''
-  }
+  // All periods are sliding windows, show full date range
+  return `${start.toLocaleDateString('fr-FR', options)} - ${end.toLocaleDateString('fr-FR', optionsWithYear)}`
 }
 
 /**
  * Navigue vers la date précédente ou suivante selon la période
+ * Shifting is done by the period's number of days
  */
 export function navigateDate(
   period: DashboardPeriod,
@@ -59,23 +57,10 @@ export function navigateDate(
   direction: 'prev' | 'next'
 ): string {
   const date = new Date(currentDate)
-  const delta = direction === 'prev' ? -1 : 1
+  const days = PERIOD_DAYS[period]
+  const delta = direction === 'prev' ? -days : days
 
-  switch (period) {
-    case 'day':
-      date.setDate(date.getDate() + delta * 7) // Navigate by 7 days for '7 jours' view
-      break
-    case 'month':
-      date.setMonth(date.getMonth() + delta)
-      break
-    case 'year':
-      date.setFullYear(date.getFullYear() + delta)
-      break
-    case 'custom':
-      // Custom period navigation is handled by the store
-      date.setDate(date.getDate() + delta)
-      break
-  }
+  date.setDate(date.getDate() + delta)
 
   return formatToDateString(date)
 }
@@ -89,28 +74,10 @@ export function getDateRangeForPeriod(
 ): { startDate: string; endDate: string } {
   const endDate = new Date(referenceDate)
   const startDate = new Date(referenceDate)
+  const days = PERIOD_DAYS[period]
 
-  switch (period) {
-    case 'day':
-      // 7 derniers jours
-      startDate.setDate(startDate.getDate() - 6)
-      break
-    case 'month':
-      // Mois courant
-      startDate.setDate(1)
-      endDate.setMonth(endDate.getMonth() + 1)
-      endDate.setDate(0) // Dernier jour du mois
-      break
-    case 'year':
-      // Année courante
-      startDate.setMonth(0, 1)
-      endDate.setMonth(11, 31)
-      break
-    case 'custom':
-      // Custom period - dates are set externally, default to 7 days
-      startDate.setDate(startDate.getDate() - 6)
-      break
-  }
+  // All periods are sliding windows: startDate = refDate - (days - 1)
+  startDate.setDate(startDate.getDate() - (days - 1))
 
   return {
     startDate: formatToDateString(startDate),
@@ -132,4 +99,36 @@ export function getRelativeTime(date: Date | string): string {
   if (diffInSeconds < 604800) return `Il y a ${Math.floor(diffInSeconds / 86400)} j`
 
   return past.toLocaleDateString('fr-FR')
+}
+
+export interface DateRangeConfig {
+  period: DashboardPeriod
+  refDate: string          // YYYY-MM-DD
+}
+
+/**
+ * Génère une plage complète de dates avec labels formatés selon la période.
+ * Utilisé pour forcer l'affichage de tous les jours même sans données.
+ * Toutes les périodes sont des fenêtres glissantes de N jours.
+ */
+export function generateCompleteDateRange(config: DateRangeConfig): { date: string; label: string }[] {
+  const { period, refDate } = config
+  const ref = new Date(refDate + 'T00:00:00')
+  const days = PERIOD_DAYS[period]
+  const results: { date: string; label: string }[] = []
+
+  // All periods: generate `days` entries from (refDate - days + 1) to refDate
+  const start = new Date(ref)
+  start.setDate(start.getDate() - days + 1)
+
+  for (let i = 0; i < days; i++) {
+    const current = new Date(start)
+    current.setDate(start.getDate() + i)
+    results.push({
+      date: formatToDateString(current),
+      label: current.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }),
+    })
+  }
+
+  return results
 }

@@ -11,10 +11,12 @@ import router from '@adonisjs/core/services/router'
  * to a HTTP response.
  */
 router.use([
+  // Request ID MUST be first to be available to all other middleware
+  () => import('#middleware/request_id_middleware'),
+  () => import('#middleware/request_logger_middleware'),
   () => import('@adonisjs/core/bodyparser_middleware'),
   () => import('@adonisjs/cors/cors_middleware'),
   () => import('@adonisjs/session/session_middleware'),
-  () => import('@adonisjs/auth/initialize_auth_middleware'),
   () => import('#middleware/security_headers_middleware'),
 ])
 
@@ -22,8 +24,6 @@ router.use([
  * Named middleware collection
  */
 export const middleware = router.named({
-  auth: () => import('#middleware/auth_middleware'),
-  guest: () => import('#middleware/guest_middleware'),
-  admin: () => import('#middleware/admin_middleware'),
   rateLimit: () => import('#middleware/rate_limit_middleware'),
+  workerAuth: () => import('#middleware/worker_auth_middleware'),
 })

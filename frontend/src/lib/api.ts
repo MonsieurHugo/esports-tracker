@@ -9,6 +9,19 @@ interface FetchOptions extends RequestInit {
 }
 
 /**
+ * In-flight request cache to deduplicate concurrent identical GET requests.
+ * Key: cache key (method + url), Value: Promise of the response
+ */
+const inflightRequests = new Map<string, Promise<unknown>>()
+
+/**
+ * Generates a cache key for request deduplication.
+ */
+function getCacheKey(method: string, url: string): string {
+  return `${method}:${url}`
+}
+
+/**
  * Custom API error with structured information.
  */
 export class ApiError extends Error {
@@ -48,13 +61,33 @@ function validateEndpoint(endpoint: string): void {
   }
 }
 
+const MAX_PARAM_LENGTH = 500
+
 /**
  * Sanitizes parameter values to prevent injection.
  * Removes potentially dangerous characters while preserving normal text.
  */
 function sanitizeParamValue(value: string): string {
-  // Remove null bytes and control characters
-  return value.replace(/[\x00-\x1f\x7f]/g, '')
+  if (typeof value !== 'string') {
+    return ''
+  }
+  const truncated = value.slice(0, MAX_PARAM_LENGTH)
+  return truncated.replace(/[\x00-\x1f\x7f]/g, '')
+}
+
+/**
+ * Retrieves the CSRF token from cookies or meta tag for protection against CSRF attacks.
+ */
+function getCsrfToken(): string | null {
+  if (typeof document === 'undefined') return null
+
+  // Option 1: from XSRF-TOKEN cookie (common pattern with frameworks like AdonisJS, Laravel)
+  const match = document.cookie.match(/XSRF-TOKEN=([^;]+)/)
+  if (match) return decodeURIComponent(match[1])
+
+  // Option 2: from meta tag
+  const meta = document.querySelector('meta[name="csrf-token"]')
+  return meta?.getAttribute('content') || null
 }
 
 async function fetchApi<T>(endpoint: string, options: FetchOptions = {}): Promise<T> {
@@ -83,27 +116,103 @@ async function fetchApi<T>(endpoint: string, options: FetchOptions = {}): Promis
     }
   }
 
-  const response = await fetch(url, {
-    ...fetchOptions,
-    signal,
-    credentials: 'include', // Envoie les cookies de session
-    headers: {
-      'Content-Type': 'application/json',
-      ...fetchOptions.headers,
-    },
-  })
-
-  if (!response.ok) {
-    let body: unknown
-    try {
-      body = await response.json()
-    } catch {
-      // Body is not JSON, ignore
-    }
-    throw new ApiError(response.status, response.statusText, body)
+  // Build headers with CSRF token for mutation requests
+  const method = (fetchOptions.method || 'GET').toUpperCase()
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(fetchOptions.headers as Record<string, string>),
   }
 
-  return response.json()
+  // Add CSRF token for mutation methods to protect against CSRF attacks
+  if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(method)) {
+    const csrfToken = getCsrfToken()
+    if (csrfToken) {
+      headers['X-CSRF-Token'] = csrfToken
+    }
+  }
+
+  // Deduplicate concurrent identical GET requests
+  const cacheKey = getCacheKey(method, url)
+  if (method === 'GET' && inflightRequests.has(cacheKey)) {
+    const existingPromise = inflightRequests.get(cacheKey) as Promise<T>
+
+    // Si pas de signal, retourne directement la promesse existante
+    if (!signal) {
+      return existingPromise
+    }
+
+    // Avec signal: lie l'abort à la requête dédupliquée
+    return new Promise<T>((resolve, reject) => {
+      // Handler pour l'abort
+      const abortHandler = () => {
+        reject(new DOMException('Aborted', 'AbortError'))
+      }
+
+      // Vérifie si déjà aborted
+      if (signal.aborted) {
+        reject(new DOMException('Aborted', 'AbortError'))
+        return
+      }
+
+      // Écoute l'abort
+      signal.addEventListener('abort', abortHandler, { once: true })
+
+      // Attend la promesse existante
+      existingPromise
+        .then((result) => {
+          signal.removeEventListener('abort', abortHandler)
+          if (!signal.aborted) {
+            resolve(result)
+          }
+        })
+        .catch((error) => {
+          signal.removeEventListener('abort', abortHandler)
+          if (!signal.aborted) {
+            reject(error)
+          }
+        })
+    })
+  }
+
+  const fetchPromise = (async () => {
+    const response = await fetch(url, {
+      ...fetchOptions,
+      signal,
+      credentials: 'include', // Envoie les cookies de session
+      headers,
+    })
+
+    if (!response.ok) {
+      let body: unknown
+      try {
+        body = await response.json()
+      } catch {
+        // Body is not JSON, ignore
+      }
+      throw new ApiError(response.status, response.statusText, body)
+    }
+
+    return response.json()
+  })()
+
+  // Cache GET requests
+  if (method === 'GET') {
+    inflightRequests.set(cacheKey, fetchPromise)
+
+    // Cleanup on completion
+    fetchPromise.finally(() => {
+      inflightRequests.delete(cacheKey)
+    })
+
+    // Cleanup on abort to prevent memory leak
+    if (signal) {
+      signal.addEventListener('abort', () => {
+        inflightRequests.delete(cacheKey)
+      }, { once: true })
+    }
+  }
+
+  return fetchPromise as Promise<T>
 }
 
 export const api = {

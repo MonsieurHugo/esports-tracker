@@ -33,7 +33,16 @@ interface SearchDropdownProps<T extends SearchDropdownItem> {
   loadingMessage?: string
 
   // Item rendering
-  renderItem?: (item: T, isSelected: boolean, selectionIndex: number) => ReactNode
+  renderItem?: (
+    item: T,
+    isSelected: boolean,
+    selectionIndex: number,
+    favoriteProps: {
+      isFavorite: boolean
+      isRecent: boolean
+      onToggleFavorite: (e: React.MouseEvent) => void
+    }
+  ) => ReactNode
   filterItems?: (items: T[], search: string) => T[]
 
   // Refresh trigger (change to refetch data)
@@ -178,6 +187,8 @@ export default function SearchDropdown<T extends SearchDropdownItem>({
     setItems([])
   }, [refreshKey])
 
+  const getItemId = (item: T): number | string => item.id
+
   // Filter and sort items based on search, favorites, and history
   const filteredItems = useMemo(() => {
     let result = items
@@ -237,8 +248,6 @@ export default function SearchDropdown<T extends SearchDropdownItem>({
     onClear()
     setSearch('')
   }
-
-  const getItemId = (item: T): number | string => item.id
 
   return (
     <div ref={dropdownRef} className="relative flex-1 min-w-[200px]">
@@ -381,7 +390,11 @@ export default function SearchDropdown<T extends SearchDropdownItem>({
                       onClick={() => !isBlocked && handleSelect(item)}
                       className={`cursor-pointer ${isBlocked ? 'opacity-40 cursor-not-allowed' : ''}`}
                     >
-                      {renderItem(item, isSelected, selectionIndex)}
+                      {renderItem(item, isSelected, selectionIndex, {
+                        isFavorite: !!isFavorite,
+                        isRecent: !!isRecent,
+                        onToggleFavorite: (e) => toggleFavorite(itemId, e),
+                      })}
                     </div>
                   )
                 }

@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, memo, useState, useEffect, useRef } from 'react'
+import { useMemo, memo, useRef } from 'react'
 import {
   XAxis,
   YAxis,
@@ -8,7 +8,14 @@ import {
   ResponsiveContainer,
   Area,
   ComposedChart,
+  LabelList,
 } from 'recharts'
+import { getTodayString, shouldAggregateByWeek, generateWeekBuckets } from '@/lib/dateUtils'
+import type { DashboardPeriod } from '@/lib/types'
+import { calculateXAxisInterval } from '@/lib/chartUtils'
+import { useChartWidth } from '@/hooks/useChartTicks'
+import { useChartAnimation } from '@/hooks/useChartAnimation'
+import { useChartColors } from '@/stores/themeStore'
 
 export interface LpHistoryData {
   date: string
@@ -18,54 +25,77 @@ export interface LpHistoryData {
 
 export interface TeamLpData {
   teamName: string
+  shortName?: string
   data: LpHistoryData[]
 }
 
 interface LpChartProps {
   teams: TeamLpData[]
   isLoading?: boolean
+  showLabels?: boolean
+  /** Complete date range for the period - ensures all days are displayed */
+  dateRange?: { date: string; label: string }[]
+  /** Current period - used to hide labels in month view */
+  period?: string
+  /** View mode - determines empty state message */
+  viewMode?: 'teams' | 'players'
 }
-
-// Couleurs pour les équipes
-const TEAM_COLORS = [
-  { stroke: 'var(--accent)', fill: 'var(--accent)' },     // Équipe 1 - Indigo
-  { stroke: 'var(--lol)', fill: 'var(--lol)' },           // Équipe 2 - Doré
-]
 
 const FADE_DURATION = 150
 const DRAW_DURATION = 500
 
-// Formatter pour les valeurs LP (10k format)
-const formatLpAxis = (value: number): string => {
-  if (value >= 10000) return `${(value / 1000).toFixed(0)}k`
-  if (value >= 1000) return `${(value / 1000).toFixed(1)}k`
-  return value.toString()
+// Formatter pour les valeurs LP - harmonisé selon le max
+const createLpFormatter = (maxValue: number) => {
+  return (value: number): string => {
+    if (maxValue >= 1000) {
+      // Tout en "k" avec une décimale pour cohérence
+      return `${(value / 1000).toFixed(1)}k`
+    }
+    return value.toString()
+  }
 }
 
-// Convertir LP en rang approximatif
-const getLpRankDisplay = (lp: number): string => {
-  if (lp >= 14400) return 'Challenger'
-  if (lp >= 12800) return 'GrandMaster'
-  if (lp >= 11200) return 'Master'
-  if (lp >= 9600) return 'Diamond 1'
-  if (lp >= 8800) return 'Diamond 2'
-  if (lp >= 8000) return 'Diamond 3'
-  if (lp >= 7200) return 'Diamond 4'
-  if (lp >= 6400) return 'Emerald 1'
-  if (lp >= 5600) return 'Emerald 2'
-  if (lp >= 4800) return 'Emerald 3'
-  if (lp >= 4000) return 'Emerald 4'
-  if (lp >= 3200) return 'Platinum'
-  if (lp >= 2400) return 'Gold'
-  if (lp >= 1600) return 'Silver'
-  if (lp >= 800) return 'Bronze'
-  return 'Iron'
-}
+function LpChart({ teams, showLabels = false, dateRange, period, viewMode = 'teams' }: LpChartProps) {
+  // Couleurs du thème pour les graphiques
+  const { team1, team2, colors: chartColors } = useChartColors()
 
-function LpChart({ teams }: LpChartProps) {
+  // Show labels only if explicitly requested OR single team AND not in month view
+  const shouldShowLabels = showLabels || (teams.length === 1 && period !== 'month')
+
+  // Ref for measuring chart width
+  const chartContainerRef = useRef<HTMLDivElement>(null)
+  const chartWidth = useChartWidth(chartContainerRef)
+
+  // Determine if using weekly aggregation
+  const useWeeklyAggregation = period && shouldAggregateByWeek(period as DashboardPeriod)
+
+  // Calculate the number of data points (weekly buckets for 30d/90d, daily otherwise)
+  const dataPointCount = useMemo(() => {
+    if (!dateRange || dateRange.length === 0) return 0
+    if (useWeeklyAggregation) {
+      // Approximate: 30d = 4-5 weeks, 90d = 12-13 weeks
+      return Math.ceil(dateRange.length / 7)
+    }
+    return dateRange.length
+  }, [dateRange, useWeeklyAggregation])
+
+  // Calculate X-axis interval - show fewer labels for cleaner display
+  const xAxisInterval = useMemo(() => {
+    if (showLabels) return 0 // Modal: show all labels
+    if (useWeeklyAggregation) {
+      // Weekly mode: show ~3-4 labels max (first, middle, last)
+      // 30d = ~5 weeks -> interval 1 (show ~3)
+      // 90d = ~13 weeks -> interval 3 (show ~4)
+      return period === '90d' ? 3 : 1
+    }
+    return calculateXAxisInterval(dataPointCount, chartWidth, 45)
+  }, [showLabels, useWeeklyAggregation, period, dataPointCount, chartWidth])
   // Fusionner les données des équipes en un seul tableau
   const mergedData = useMemo(() => {
     if (teams.length === 0) return []
+
+    // Check if weekly aggregation should be used (30d, 90d periods)
+    const useWeeklyAggregation = period && shouldAggregateByWeek(period as DashboardPeriod)
 
     // Vérifier si une équipe a des labels dupliqués (cas de la vue année)
     const hasLabelDuplicates = teams.some((team) => {
@@ -92,52 +122,137 @@ function LpChart({ teams }: LpChartProps) {
         })
       })
 
-      // Trier et carry forward les valeurs LP manquantes
-      const sortedLabels = Array.from(labelMap.values()).sort((a, b) => a.minDate.localeCompare(b.minDate))
-      const lastKnownLp: number[] = new Array(teams.length).fill(0)
+      // Pour la vue année, utiliser dateRange si fourni (12 mois)
+      const baseLabels = dateRange && dateRange.length > 0
+        ? dateRange.map(d => ({ label: d.label, minDate: d.date, teamLps: labelMap.get(d.label)?.teamLps || new Array(teams.length).fill(0) }))
+        : Array.from(labelMap.values()).sort((a, b) => a.minDate.localeCompare(b.minDate))
 
-      return sortedLabels.map(({ label, minDate, teamLps }) => {
-        const result: Record<string, string | number> = { label, date: minDate }
+      const today = getTodayString()
+
+      return baseLabels.map(({ label, minDate, teamLps }) => {
+        const result: Record<string, string | number | null> = { label, date: minDate }
+        const isFuture = minDate > today
         teamLps.forEach((lp, index) => {
-          if (lp > 0) {
-            lastKnownLp[index] = lp
-          }
-          // Utiliser la dernière valeur connue (carry forward)
-          result[`team${index}Lp`] = lastKnownLp[index]
+          result[`team${index}Lp`] = isFuture ? null : lp
         })
         return result
       })
     }
 
-    // Vue jour/semaine/mois: grouper par date
-    const dateMap = new Map<string, { date: string; label: string }>()
-    teams.forEach((team) => {
+    // Weekly aggregation for 30d and 90d periods
+    if (useWeeklyAggregation && dateRange && dateRange.length > 0) {
+      const startDate = dateRange[0].date
+      const endDate = dateRange[dateRange.length - 1].date
+      const weekBuckets = generateWeekBuckets(startDate, endDate)
+      const today = getTodayString()
+
+      // Create LP data index by date for each team
+      const teamDataByDate: Map<number, Map<string, number>> = new Map()
+      teams.forEach((team, teamIndex) => {
+        const dateMap = new Map<string, number>()
+        team.data.forEach(d => {
+          if (d.totalLp !== undefined && d.totalLp !== null) {
+            dateMap.set(d.date, d.totalLp)
+          }
+        })
+        teamDataByDate.set(teamIndex, dateMap)
+      })
+
+      // Track last known LP for each team (for propagation)
+      const lastKnownLp: number[] = new Array(teams.length).fill(0)
+
+      return weekBuckets.map(bucket => {
+        const result: Record<string, string | number | boolean | null> = {
+          label: bucket.label,
+          rangeLabel: bucket.rangeLabel,
+          date: bucket.startDate,
+          weekKey: bucket.weekKey,
+          isPartial: bucket.isPartial,
+          dayCount: bucket.dayCount,
+        }
+
+        const isFuture = bucket.startDate > today
+
+        teams.forEach((_, teamIndex) => {
+          const dateMap = teamDataByDate.get(teamIndex)!
+
+          // Find the last LP value in this week (end-of-week snapshot)
+          let weekLp: number | null = null
+          const bucketStart = new Date(bucket.startDate + 'T00:00:00')
+          const bucketEnd = new Date(bucket.endDate + 'T00:00:00')
+
+          for (let d = new Date(bucketEnd); d >= bucketStart; d.setDate(d.getDate() - 1)) {
+            const dateStr = d.toISOString().split('T')[0]
+            const lp = dateMap.get(dateStr)
+            if (lp !== undefined) {
+              weekLp = lp
+              break
+            }
+          }
+
+          // Use last known LP if no data for this week (propagate forward)
+          if (weekLp === null && lastKnownLp[teamIndex] > 0) {
+            weekLp = lastKnownLp[teamIndex]
+          }
+
+          // Update last known LP for next iteration
+          if (weekLp !== null && weekLp > 0) {
+            lastKnownLp[teamIndex] = weekLp
+          }
+
+          result[`team${teamIndex}Lp`] = isFuture ? null : (weekLp ?? 0)
+        })
+
+        return result
+      })
+    }
+
+    // Vue jour/semaine/mois: utiliser dateRange comme base si fourni
+    // Cela garantit que tous les jours de la période sont affichés
+    const baseDates = dateRange && dateRange.length > 0
+      ? dateRange.map(d => ({ date: d.date, label: d.label }))
+      : (() => {
+          // Fallback: construire à partir des données existantes
+          const dateMap = new Map<string, { date: string; label: string }>()
+          teams.forEach((team) => {
+            team.data.forEach((d) => {
+              if (!dateMap.has(d.date)) {
+                dateMap.set(d.date, { date: d.date, label: d.label })
+              }
+            })
+          })
+          return Array.from(dateMap.values()).sort((a, b) => a.date.localeCompare(b.date))
+        })()
+
+    // Créer un index rapide des données par date et équipe
+    const dataIndex = new Map<string, Map<number, number>>()
+    teams.forEach((team, teamIndex) => {
       team.data.forEach((d) => {
-        if (!dateMap.has(d.date)) {
-          dateMap.set(d.date, { date: d.date, label: d.label })
+        if (!dataIndex.has(d.date)) {
+          dataIndex.set(d.date, new Map())
+        }
+        if (d.totalLp !== undefined) {
+          dataIndex.get(d.date)!.set(teamIndex, d.totalLp)
         }
       })
     })
 
-    // Trier les dates et carry forward les valeurs LP manquantes
-    const sortedDates = Array.from(dateMap.values()).sort((a, b) => a.date.localeCompare(b.date))
-    const lastKnownLp: number[] = new Array(teams.length).fill(0)
+    const today = getTodayString()
 
-    return sortedDates.map(({ date, label }) => {
-      const result: Record<string, string | number> = { label, date }
+    return baseDates.map(({ date, label }) => {
+      const result: Record<string, string | number | null> = { label, date }
+      const dateData = dataIndex.get(date)
+      const isFuture = date > today
 
-      teams.forEach((team, index) => {
-        const point = team.data.find((d) => d.date === date)
-        if (point?.totalLp !== undefined) {
-          lastKnownLp[index] = point.totalLp
-        }
-        // Utiliser la dernière valeur connue (carry forward)
-        result[`team${index}Lp`] = lastKnownLp[index]
+      teams.forEach((_, index) => {
+        const lp = dateData?.get(index)
+        // Null pour les dates futures, sinon la valeur ou 0
+        result[`team${index}Lp`] = isFuture ? null : (lp ?? 0)
       })
 
       return result
     })
-  }, [teams])
+  }, [teams, dateRange, period])
 
   const { maxLp, padding } = useMemo(() => {
     if (teams.length === 0) return { maxLp: 100, padding: 50 }
@@ -151,73 +266,48 @@ function LpChart({ teams }: LpChartProps) {
     return { maxLp: max, padding: pad }
   }, [teams])
 
-  // Animation states
-  const [displayedData, setDisplayedData] = useState(mergedData)
-  const [opacity, setOpacity] = useState(1)
-  const [animationKey, setAnimationKey] = useState(0)
-  const isFirstRender = useRef(true)
-  const prevDataRef = useRef<string>('')
+  // Calculate Y-axis bounds from stable team data (not animated displayedData)
+  // This prevents unnecessary recalculations during chart animations
+  const { minLpValue, maxLpValue } = useMemo(() => {
+    if (teams.length === 0) return { minLpValue: 0, maxLpValue: 100 }
 
-  useEffect(() => {
-    // Serialize data to compare
-    const serialized = JSON.stringify(mergedData)
+    let min = Infinity
+    let max = -Infinity
 
-    // Skip if data hasn't actually changed
-    if (serialized === prevDataRef.current) {
-      return
-    }
-    prevDataRef.current = serialized
-
-    // Skip animation on first render
-    if (isFirstRender.current) {
-      isFirstRender.current = false
-      setDisplayedData(mergedData)
-      return
-    }
-
-    // Fade out
-    setOpacity(0)
-
-    const fadeTimer = setTimeout(() => {
-      // Update data after fade out
-      setDisplayedData(mergedData)
-      setAnimationKey((k) => k + 1)
-      // Fade in
-      setOpacity(1)
-    }, FADE_DURATION)
-
-    return () => clearTimeout(fadeTimer)
-  }, [mergedData])
-
-  const hasData = teams.length > 0 && teams.some((t) => t.data.length > 0)
-
-  // Calculer les ticks de l'axe Y avec adaptation dynamique
-  const yAxisTicks = useMemo(() => {
-    const DEFAULT_TICKS = [0, 1000, 2000, 3000, 4000, 5000]
-
-    if (displayedData.length === 0) return DEFAULT_TICKS
-
-    // Trouver le min et max des données
-    let minValue = Infinity
-    let maxValue = -Infinity
-    displayedData.forEach((d) => {
-      teams.forEach((_, index) => {
-        const val = d[`team${index}Lp`] as number
-        if (val !== undefined && val !== null) {
-          if (val > maxValue) maxValue = val
-          if (val < minValue && val > 0) minValue = val
+    teams.forEach((team) => {
+      team.data.forEach((d) => {
+        if (d.totalLp !== undefined && d.totalLp !== null) {
+          if (d.totalLp > max) max = d.totalLp
+          if (d.totalLp < min && d.totalLp > 0) min = d.totalLp
         }
       })
     })
 
-    if (maxValue <= 0 || !isFinite(minValue)) return DEFAULT_TICKS
-    if (minValue === Infinity) minValue = 0
+    if (max <= 0) return { minLpValue: 0, maxLpValue: 100 }
+    if (min === Infinity) min = 0
 
-    // Ajouter du padding (10% de la range, minimum 50 LP)
-    const rawRange = maxValue - minValue
-    const calculatedPadding = Math.max(rawRange * 0.1, padding, 50)
-    const paddedMax = maxValue + calculatedPadding
-    const paddedMin = Math.max(0, minValue - calculatedPadding)
+    return { minLpValue: min, maxLpValue: max }
+  }, [teams])
+
+  // Animation for smooth data transitions
+  const { opacity, displayData: displayedData, animationKey } = useChartAnimation(mergedData, {
+    fadeDuration: FADE_DURATION,
+  })
+
+  // Show chart if teams are selected AND have actual data
+  const hasData = teams.length > 0 && teams.some((t) => t.data.length > 0)
+
+  // Calculer les ticks de l'axe Y avec adaptation dynamique
+  // Uses stable minLpValue/maxLpValue to prevent re-renders during animations
+  const yAxisTicks = useMemo(() => {
+    const DEFAULT_TICKS = [0, 1000, 2000, 3000, 4000, 5000]
+
+    if (maxLpValue <= 0 || !isFinite(minLpValue)) return DEFAULT_TICKS
+
+    // Ajouter du padding en haut (10% de la valeur max, minimum 50 LP)
+    const calculatedPadding = Math.max(maxLpValue * 0.1, padding, 50)
+    const paddedMax = maxLpValue + calculatedPadding
+    const paddedMin = 0 // Toujours commencer à 0
 
     // Calculer la range et déterminer le nombre de ticks cible
     const range = paddedMax - paddedMin
@@ -234,8 +324,8 @@ function LpChart({ teams }: LpChartProps) {
       targetTickCount = 4
     }
 
-    // Intervalles LP-friendly
-    const LP_INTERVALS = [50, 100, 200, 250, 400, 500, 800, 1000, 2000, 2500, 5000, 10000]
+    // Intervalles LP-friendly (base 10 régulière)
+    const LP_INTERVALS = [100, 200, 500, 1000, 2000, 5000, 10000]
 
     // Calculer l'intervalle idéal
     const idealInterval = range / targetTickCount
@@ -282,7 +372,10 @@ function LpChart({ teams }: LpChartProps) {
     if (ticks.length < 2) return DEFAULT_TICKS
 
     return ticks
-  }, [displayedData, teams, padding])
+  }, [minLpValue, maxLpValue, padding])
+
+  // Formatter harmonisé basé sur le max
+  const formatLpAxis = useMemo(() => createLpFormatter(maxLp), [maxLp])
 
   if (!hasData) {
     return (
@@ -291,7 +384,9 @@ function LpChart({ teams }: LpChartProps) {
           Évolution LP
         </div>
         <div className="p-3 h-[180px] flex items-center justify-center">
-          <div className="text-(--text-muted) text-sm">Sélectionnez une équipe</div>
+          <div className="text-(--text-muted) text-sm">
+            {viewMode === 'players' ? 'Sélectionnez un joueur' : 'Sélectionnez une équipe'}
+          </div>
         </div>
       </div>
     )
@@ -307,16 +402,16 @@ function LpChart({ teams }: LpChartProps) {
             <div key={team.teamName} className="flex items-center gap-1 min-w-0">
               <div
                 className="w-2 h-2 rounded-full shrink-0"
-                style={{ backgroundColor: index === 0 ? 'var(--accent)' : 'var(--lol)' }}
+                style={{ backgroundColor: chartColors[index] || chartColors[0] }}
               />
               <span className="text-[9px] text-(--text-muted) truncate max-w-[80px]">
-                {team.teamName}
+                {team.shortName || team.teamName}
               </span>
             </div>
           ))}
         </div>
       </div>
-      <div className="p-3 h-[180px] relative">
+      <div ref={chartContainerRef} className="p-3 h-[180px] relative">
         {/* Background watermark */}
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none select-none">
           <span className="text-[56px] font-black text-(--text-muted) opacity-[0.07] tracking-wider">
@@ -332,16 +427,16 @@ function LpChart({ teams }: LpChartProps) {
           }}
         >
           <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={displayedData} margin={{ top: 5, right: 5, left: -10, bottom: 0 }}>
+            <ComposedChart data={displayedData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
               {/* Dégradés pour les areas */}
               <defs>
                 <linearGradient id="lpGradient0" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="var(--accent)" stopOpacity={0.25} />
-                  <stop offset="95%" stopColor="var(--accent)" stopOpacity={0.02} />
+                  <stop offset="0%" stopColor={team1} stopOpacity={0.25} />
+                  <stop offset="95%" stopColor={team1} stopOpacity={0.02} />
                 </linearGradient>
                 <linearGradient id="lpGradient1" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="var(--lol)" stopOpacity={0.25} />
-                  <stop offset="95%" stopColor="var(--lol)" stopOpacity={0.02} />
+                  <stop offset="0%" stopColor={team2} stopOpacity={0.25} />
+                  <stop offset="95%" stopColor={team2} stopOpacity={0.02} />
                 </linearGradient>
               </defs>
               <XAxis
@@ -349,6 +444,8 @@ function LpChart({ teams }: LpChartProps) {
                 axisLine={false}
                 tickLine={false}
                 tick={{ fill: 'var(--text-muted)', fontSize: 10 }}
+                padding={{ left: 10, right: 10 }}
+                interval={xAxisInterval}
               />
               <YAxis
                 axisLine={false}
@@ -360,8 +457,25 @@ function LpChart({ teams }: LpChartProps) {
                 tickFormatter={formatLpAxis}
               />
               <Tooltip
-                content={({ active, payload, label }) => {
+                content={({ active, payload }) => {
                   if (!active || !payload || payload.length === 0) return null
+
+                  // Get week info from payload if available
+                  const dataPoint = payload[0]?.payload as Record<string, unknown> | undefined
+                  const isWeekly = dataPoint?.weekKey !== undefined
+                  const isPartialWeek = dataPoint?.isPartial === true
+                  const dayCount = dataPoint?.dayCount as number | undefined
+                  const weekRangeLabel = dataPoint?.rangeLabel as string | undefined
+                  const dateStr = dataPoint?.date as string | undefined
+
+                  // Format date for display (e.g., "15 janvier 2024")
+                  const formattedDate = dateStr && !isWeekly
+                    ? new Date(dateStr + 'T00:00:00').toLocaleDateString('fr-FR', {
+                        day: 'numeric',
+                        month: 'long',
+                        year: 'numeric',
+                      })
+                    : null
 
                   const teamValues = payload
                     .filter(p => typeof p.dataKey === 'string' && (p.dataKey as string).endsWith('Lp'))
@@ -369,16 +483,27 @@ function LpChart({ teams }: LpChartProps) {
                       const index = parseInt((p.dataKey as string).replace('team', '').replace('Lp', ''), 10)
                       const value = p.value as number
                       return {
-                        teamName: teams[index]?.teamName || `Équipe ${index + 1}`,
+                        shortName: teams[index]?.shortName || teams[index]?.teamName || `Équipe ${index + 1}`,
                         value,
-                        color: TEAM_COLORS[index]?.stroke || 'var(--accent)',
-                        rank: getLpRankDisplay(value),
+                        color: chartColors[index] || chartColors[0],
                       }
                     })
 
                   return (
                     <div className="bg-(--bg-hover) border border-(--border) rounded p-2">
-                      <div className="text-[11px] text-(--text-primary) mb-1">{label}</div>
+                      {isWeekly && weekRangeLabel && (
+                        <div className="text-[9px] text-(--text-muted) mb-1 border-b border-(--border) pb-1">
+                          {weekRangeLabel}
+                          {isPartialWeek && dayCount && (
+                            <span className="ml-1">({dayCount}j)</span>
+                          )}
+                        </div>
+                      )}
+                      {!isWeekly && formattedDate && (
+                        <div className="text-[9px] text-(--text-muted) mb-1 border-b border-(--border) pb-1">
+                          {formattedDate}
+                        </div>
+                      )}
                       {teamValues.map((tv, i) => (
                         <div key={i} className="flex items-center gap-2">
                           <div
@@ -386,16 +511,10 @@ function LpChart({ teams }: LpChartProps) {
                             style={{ backgroundColor: tv.color }}
                           />
                           <span className="text-[10px]">
-                            {tv.teamName}: <span className="font-mono">{tv.value.toLocaleString('fr-FR')} LP</span>
-                            <span className="opacity-60 ml-1">({tv.rank})</span>
+                            {tv.shortName}: <span className="font-mono">{tv.value.toLocaleString('fr-FR')} LP</span>
                           </span>
                         </div>
                       ))}
-                      {teamValues.length === 2 && (
-                        <div className="text-[9px] mt-1 pt-1 border-t border-(--border) text-(--text-muted)">
-                          Diff: {Math.abs(teamValues[0].value - teamValues[1].value).toLocaleString('fr-FR')} LP
-                        </div>
-                      )}
                     </div>
                   )
                 }}
@@ -405,17 +524,27 @@ function LpChart({ teams }: LpChartProps) {
                   key={`${team.teamName}-${animationKey}`}
                   type="monotone"
                   dataKey={`team${index}Lp`}
-                  stroke={TEAM_COLORS[index].stroke}
+                  stroke={chartColors[index]}
                   strokeWidth={2.5}
                   fill={`url(#lpGradient${index})`}
                   fillOpacity={1}
-                  dot={{ fill: TEAM_COLORS[index].stroke, strokeWidth: 2, stroke: 'var(--bg-card)', r: 3 }}
+                  dot={{ fill: chartColors[index], strokeWidth: 2, stroke: 'var(--bg-card)', r: 3 }}
                   activeDot={{ r: 5, strokeWidth: 0 }}
                   connectNulls
                   isAnimationActive={true}
                   animationDuration={DRAW_DURATION}
                   animationEasing="ease-out"
-                />
+                >
+                  {shouldShowLabels && (
+                    <LabelList
+                      dataKey={`team${index}Lp`}
+                      position="top"
+                      fill="var(--text-secondary)"
+                      fontSize={9}
+                      formatter={((value: number) => (value > 0 ? formatLpAxis(value) : '')) as (value: unknown) => string}
+                    />
+                  )}
+                </Area>
               ))}
             </ComposedChart>
           </ResponsiveContainer>

@@ -23,12 +23,14 @@ export default await Env.create(new URL('../', import.meta.url), {
   DB_USER: Env.schema.string(),
   DB_PASSWORD: Env.schema.string.optional(),
   DB_DATABASE: Env.schema.string(),
+  DB_SSL: Env.schema.boolean.optional(),
 
   /*
   |----------------------------------------------------------
   | Variables for configuring Redis
   |----------------------------------------------------------
   */
+  REDIS_ENABLED: Env.schema.boolean.optional(),
   REDIS_HOST: Env.schema.string.optional(),
   REDIS_PORT: Env.schema.number.optional(),
   REDIS_PASSWORD: Env.schema.string.optional(),
@@ -49,25 +51,16 @@ export default await Env.create(new URL('../', import.meta.url), {
 
   /*
   |----------------------------------------------------------
-  | Frontend URL for redirects
+  | Worker API Security
   |----------------------------------------------------------
   */
-  FRONTEND_URL: Env.schema.string.optional(),
+  WORKER_API_SECRET: Env.schema.string.optional(),
+  WORKER_ALLOWED_IPS: Env.schema.string.optional(),
 
   /*
   |----------------------------------------------------------
-  | OAuth Providers
+  | Proxy Configuration
   |----------------------------------------------------------
   */
-  GOOGLE_CLIENT_ID: Env.schema.string.optional(),
-  GOOGLE_CLIENT_SECRET: Env.schema.string.optional(),
-  GOOGLE_REDIRECT_URI: Env.schema.string.optional(),
-
-  GITHUB_CLIENT_ID: Env.schema.string.optional(),
-  GITHUB_CLIENT_SECRET: Env.schema.string.optional(),
-  GITHUB_REDIRECT_URI: Env.schema.string.optional(),
-
-  DISCORD_CLIENT_ID: Env.schema.string.optional(),
-  DISCORD_CLIENT_SECRET: Env.schema.string.optional(),
-  DISCORD_REDIRECT_URI: Env.schema.string.optional(),
+  TRUSTED_PROXY_IPS: Env.schema.string.optional(),
 })

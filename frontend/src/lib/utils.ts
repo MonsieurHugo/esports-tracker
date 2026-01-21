@@ -1,5 +1,6 @@
 import { clsx, type ClassValue } from 'clsx'
 import { ROLE_MAP, LEAGUE_COLORS, VALID_ROLES } from './constants'
+import { VALID_PERIODS, VALID_SORT_OPTIONS, type DashboardPeriod, type SortOption } from './types'
 
 // Re-export from constants for backward compatibility
 export { LEAGUE_COLORS, VALID_ROLES }
@@ -135,7 +136,8 @@ export function getRankBadgeClasses(tier: string | null): string {
  * Retourne les classes CSS pour un tag de ligue
  */
 export function getLeagueTagClasses(league: string): string {
-  const colors = LEAGUE_COLORS[league]
+  const normalizedLeague = league.toUpperCase()
+  const colors = LEAGUE_COLORS[normalizedLeague]
   if (colors) {
     return `${colors.bg} ${colors.text} border ${colors.border}`
   }
@@ -143,30 +145,111 @@ export function getLeagueTagClasses(league: string): string {
 }
 
 /**
- * Génère des couleurs pour les ligues non définies dans LEAGUE_COLORS
- * Utilise une couleur par défaut pour les ligues inconnues
+ * Retourne les couleurs pour une ligue (utilise LEAGUE_COLORS)
  */
 export function getLeagueColor(league: string): { bg: string; text: string; border: string; dot: string } {
-  // Couleurs prédéfinies pour les nouvelles ligues courantes
-  const additionalColors: Record<string, { bg: string; text: string; border: string; dot: string }> = {
-    'LPL': { bg: 'bg-red-500/20', text: 'text-red-400', border: 'border-red-500/30', dot: 'bg-red-400' },
-    'LCKCL': { bg: 'bg-purple-500/20', text: 'text-purple-400', border: 'border-purple-500/30', dot: 'bg-purple-400' },
-    'LCP': { bg: 'bg-pink-500/20', text: 'text-pink-400', border: 'border-pink-500/30', dot: 'bg-pink-400' },
-    'LTAS': { bg: 'bg-teal-500/20', text: 'text-teal-400', border: 'border-teal-500/30', dot: 'bg-teal-400' },
-    'LTAN': { bg: 'bg-cyan-500/20', text: 'text-cyan-400', border: 'border-cyan-500/30', dot: 'bg-cyan-400' },
-    'VCS': { bg: 'bg-orange-500/20', text: 'text-orange-400', border: 'border-orange-500/30', dot: 'bg-orange-400' },
-    'PCS': { bg: 'bg-lime-500/20', text: 'text-lime-400', border: 'border-lime-500/30', dot: 'bg-lime-400' },
-    'CBLOL': { bg: 'bg-green-500/20', text: 'text-green-400', border: 'border-green-500/30', dot: 'bg-green-400' },
-    'LLA': { bg: 'bg-amber-500/20', text: 'text-amber-400', border: 'border-amber-500/30', dot: 'bg-amber-400' },
-    'LJL': { bg: 'bg-indigo-500/20', text: 'text-indigo-400', border: 'border-indigo-500/30', dot: 'bg-indigo-400' },
+  const normalizedLeague = league.toUpperCase()
+  const colors = LEAGUE_COLORS[normalizedLeague]
+  if (colors) {
+    return colors
   }
-
-  if (additionalColors[league]) {
-    return additionalColors[league]
-  }
-
   // Couleur par défaut pour les ligues inconnues
-  return { bg: 'bg-gray-500/20', text: 'text-gray-400', border: 'border-gray-500/30', dot: 'bg-gray-400' }
+  return { bg: 'bg-(--bg-secondary)', text: 'text-(--text-muted)', border: 'border-(--border)', dot: 'bg-(--text-muted)' }
+}
+
+/**
+ * Sanitize and validate a color value to prevent XSS injection.
+ * Only allows valid hex color formats: #RGB or #RRGGBB
+ */
+export function sanitizeColorValue(color: string | null | undefined): string | null {
+  if (!color) return null
+  // Validate hex color format: #RGB or #RRGGBB
+  const hexPattern = /^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/
+  if (hexPattern.test(color)) {
+    return color
+  }
+  return null
+}
+
+/**
+ * Génère un objet style inline pour un tag de ligue à partir d'une couleur hexa
+ * Utilisé quand la couleur vient de l'API (BDD)
+ */
+export function getLeagueStyleFromColor(color: string | null): React.CSSProperties {
+  const sanitizedColor = sanitizeColorValue(color)
+  if (!sanitizedColor) {
+    return {
+      backgroundColor: 'var(--bg-secondary)',
+      color: 'var(--text-muted)',
+      borderColor: 'var(--border)',
+    }
+  }
+  return {
+    backgroundColor: `${sanitizedColor}20`, // 20 = 12% opacity en hexa
+    color: sanitizedColor,
+    borderColor: `${sanitizedColor}4D`, // 4D = 30% opacity en hexa
+  }
+}
+
+/**
+ * Retourne les classes CSS pour un tag de région/serveur
+ */
+export function getRegionTagClasses(region: string): string {
+  const regionUpper = region.toUpperCase()
+
+  // Couleurs par région
+  const regionColors: Record<string, string> = {
+    // Europe
+    'EUW1': 'bg-blue-500/20 text-blue-400 border border-blue-500/30',
+    'EUW': 'bg-blue-500/20 text-blue-400 border border-blue-500/30',
+    'EUN1': 'bg-sky-500/20 text-sky-400 border border-sky-500/30',
+    'EUNE': 'bg-sky-500/20 text-sky-400 border border-sky-500/30',
+
+    // Amérique du Nord
+    'NA1': 'bg-red-500/20 text-red-400 border border-red-500/30',
+    'NA': 'bg-red-500/20 text-red-400 border border-red-500/30',
+
+    // Corée
+    'KR': 'bg-purple-500/20 text-purple-400 border border-purple-500/30',
+
+    // Japon
+    'JP1': 'bg-pink-500/20 text-pink-400 border border-pink-500/30',
+    'JP': 'bg-pink-500/20 text-pink-400 border border-pink-500/30',
+
+    // Brésil
+    'BR1': 'bg-green-500/20 text-green-400 border border-green-500/30',
+    'BR': 'bg-green-500/20 text-green-400 border border-green-500/30',
+
+    // Amérique Latine
+    'LA1': 'bg-amber-500/20 text-amber-400 border border-amber-500/30',
+    'LAN': 'bg-amber-500/20 text-amber-400 border border-amber-500/30',
+    'LA2': 'bg-orange-500/20 text-orange-400 border border-orange-500/30',
+    'LAS': 'bg-orange-500/20 text-orange-400 border border-orange-500/30',
+
+    // Océanie
+    'OC1': 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30',
+    'OCE': 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30',
+
+    // Turquie
+    'TR1': 'bg-rose-500/20 text-rose-400 border border-rose-500/30',
+    'TR': 'bg-rose-500/20 text-rose-400 border border-rose-500/30',
+
+    // Russie
+    'RU': 'bg-slate-500/20 text-slate-400 border border-slate-500/30',
+
+    // Asie du Sud-Est
+    'SG2': 'bg-teal-500/20 text-teal-400 border border-teal-500/30',
+    'SEA': 'bg-teal-500/20 text-teal-400 border border-teal-500/30',
+
+    // Chine (différents serveurs)
+    'CN': 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30',
+
+    // Taiwan/Hong Kong
+    'TW2': 'bg-lime-500/20 text-lime-400 border border-lime-500/30',
+    'TW': 'bg-lime-500/20 text-lime-400 border border-lime-500/30',
+  }
+
+  return regionColors[regionUpper] || 'bg-(--bg-secondary) text-(--text-muted)'
 }
 
 /**
@@ -203,5 +286,59 @@ export function getRoleImagePath(role: string): string {
   const roleUpper = role.toUpperCase()
   const normalizedRole = ROLE_MAP[roleUpper] || roleUpper
   return `/images/roles/${normalizedRole}.png`
+}
+
+/**
+ * Sanitize a slug for safe use in file paths.
+ * Only allows alphanumeric characters and hyphens to prevent path traversal attacks.
+ */
+export function sanitizeSlug(slug: string | null | undefined): string {
+  if (!slug) return 'unknown'
+  const sanitized = slug.toLowerCase().replace(/[^a-z0-9-]/g, '')
+  return sanitized || 'unknown'
+}
+
+/**
+ * Validate and sanitize a period parameter for API calls.
+ * Returns a safe default if the value is invalid.
+ */
+export function validatePeriod(period: string): DashboardPeriod {
+  if (VALID_PERIODS.includes(period as DashboardPeriod)) {
+    return period as DashboardPeriod
+  }
+  return '7d'  // Valid default (was 'week' which is invalid)
+}
+
+/**
+ * Validate and sanitize a sort option parameter for API calls.
+ * Returns a safe default if the value is invalid.
+ */
+export function validateSortOption(sort: string): SortOption {
+  if (VALID_SORT_OPTIONS.includes(sort as SortOption)) {
+    return sort as SortOption
+  }
+  return 'lp'
+}
+
+/**
+ * Sanitize a search query by removing potentially dangerous characters.
+ * Prevents XSS and SQL injection when passed to APIs.
+ */
+export function sanitizeSearchQuery(query: string, maxLength = 100): string {
+  if (!query) return ''
+  // Truncate to max length
+  const truncated = query.slice(0, maxLength)
+  // Remove dangerous characters
+  return truncated.replace(/[<>\"'%;()&+\\]/g, '')
+}
+
+/**
+ * Validate a URL slug parameter.
+ * Returns true if the slug is valid (alphanumeric and hyphens only).
+ */
+export function isValidSlug(slug: string | null | undefined): boolean {
+  if (!slug) return false
+  // Must be non-empty and only contain valid characters
+  return /^[a-z0-9-]+$/.test(slug.toLowerCase()) && slug.length > 0 && slug.length <= 100
 }
 

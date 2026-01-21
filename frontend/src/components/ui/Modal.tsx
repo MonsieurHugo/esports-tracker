@@ -8,10 +8,11 @@ interface ModalProps {
   onClose: () => void
   title: string
   children: ReactNode
-  size?: 'sm' | 'md' | 'lg'
+  size?: 'sm' | 'md' | 'lg' | 'xl'
+  headerContent?: ReactNode
 }
 
-export function Modal({ isOpen, onClose, title, children, size = 'md' }: ModalProps) {
+export function Modal({ isOpen, onClose, title, children, size = 'md', headerContent }: ModalProps) {
   const modalRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -42,6 +43,7 @@ export function Modal({ isOpen, onClose, title, children, size = 'md' }: ModalPr
     sm: 'max-w-sm',
     md: 'max-w-md',
     lg: 'max-w-lg',
+    xl: 'max-w-[95vw] w-[95vw]',
   }
 
   return (
@@ -61,19 +63,25 @@ export function Modal({ isOpen, onClose, title, children, size = 'md' }: ModalPr
         aria-labelledby="modal-title"
         tabIndex={-1}
         className={cn(
-          'relative w-full mx-4 bg-(--bg-card) border border-(--border) rounded-xl shadow-2xl',
+          'relative w-full bg-(--bg-card) border border-(--border) rounded-xl shadow-2xl',
           'animate-in fade-in zoom-in-95 duration-200',
+          size === 'xl' ? 'max-h-[92vh] h-[92vh] overflow-hidden flex flex-col mx-4' : 'mx-4',
           sizeClasses[size]
         )}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-(--border)">
-          <h2 id="modal-title" className="text-lg font-semibold text-(--text-primary)">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-(--border) gap-4">
+          <h2 id="modal-title" className="text-lg font-semibold text-(--text-primary) shrink-0">
             {title}
           </h2>
+          {headerContent && (
+            <div className="flex-1 flex items-center justify-end gap-3 min-w-0">
+              {headerContent}
+            </div>
+          )}
           <button
             onClick={onClose}
-            className="p-1 rounded-md text-(--text-muted) hover:text-(--text-primary) hover:bg-(--bg-hover) transition-colors"
+            className="p-1 rounded-md text-(--text-muted) hover:text-(--text-primary) hover:bg-(--bg-hover) transition-colors shrink-0"
             aria-label="Fermer"
           >
             <svg
@@ -94,7 +102,7 @@ export function Modal({ isOpen, onClose, title, children, size = 'md' }: ModalPr
         </div>
 
         {/* Content */}
-        <div className="px-6 py-4">{children}</div>
+        <div className={cn('px-6 py-4', size === 'xl' && 'overflow-hidden flex-1 min-h-0')}>{children}</div>
       </div>
     </div>
   )

@@ -2,6 +2,7 @@
 
 import { memo, useState, useEffect } from 'react'
 import Image from 'next/image'
+import { sanitizeSlug } from '@/lib/utils'
 
 interface TeamLogoProps {
   slug: string
@@ -15,9 +16,9 @@ function TeamLogo({ slug, shortName, size = 20, className = '' }: TeamLogoProps)
 
   useEffect(() => {
     setError(false)
-  }, [slug])
+  }, [shortName])
 
-  if (error || !slug) {
+  if (error || !shortName) {
     return (
       <div
         className={`bg-(--bg-secondary) rounded-sm shrink-0 flex items-center justify-center text-[7px] font-semibold text-(--text-muted) ${className}`}
@@ -30,7 +31,7 @@ function TeamLogo({ slug, shortName, size = 20, className = '' }: TeamLogoProps)
 
   return (
     <Image
-      src={`/images/teams/${slug}.png`}
+      src={`/images/teams/${sanitizeSlug(shortName)}.png`}
       alt={shortName}
       width={size}
       height={size}
