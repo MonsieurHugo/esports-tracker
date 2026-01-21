@@ -1,13 +1,8 @@
 import type { Metadata } from 'next'
-import dynamic from 'next/dynamic'
 import { Inter, JetBrains_Mono } from 'next/font/google'
 import { Footer } from '@/components/layout/Footer'
+import { ToastContainerWrapper } from '@/components/ui/ToastContainerWrapper'
 import './globals.css'
-
-const ToastContainer = dynamic(
-  () => import('@/components/ui/ToastContainer').then((mod) => mod.ToastContainer),
-  { ssr: false }
-)
 
 const inter = Inter({
   subsets: ['latin'],
@@ -34,7 +29,7 @@ export default function RootLayout({
       <body className="min-h-screen antialiased font-sans bg-(--bg-primary) text-(--text-primary) flex flex-col">
         <main className="flex-1">{children}</main>
         <Footer />
-        <ToastContainer />
+        <ToastContainerWrapper />
       </body>
     </html>
   )
