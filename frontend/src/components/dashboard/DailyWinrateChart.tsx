@@ -11,6 +11,7 @@ import {
   ReferenceLine,
   LabelList,
 } from 'recharts'
+import { useTranslations, useFormatter } from 'next-intl'
 import type { TeamGamesData } from './GamesChart'
 import { calculateXAxisInterval } from '@/lib/chartUtils'
 import { useChartWidth } from '@/hooks/useChartTicks'
@@ -36,6 +37,8 @@ const FADE_DURATION = 150
 const DRAW_DURATION = 500
 
 function DailyWinrateChart({ teams, showLabels = false, dateRange, period, viewMode = 'teams' }: DailyWinrateChartProps) {
+  const t = useTranslations()
+  const format = useFormatter()
   // Couleurs du thème pour les graphiques
   const { team1, team2, colors: chartColors } = useChartColors()
 
@@ -238,11 +241,11 @@ function DailyWinrateChart({ teams, showLabels = false, dateRange, period, viewM
     return (
       <div className="bg-(--bg-card) border border-(--border) rounded-lg overflow-hidden">
         <div className="px-3.5 py-2.5 border-b border-(--border) text-[11px] font-semibold text-(--text-secondary)">
-          Winrate par jour
+          {t('charts.winratePerDay')}
         </div>
         <div className="p-3 h-[180px] flex items-center justify-center">
           <div className="text-(--text-muted) text-sm">
-            {viewMode === 'players' ? 'Sélectionnez un joueur' : 'Sélectionnez une équipe'}
+            {viewMode === 'players' ? t('charts.selectPlayer') : t('charts.selectTeam')}
           </div>
         </div>
       </div>
@@ -253,7 +256,7 @@ function DailyWinrateChart({ teams, showLabels = false, dateRange, period, viewM
     <div className="bg-(--bg-card) border border-(--border) rounded-lg overflow-hidden">
       <div className="px-3.5 py-2.5 border-b border-(--border) flex items-center gap-3">
         <span className="text-[11px] font-semibold text-(--text-secondary) shrink-0">
-          Winrate par {useWeeklyAggregation ? 'semaine' : 'jour'}
+          {useWeeklyAggregation ? t('charts.winratePerWeek') : t('charts.winratePerDay')}
         </span>
         {/* Légende des équipes */}
         <div className="flex items-center gap-2 min-w-0 overflow-hidden">
@@ -332,9 +335,9 @@ function DailyWinrateChart({ teams, showLabels = false, dateRange, period, viewM
                   const weekRangeLabel = dataPoint?.rangeLabel as string | undefined
                   const dateStr = dataPoint?.date as string | undefined
 
-                  // Format date for display (e.g., "15 janvier 2024")
+                  // Format date for display
                   const formattedDate = dateStr && !isWeekly
-                    ? new Date(dateStr + 'T00:00:00').toLocaleDateString('fr-FR', {
+                    ? format.dateTime(new Date(dateStr + 'T00:00:00'), {
                         day: 'numeric',
                         month: 'long',
                         year: 'numeric',
@@ -350,7 +353,7 @@ function DailyWinrateChart({ teams, showLabels = false, dateRange, period, viewM
                       const games = dataPoint?.[`team${index}Games`] as number | undefined
                       return {
                         index,
-                        shortName: teams[index]?.shortName || teams[index]?.teamName || `Équipe ${index + 1}`,
+                        shortName: teams[index]?.shortName || teams[index]?.teamName || `${t('dashboard.team')} ${index + 1}`,
                         value,
                         games,
                         color: chartColors[index] || chartColors[0],

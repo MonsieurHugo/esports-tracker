@@ -2,6 +2,7 @@
 
 import { memo, useState, useCallback, useMemo } from 'react'
 import Image from 'next/image'
+import { useTranslations } from 'next-intl'
 import type { PlayerLeaderboardEntry } from '@/lib/types'
 import type { SortOption, ItemsPerPageOption, LeaderboardView } from '@/stores/dashboardStore'
 import { getRankTextClass, getRoleImagePath, cn } from '@/lib/utils'
@@ -67,6 +68,7 @@ interface PlayerRowProps {
 }
 
 const PlayerRow = memo(function PlayerRow({ entry, sortBy, selectionIndex, isExpanded, onSelect, onToggle, isPinned, isLocked, onToggleLock }: PlayerRowProps) {
+  const t = useTranslations()
   const [logoError, setLogoError] = useState(false)
   const [roleError, setRoleError] = useState(false)
   const [rankError, setRankError] = useState(false)
@@ -225,7 +227,7 @@ const PlayerRow = memo(function PlayerRow({ entry, sortBy, selectionIndex, isExp
           className={`
             w-7 h-7 sm:w-8 sm:h-8 -my-1 flex items-center justify-center rounded-md text-(--text-muted) hover:text-(--text-primary) hover:bg-(--bg-secondary) transition-all duration-200
           `}
-          title={isExpanded ? 'Masquer les comptes' : 'Afficher les comptes'}
+          title={isExpanded ? t('leaderboard.hideAccounts') : t('leaderboard.showAccounts')}
         >
           <svg
             width="14"
@@ -280,6 +282,8 @@ export default function PlayerLeaderboard({
   leaderboardView,
   onViewChange,
 }: PlayerLeaderboardProps) {
+  const t = useTranslations()
+
   // Set pour permettre plusieurs joueurs expanded en même temps
   const [expandedPlayerIds, setExpandedPlayerIds] = useState<Set<number>>(new Set())
 
@@ -343,25 +347,25 @@ export default function PlayerLeaderboard({
       <div className="bg-(--bg-secondary)">
         <div className="flex items-center px-2 sm:px-3 py-2 text-[10px] sm:text-[11px] uppercase tracking-wider text-(--text-muted) font-medium">
           <span className="w-6 sm:w-7">#</span>
-          <span className="flex-1 min-w-0">Joueur</span>
-          <span className="hidden sm:block w-16 sm:w-20 text-center">Rang</span>
+          <span className="flex-1 min-w-0">{t('dashboard.player')}</span>
+          <span className="hidden sm:block w-16 sm:w-20 text-center">{t('dashboard.rank')}</span>
           <span
             onClick={() => onSortChange('lp')}
             className={`w-16 sm:w-20 text-center whitespace-nowrap cursor-pointer hover:text-(--text-primary) transition-colors ${sortBy === 'lp' ? 'text-(--text-primary)' : ''}`}
           >
-            LP<SortIcon active={sortBy === 'lp'} />
+            {t('dashboard.lp')}<SortIcon active={sortBy === 'lp'} />
           </span>
           <span
             onClick={() => onSortChange('games')}
             className={`w-16 sm:w-20 text-center whitespace-nowrap cursor-pointer hover:text-(--text-primary) transition-colors ${sortBy === 'games' ? 'text-(--text-primary)' : ''}`}
           >
-            Games<SortIcon active={sortBy === 'games'} />
+            {t('dashboard.games')}<SortIcon active={sortBy === 'games'} />
           </span>
           <span
             onClick={() => onSortChange('winrate')}
             className={`w-16 sm:w-20 text-center whitespace-nowrap cursor-pointer hover:text-(--text-primary) transition-colors ${sortBy === 'winrate' ? 'text-(--text-primary)' : ''}`}
           >
-            Winrate<SortIcon active={sortBy === 'winrate'} />
+            {t('dashboard.winrate')}<SortIcon active={sortBy === 'winrate'} />
           </span>
           <span className="w-7 sm:w-8"></span>
         </div>
@@ -378,7 +382,7 @@ export default function PlayerLeaderboard({
           `}
         >
           <div className="text-(--text-muted) text-sm">
-            {isLoading ? 'Chargement...' : 'Aucune donnée'}
+            {isLoading ? t('common.loading') : t('common.noData')}
           </div>
         </div>
         {/* Content */}

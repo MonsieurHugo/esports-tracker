@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback } from 'react'
+import { useTranslations } from 'next-intl'
 
 interface MinGamesSliderProps {
   value: number
@@ -9,6 +10,7 @@ interface MinGamesSliderProps {
 }
 
 export default function MinGamesSlider({ value, onChange, max = 100 }: MinGamesSliderProps) {
+  const t = useTranslations()
   const [isOpen, setIsOpen] = useState(false)
   const [localValue, setLocalValue] = useState(value)
   const dropdownRef = useRef<HTMLDivElement>(null)
@@ -53,8 +55,8 @@ export default function MinGamesSlider({ value, onChange, max = 100 }: MinGamesS
   }, [onChange])
 
   const getButtonLabel = () => {
-    if (value === 0) return 'Min games: tous'
-    return `Min ${value} games`
+    if (value === 0) return t('filters.minGamesAll')
+    return t('filters.minGamesValue', { value })
   }
 
   const presets = [0, 5, 10, 20, 50]
@@ -85,9 +87,9 @@ export default function MinGamesSlider({ value, onChange, max = 100 }: MinGamesS
       {isOpen && (
         <div className="absolute top-full left-0 mt-1 bg-(--bg-card) border border-(--border) rounded-lg shadow-lg z-50 min-w-[200px] p-3">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-[10px] text-(--text-muted)">Minimum de games</span>
+            <span className="text-[10px] text-(--text-muted)">{t('filters.minGames')}</span>
             <span className="text-xs font-mono font-semibold text-(--accent)">
-              {localValue === 0 ? 'Tous' : localValue}
+              {localValue === 0 ? t('common.all') : localValue}
             </span>
           </div>
 
@@ -139,7 +141,7 @@ export default function MinGamesSlider({ value, onChange, max = 100 }: MinGamesS
                     : 'bg-(--bg-secondary) text-(--text-muted) hover:bg-(--bg-hover)'
                 }`}
               >
-                {preset === 0 ? 'Tous' : preset}
+                {preset === 0 ? t('common.all') : preset}
               </button>
             ))}
           </div>

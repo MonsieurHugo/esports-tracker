@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback } from 'react'
+import { useTranslations } from 'next-intl'
 import type { TeamLeaderboardEntry } from '@/lib/types'
 import type { DashboardPeriod } from '@/lib/types'
 import api from '@/lib/api'
@@ -33,6 +34,7 @@ export default function TeamSearchDropdown({
   lockedTeamIds,
   onToggleLock,
 }: TeamSearchDropdownProps) {
+  const t = useTranslations()
   // Transform TeamLeaderboardEntry to SearchDropdownItem
   const toSearchItem = (entry: TeamLeaderboardEntry): TeamSearchItem => ({
     id: entry.team.teamId,
@@ -97,10 +99,10 @@ export default function TeamSearchDropdown({
       onToggleLock={handleToggleLock}
       onFetch={handleFetch}
       lockedItemIds={lockedTeamIds}
-      placeholder="Rechercher une equipe..."
-      addPlaceholder="+ equipe"
-      emptyMessage="Aucune equipe disponible"
-      noResultsMessage="Aucune equipe trouvee"
+      placeholder={t('search.searchTeam')}
+      addPlaceholder={`+ ${t('dashboard.team').toLowerCase()}`}
+      emptyMessage={t('search.noTeamAvailable')}
+      noResultsMessage={t('search.noTeamFound')}
       filterItems={filterItems}
       refreshKey={`${period}-${refDate}-${selectedLeagues.join(',')}`}
       storageKey="lol_teams"

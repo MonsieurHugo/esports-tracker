@@ -1,0 +1,150 @@
+{
+  "common": {
+    "loading": "Chargement...",
+    "retry": "Réessayer",
+    "apply": "Appliquer",
+    "reset": "Réinitialiser",
+    "close": "Fermer",
+    "expand": "Agrandir",
+    "all": "Tous",
+    "noData": "Aucune donnée",
+    "search": "Rechercher",
+    "back": "Retour",
+    "supportDev": "Soutenez le développement du site",
+    "deselectAll": "Tout désélectionner",
+    "pin": "Épingler en haut",
+    "unpin": "Désépingler",
+    "addFavorite": "Ajouter aux favoris",
+    "removeFavorite": "Retirer des favoris",
+    "recent": "Récent"
+  },
+  "nav": {
+    "home": "Accueil",
+    "dashboard": "Dashboard",
+    "monitoring": "Monitoring"
+  },
+  "meta": {
+    "title": "Esports Tracker",
+    "description": "Suivi des statistiques SoloQ des joueurs professionnels",
+    "comingSoon": "Bientôt disponible"
+  },
+  "period": {
+    "7d": "7J",
+    "14d": "14J",
+    "30d": "30J",
+    "90d": "90J",
+    "7days": "7 jours",
+    "14days": "14 jours",
+    "30days": "30 jours",
+    "90days": "90 jours",
+    "label": "Période"
+  },
+  "filters": {
+    "title": "Filtres",
+    "leagues": "Ligues",
+    "roles": "Rôles",
+    "minGames": "Minimum de games",
+    "minGamesAll": "Min games: tous",
+    "minGamesValue": "Min {value} games",
+    "allLeagues": "Toutes",
+    "allRoles": "Tous les rôles",
+    "nRoles": "{count} rôles"
+  },
+  "roles": {
+    "TOP": "Top",
+    "JGL": "Jungle",
+    "MID": "Mid",
+    "ADC": "ADC",
+    "SUP": "Support"
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "team": "Équipe",
+    "teams": "Équipes",
+    "player": "Joueur",
+    "players": "Joueurs",
+    "games": "Games",
+    "winrate": "Winrate",
+    "lp": "LP",
+    "kda": "KDA",
+    "rank": "Rang",
+    "leaderboard": "Leaderboard"
+  },
+  "leaderboard": {
+    "topGrinders": "Top Grinders",
+    "topLpGainers": "Top LP+",
+    "topLpLosers": "Top LP-",
+    "rank": "#",
+    "showAccounts": "Afficher les comptes",
+    "hideAccounts": "Masquer les comptes",
+    "showPlayers": "Afficher les joueurs",
+    "hidePlayers": "Masquer les joueurs",
+    "notInTopFive": "Ne compte pas dans les stats équipe (hors top 5 LP)",
+    "winStreaks": "Win Streaks",
+    "lossStreaks": "Loss Streaks",
+    "wins": "Wins",
+    "losses": "Losses"
+  },
+  "search": {
+    "searchTeam": "Rechercher une équipe...",
+    "searchPlayer": "Rechercher un joueur...",
+    "noTeamAvailable": "Aucune équipe disponible",
+    "noPlayerAvailable": "Aucun joueur disponible",
+    "noTeamFound": "Aucune équipe trouvée",
+    "noPlayerFound": "Aucun joueur trouvé",
+    "noResults": "Aucun résultat"
+  },
+  "charts": {
+    "title": "Graphiques",
+    "gamesPlayed": "Parties jouées",
+    "lpEvolution": "Évolution LP",
+    "lpChange": "Variation LP",
+    "dailyWinrate": "Winrate quotidien",
+    "gamesPerDay": "Games par jour",
+    "gamesPerWeek": "Games par semaine",
+    "lpPerDay": "LP +/- par jour",
+    "lpPerWeek": "LP +/- par semaine",
+    "winratePerDay": "Winrate par jour",
+    "winratePerWeek": "Winrate par semaine",
+    "selectPlayer": "Sélectionnez un joueur",
+    "selectTeam": "Sélectionnez une équipe"
+  },
+  "player": {
+    "profile": "Profil Joueur",
+    "notFound": "Joueur non trouvé",
+    "compareWith": "Comparer avec un joueur",
+    "searchPlayer": "Rechercher un joueur...",
+    "comparingWith": "Comparaison avec:",
+    "playHours": "Heures de jeu",
+    "histogram": "Histogramme",
+    "heatmap": "Heatmap",
+    "champions": "Champions",
+    "playTime": "Temps de jeu",
+    "bestDuos": "Meilleurs Duos",
+    "winAgainst": "Gagne contre",
+    "loseAgainst": "Perd contre",
+    "global": "Global",
+    "champion": "Champion",
+    "wr": "WR",
+    "cs": "CS"
+  },
+  "days": {
+    "sun": "Dim",
+    "mon": "Lun",
+    "tue": "Mar",
+    "wed": "Mer",
+    "thu": "Jeu",
+    "fri": "Ven",
+    "sat": "Sam"
+  },
+  "errors": {
+    "pageNotFound": "Page non trouvée",
+    "backToHome": "Retour à l'accueil",
+    "errorOccurred": "Une erreur est survenue",
+    "unexpectedError": "Une erreur inattendue s'est produite. Veuillez réessayer.",
+    "criticalError": "Erreur critique",
+    "reloadPage": "Une erreur inattendue s'est produite. Veuillez recharger la page.",
+    "errorCode": "Code erreur",
+    "loadLeagues": "Impossible de charger les ligues disponibles"
+  }
+}

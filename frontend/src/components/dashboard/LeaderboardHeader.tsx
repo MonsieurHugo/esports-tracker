@@ -1,6 +1,7 @@
 'use client'
 
 import { memo } from 'react'
+import { useTranslations } from 'next-intl'
 import type { LeaderboardView } from '@/stores/dashboardStore'
 
 interface LeaderboardHeaderProps {
@@ -12,11 +13,13 @@ interface LeaderboardHeaderProps {
 }
 
 function LeaderboardHeader({ view, onViewChange, leagueFilter, roleFilter, gamesFilter }: LeaderboardHeaderProps) {
+  const t = useTranslations()
+
   return (
     <div className="flex flex-wrap items-center gap-2 px-3 py-2 border-b border-(--border)">
       {/* Left: Title + View Toggle */}
       <div className="flex items-center gap-3">
-        <span className="text-xs font-semibold text-(--text-secondary)">Leaderboard</span>
+        <span className="text-xs font-semibold text-(--text-secondary)">{t('dashboard.leaderboard')}</span>
         <div className="relative flex bg-(--bg-card) p-[3px] rounded-md border border-(--border)">
           {/* Sliding indicator */}
           <div
@@ -34,7 +37,7 @@ function LeaderboardHeader({ view, onViewChange, leagueFilter, roleFilter, games
               }
             `}
           >
-            Équipes
+            {t('dashboard.teams')}
           </button>
           <button
             onClick={() => onViewChange('players')}
@@ -46,7 +49,7 @@ function LeaderboardHeader({ view, onViewChange, leagueFilter, roleFilter, games
               }
             `}
           >
-            Joueurs
+            {t('dashboard.players')}
           </button>
         </div>
       </div>

@@ -1,5 +1,6 @@
 import { memo } from 'react'
 import Link from 'next/link'
+import { useTranslations } from 'next-intl'
 import type { LpChangeEntry } from '@/lib/types'
 import { getRankTextClass } from '@/lib/utils'
 import TeamLogo from '@/components/ui/TeamLogo'
@@ -10,15 +11,17 @@ interface TopLpGainersProps {
 }
 
 function TopLpGainers({ entries, isLoading }: TopLpGainersProps) {
+  const t = useTranslations()
+
   return (
     <div className="bg-(--bg-card) border border-(--border) rounded-lg overflow-hidden">
       <div className="px-3.5 py-2.5 border-b border-(--border) flex items-center justify-between">
-        <span className="text-xs font-semibold text-(--text-secondary)">Top LP+</span>
-        <span className="text-[10px] text-(--text-muted)">LP</span>
+        <span className="text-xs font-semibold text-(--text-secondary)">{t('leaderboard.topLpGainers')}</span>
+        <span className="text-[10px] text-(--text-muted)">{t('dashboard.lp')}</span>
       </div>
 
       {isLoading ? (
-        <div className="p-4 text-center text-(--text-muted) text-sm">Chargement...</div>
+        <div className="p-4 text-center text-(--text-muted) text-sm">{t('common.loading')}</div>
       ) : (
         <>
           {/* Display entries or placeholder rows */}

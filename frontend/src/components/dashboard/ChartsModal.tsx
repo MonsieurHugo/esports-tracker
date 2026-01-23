@@ -1,6 +1,7 @@
 'use client'
 
 import type { ReactNode } from 'react'
+import { useTranslations } from 'next-intl'
 import { Modal } from '@/components/ui/Modal'
 import GamesChart, { type TeamGamesData } from './GamesChart'
 import LpChart, { type TeamLpData } from './LpChart'
@@ -54,6 +55,7 @@ export default function ChartsModal({
   onViewChange,
   dateRange,
 }: ChartsModalProps) {
+  const t = useTranslations()
   // Build title based on selected entities
   const getTitle = () => {
     if (teams && teams.length > 0) {
@@ -64,7 +66,7 @@ export default function ChartsModal({
       const names = players.map((p) => p.player.pseudo).join(' vs ')
       return `${names}`
     }
-    return 'Graphiques'
+    return t('charts.title')
   }
 
   const hasData = gamesData.length > 0 || lpData.length > 0
@@ -94,7 +96,7 @@ export default function ChartsModal({
               }
             `}
           >
-            Équipes
+            {t('dashboard.teams')}
           </button>
           <button
             onClick={() => onViewChange('players')}
@@ -106,7 +108,7 @@ export default function ChartsModal({
               }
             `}
           >
-            Joueurs
+            {t('dashboard.players')}
           </button>
         </div>
         {/* Search dropdown for comparison */}
@@ -136,7 +138,7 @@ export default function ChartsModal({
     <Modal isOpen={isOpen} onClose={onClose} title={getTitle()} size="xl" headerContent={headerContent}>
       {!hasData && !isLoading ? (
         <div className="flex items-center justify-center h-[400px] text-(--text-muted)">
-          Aucune donnée disponible
+          {t('common.noData')}
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 modal-charts" style={{ height: 'calc(92vh - 140px)' }}>

@@ -10,6 +10,7 @@ import {
   ComposedChart,
   LabelList,
 } from 'recharts'
+import { useTranslations, useLocale, useFormatter } from 'next-intl'
 import { getTodayString, shouldAggregateByWeek, generateWeekBuckets } from '@/lib/dateUtils'
 import type { DashboardPeriod } from '@/lib/types'
 import { calculateXAxisInterval } from '@/lib/chartUtils'
@@ -56,6 +57,9 @@ const createLpFormatter = (maxValue: number) => {
 }
 
 function LpChart({ teams, showLabels = false, dateRange, period, viewMode = 'teams' }: LpChartProps) {
+  const t = useTranslations()
+  const locale = useLocale()
+  const format = useFormatter()
   // Couleurs du thème pour les graphiques
   const { team1, team2, colors: chartColors } = useChartColors()
 
@@ -381,11 +385,11 @@ function LpChart({ teams, showLabels = false, dateRange, period, viewMode = 'tea
     return (
       <div className="bg-(--bg-card) border border-(--border) rounded-lg overflow-hidden">
         <div className="px-3.5 py-2.5 border-b border-(--border) text-[11px] font-semibold text-(--text-secondary)">
-          Évolution LP
+          {t('charts.lpEvolution')}
         </div>
         <div className="p-3 h-[180px] flex items-center justify-center">
           <div className="text-(--text-muted) text-sm">
-            {viewMode === 'players' ? 'Sélectionnez un joueur' : 'Sélectionnez une équipe'}
+            {viewMode === 'players' ? t('charts.selectPlayer') : t('charts.selectTeam')}
           </div>
         </div>
       </div>
@@ -395,7 +399,7 @@ function LpChart({ teams, showLabels = false, dateRange, period, viewMode = 'tea
   return (
     <div className="bg-(--bg-card) border border-(--border) rounded-lg overflow-hidden">
       <div className="px-3.5 py-2.5 border-b border-(--border) flex items-center gap-3">
-        <span className="text-[11px] font-semibold text-(--text-secondary) shrink-0">Évolution LP</span>
+        <span className="text-[11px] font-semibold text-(--text-secondary) shrink-0">{t('charts.lpEvolution')}</span>
         {/* Légende des équipes */}
         <div className="flex items-center gap-2 min-w-0 overflow-hidden">
           {teams.map((team, index) => (
@@ -468,9 +472,9 @@ function LpChart({ teams, showLabels = false, dateRange, period, viewMode = 'tea
                   const weekRangeLabel = dataPoint?.rangeLabel as string | undefined
                   const dateStr = dataPoint?.date as string | undefined
 
-                  // Format date for display (e.g., "15 janvier 2024")
+                  // Format date for display
                   const formattedDate = dateStr && !isWeekly
-                    ? new Date(dateStr + 'T00:00:00').toLocaleDateString('fr-FR', {
+                    ? format.dateTime(new Date(dateStr + 'T00:00:00'), {
                         day: 'numeric',
                         month: 'long',
                         year: 'numeric',
@@ -483,7 +487,7 @@ function LpChart({ teams, showLabels = false, dateRange, period, viewMode = 'tea
                       const index = parseInt((p.dataKey as string).replace('team', '').replace('Lp', ''), 10)
                       const value = p.value as number
                       return {
-                        shortName: teams[index]?.shortName || teams[index]?.teamName || `Équipe ${index + 1}`,
+                        shortName: teams[index]?.shortName || teams[index]?.teamName || `${t('dashboard.team')} ${index + 1}`,
                         value,
                         color: chartColors[index] || chartColors[0],
                       }

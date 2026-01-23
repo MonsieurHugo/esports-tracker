@@ -1,6 +1,7 @@
 'use client'
 
 import Image from 'next/image'
+import { useTranslations } from 'next-intl'
 import { VALID_ROLES } from '@/lib/constants'
 
 interface RoleIconFilterProps {
@@ -14,6 +15,7 @@ export default function RoleIconFilter({
   onToggle,
   onSelectAll,
 }: RoleIconFilterProps) {
+  const t = useTranslations()
   const isAllSelected = selected.length === 0 || selected.length === VALID_ROLES.length
 
   const isRoleSelected = (role: string) => {
@@ -31,7 +33,7 @@ export default function RoleIconFilter({
             ? 'bg-(--accent) text-white'
             : 'text-(--text-muted) hover:text-(--text-secondary) hover:bg-(--bg-hover)'
         }`}
-        title="Tous les rôles"
+        title={t('filters.allRoles')}
       >
         ALL
       </button>

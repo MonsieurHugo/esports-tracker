@@ -1,6 +1,7 @@
 'use client'
 
 import { memo } from 'react'
+import { useTranslations } from 'next-intl'
 import { useUIStore } from '@/stores/uiStore'
 import type { DashboardPeriod } from '@/lib/types'
 
@@ -14,13 +15,6 @@ interface MobileControlBarProps {
   activeFiltersCount: number
 }
 
-const periods: { value: DashboardPeriod; label: string }[] = [
-  { value: '7d', label: '7J' },
-  { value: '14d', label: '14J' },
-  { value: '30d', label: '30J' },
-  { value: '90d', label: '90J' },
-]
-
 function MobileControlBar({
   period,
   onPeriodChange,
@@ -30,7 +24,15 @@ function MobileControlBar({
   canGoPrev,
   activeFiltersCount,
 }: MobileControlBarProps) {
+  const t = useTranslations()
   const { openChartsModal, openMobileFilters } = useUIStore()
+
+  const periods: { value: DashboardPeriod; label: string }[] = [
+    { value: '7d', label: t('period.7d') },
+    { value: '14d', label: t('period.14d') },
+    { value: '30d', label: t('period.30d') },
+    { value: '90d', label: t('period.90d') },
+  ]
 
   return (
     <div className="fixed bottom-0 left-0 right-0 z-40 lg:hidden">
@@ -100,7 +102,7 @@ function MobileControlBar({
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
             </svg>
-            <span className="text-[10px] font-medium">Filtres</span>
+            <span className="text-[10px] font-medium">{t('filters.title')}</span>
             {activeFiltersCount > 0 && (
               <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 flex items-center justify-center bg-(--accent) text-(--bg-primary) text-[9px] font-bold rounded-full px-1">
                 {activeFiltersCount}

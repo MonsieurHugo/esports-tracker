@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, type ReactNode } from 'react'
+import { useTranslations } from 'next-intl'
 import { cn } from '@/lib/utils'
 
 interface ModalProps {
@@ -13,6 +14,7 @@ interface ModalProps {
 }
 
 export function Modal({ isOpen, onClose, title, children, size = 'md', headerContent }: ModalProps) {
+  const t = useTranslations()
   const modalRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -78,7 +80,7 @@ export function Modal({ isOpen, onClose, title, children, size = 'md', headerCon
             <button
               onClick={onClose}
               className="sm:hidden p-1 rounded-md text-(--text-muted) hover:text-(--text-primary) hover:bg-(--bg-hover) transition-colors shrink-0"
-              aria-label="Fermer"
+              aria-label={t('common.close')}
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -104,7 +106,7 @@ export function Modal({ isOpen, onClose, title, children, size = 'md', headerCon
           <button
             onClick={onClose}
             className="hidden sm:block p-1 rounded-md text-(--text-muted) hover:text-(--text-primary) hover:bg-(--bg-hover) transition-colors shrink-0"
-            aria-label="Fermer"
+            aria-label={t('common.close')}
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"

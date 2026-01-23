@@ -1,3 +1,7 @@
+'use client'
+
+import { useTranslations } from 'next-intl'
+
 const socialLinks = [
   {
     name: 'Twitter',
@@ -48,8 +52,11 @@ const socialLinks = [
 ]
 
 export function Footer() {
+  // Note: useTranslations is available but Footer doesn't need translations for now
+  // const t = useTranslations('common')
+
   return (
-    <footer className="border-t border-(--border) py-6 mt-auto">
+    <footer className="border-t border-(--border) py-6 pb-20 lg:pb-6 mt-auto">
       <div className="container mx-auto px-4">
         <div className="flex justify-center gap-6">
           {socialLinks.map((link) =>

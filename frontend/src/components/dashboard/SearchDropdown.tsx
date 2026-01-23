@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect, useMemo, useCallback, ReactNode } from 'react'
+import { useTranslations } from 'next-intl'
 
 export interface SearchDropdownItem {
   id: number | string
@@ -102,16 +103,23 @@ export default function SearchDropdown<T extends SearchDropdownItem>({
   onToggleLock,
   onFetch,
   lockedItemIds = [],
-  placeholder = 'Rechercher...',
+  placeholder,
   addPlaceholder = '+ item',
-  emptyMessage = 'Aucun item disponible',
-  noResultsMessage = 'Aucun resultat',
-  loadingMessage = 'Chargement...',
+  emptyMessage,
+  noResultsMessage,
+  loadingMessage,
   renderItem,
   filterItems,
   refreshKey,
   storageKey,
 }: SearchDropdownProps<T>) {
+  const t = useTranslations()
+
+  // Use translated defaults
+  const placeholderText = placeholder ?? t('common.search') + '...'
+  const emptyText = emptyMessage ?? t('common.noData')
+  const noResultsText = noResultsMessage ?? t('search.noResults')
+  const loadingText = loadingMessage ?? t('common.loading')
   const [isOpen, setIsOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [items, setItems] = useState<T[]>([])
@@ -299,7 +307,7 @@ export default function SearchDropdown<T extends SearchDropdownItem>({
                             ? 'text-(--accent)'
                             : 'text-(--text-muted) hover:text-(--text-secondary)'
                         }`}
-                        title={isLocked ? 'Desepingler' : 'Epingler en haut'}
+                        title={isLocked ? t('common.unpin') : t('common.pin')}
                       >
                         {isLocked ? (
                           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -326,7 +334,7 @@ export default function SearchDropdown<T extends SearchDropdownItem>({
             <button
               onClick={handleClear}
               className="text-(--text-muted) hover:text-(--text-primary) transition-colors shrink-0"
-              title="Tout deselectionner"
+              title={t('common.deselectAll')}
             >
               <svg width="12" height="12" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path d="M10.5 3.5L3.5 10.5M3.5 3.5L10.5 10.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
@@ -339,7 +347,7 @@ export default function SearchDropdown<T extends SearchDropdownItem>({
               <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2"/>
               <path d="M20 20L16.5 16.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
             </svg>
-            <span className="text-[11px] text-(--text-muted) flex-1">{placeholder}</span>
+            <span className="text-[11px] text-(--text-muted) flex-1">{placeholderText}</span>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className={`text-(--text-muted) transition-transform ${isOpen ? 'rotate-180' : ''}`}>
               <path d="M6 9L12 15L18 9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
@@ -362,7 +370,7 @@ export default function SearchDropdown<T extends SearchDropdownItem>({
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Rechercher..."
+                placeholder={placeholderText}
                 className="flex-1 bg-transparent text-[11px] outline-hidden placeholder:text-(--text-muted)"
               />
               {search && (
@@ -382,11 +390,11 @@ export default function SearchDropdown<T extends SearchDropdownItem>({
           <div className="max-h-[240px] overflow-y-auto">
             {isLoading ? (
               <div className="p-4 text-center text-(--text-muted) text-[11px]">
-                {loadingMessage}
+                {loadingText}
               </div>
             ) : filteredItems.length === 0 ? (
               <div className="p-4 text-center text-(--text-muted) text-[11px]">
-                {search ? noResultsMessage : emptyMessage}
+                {search ? noResultsText : emptyText}
               </div>
             ) : (
               filteredItems.map((item) => {
@@ -432,7 +440,7 @@ export default function SearchDropdown<T extends SearchDropdownItem>({
                         className={`shrink-0 transition-colors ${
                           isFavorite ? 'text-(--favorite)' : 'text-(--text-muted) hover:text-(--favorite)'
                         }`}
-                        title={isFavorite ? 'Retirer des favoris' : 'Ajouter aux favoris'}
+                        title={isFavorite ? t('common.removeFavorite') : t('common.addFavorite')}
                       >
                         <svg width="12" height="12" viewBox="0 0 24 24" fill={isFavorite ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2">
                           <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
@@ -456,7 +464,7 @@ export default function SearchDropdown<T extends SearchDropdownItem>({
                     {item.badge}
                     {isRecent && !isSelected && (
                       <span className="text-[8px] px-1 py-0.5 rounded bg-(--bg-secondary) text-(--text-muted)">
-                        Récent
+                        {t('common.recent')}
                       </span>
                     )}
                     {isSelected && (

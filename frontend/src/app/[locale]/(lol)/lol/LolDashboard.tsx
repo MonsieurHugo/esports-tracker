@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useMemo } from 'react'
+import { useTranslations } from 'next-intl'
 import { useDashboardStore, useUIStore } from '@/stores/dashboardStore'
 import { useStoresHydrated } from '@/hooks/useStoresHydrated'
 import { useToastStore } from '@/stores/toastStore'
@@ -34,10 +35,12 @@ import TopGrinders from '@/components/dashboard/TopGrinders'
 import TopLpGainers from '@/components/dashboard/TopLpGainers'
 import TopLpLosers from '@/components/dashboard/TopLpLosers'
 import ThemeSelector from '@/components/ThemeSelector'
+import { LanguageSwitcher } from '@/components/layout/LanguageSwitcher'
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary'
 import { ChartErrorFallback } from '@/components/ui/ChartErrorFallback'
 
 export default function LolDashboard() {
+  const t = useTranslations()
   const {
     period,
     selectedLeagues,
@@ -173,7 +176,7 @@ export default function LolDashboard() {
       } catch (error) {
         logError('Failed to fetch leagues', error)
         addToast({
-          message: 'Impossible de charger les ligues disponibles',
+          message: t('errors.loadLeagues'),
           type: 'error',
         })
       }
@@ -202,8 +205,11 @@ export default function LolDashboard() {
     <main className="p-3 sm:p-5 pb-20 lg:pb-5 max-w-[1600px] mx-auto">
       {/* Header */}
       <header className="flex justify-between items-center mb-4 sm:mb-5">
-        <h1 className="text-xl font-bold">Dashboard</h1>
-        <ThemeSelector />
+        <h1 className="text-xl font-bold">{t('dashboard.title')}</h1>
+        <div className="flex items-center gap-2">
+          <LanguageSwitcher />
+          <ThemeSelector />
+        </div>
       </header>
 
       {/* Main Grid - 3 columns: Stats (left) + Leaderboard (center) + Charts (right) */}
@@ -254,7 +260,7 @@ export default function LolDashboard() {
               title="Buy me a coffee"
             >
               <span className="text-base">☕</span>
-              <span className="text-[11px] font-medium hidden sm:inline">Soutenez le développement du site</span>
+              <span className="text-[11px] font-medium hidden sm:inline">{t('common.supportDev')}</span>
             </a>
             <div className="flex-1">
               {leaderboardView === 'teams' ? (
@@ -285,7 +291,7 @@ export default function LolDashboard() {
             <button
               onClick={openChartsModal}
               className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 bg-(--bg-hover) border border-(--border) rounded-md text-(--text-secondary) hover:text-(--text-primary) hover:border-(--text-muted) transition-colors text-xs"
-              title="Agrandir les graphiques"
+              title={t('common.expand')}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path d="M15 3H21V9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
@@ -293,12 +299,12 @@ export default function LolDashboard() {
                 <path d="M21 3L14 10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                 <path d="M3 21L10 14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
-              <span className="hidden xl:inline">Agrandir</span>
+              <span className="hidden xl:inline">{t('common.expand')}</span>
             </button>
             <button
               onClick={resetToDefault}
-              className="flex items-center justify-center gap-1.5 px-2 h-8 bg-(--bg-card) border border-(--border) rounded-md text-(--text-muted) hover:text-(--text-primary) hover:border-(--text-muted) transition-colors"
-              title="Réinitialiser les filtres"
+              className="hidden lg:flex items-center justify-center gap-1.5 px-2 h-8 bg-(--bg-card) border border-(--border) rounded-md text-(--text-muted) hover:text-(--text-primary) hover:border-(--text-muted) transition-colors"
+              title={t('common.reset')}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path d="M3 12C3 7.02944 7.02944 3 12 3C16.9706 3 21 7.02944 21 12C21 16.9706 16.9706 21 12 21C9.69494 21 7.59227 20.1334 6 18.7083" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
@@ -550,7 +556,6 @@ export default function LolDashboard() {
         period={period}
         onPeriodChange={setPeriod}
         leaderboardView={leaderboardView}
-        onViewChange={setLeaderboardView}
         selectedLeagues={selectedLeagues}
         onToggleLeague={toggleLeague}
         onSelectAllLeagues={selectAllLeagues}

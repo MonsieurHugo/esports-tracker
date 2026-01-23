@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useCallback, useMemo } from 'react'
+import { useTranslations } from 'next-intl'
 import type { TeamLeaderboardEntry } from '@/lib/types'
 import type { SortOption, ItemsPerPageOption, LeaderboardView } from '@/stores/dashboardStore'
 import TeamRow from './TeamRow'
@@ -63,6 +64,8 @@ export default function TeamLeaderboard({
   leaderboardView,
   onViewChange,
 }: TeamLeaderboardProps) {
+  const t = useTranslations()
+
   // Set pour permettre plusieurs équipes expanded en même temps
   const [expandedTeamIds, setExpandedTeamIds] = useState<Set<number>>(new Set())
 
@@ -131,24 +134,24 @@ export default function TeamLeaderboard({
       <div className="bg-(--bg-secondary)">
         <div className="flex items-center px-2 sm:px-3 py-2 text-[10px] sm:text-[11px] uppercase tracking-wider text-(--text-muted) font-medium">
           <span className="w-6 sm:w-7">#</span>
-          <span className="flex-1 min-w-0">Équipe</span>
+          <span className="flex-1 min-w-0">{t('dashboard.team')}</span>
           <span
             onClick={() => onSortChange('lp')}
             className={`w-16 sm:w-20 text-center whitespace-nowrap cursor-pointer hover:text-(--text-primary) transition-colors ${sortBy === 'lp' ? 'text-(--text-primary)' : ''}`}
           >
-            LP<SortIcon active={sortBy === 'lp'} />
+            {t('dashboard.lp')}<SortIcon active={sortBy === 'lp'} />
           </span>
           <span
             onClick={() => onSortChange('games')}
             className={`w-16 sm:w-20 text-center whitespace-nowrap cursor-pointer hover:text-(--text-primary) transition-colors ${sortBy === 'games' ? 'text-(--text-primary)' : ''}`}
           >
-            Games<SortIcon active={sortBy === 'games'} />
+            {t('dashboard.games')}<SortIcon active={sortBy === 'games'} />
           </span>
           <span
             onClick={() => onSortChange('winrate')}
             className={`w-16 sm:w-20 text-center whitespace-nowrap cursor-pointer hover:text-(--text-primary) transition-colors ${sortBy === 'winrate' ? 'text-(--text-primary)' : ''}`}
           >
-            Winrate<SortIcon active={sortBy === 'winrate'} />
+            {t('dashboard.winrate')}<SortIcon active={sortBy === 'winrate'} />
           </span>
           <span className="w-7 sm:w-8"></span>
         </div>
@@ -165,7 +168,7 @@ export default function TeamLeaderboard({
           `}
         >
           <div className="text-(--text-muted) text-sm">
-            {isLoading ? 'Chargement...' : 'Aucune donnée'}
+            {isLoading ? t('common.loading') : t('common.noData')}
           </div>
         </div>
         {/* Content */}

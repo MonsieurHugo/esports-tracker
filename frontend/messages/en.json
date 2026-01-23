@@ -1,0 +1,150 @@
+{
+  "common": {
+    "loading": "Loading...",
+    "retry": "Retry",
+    "apply": "Apply",
+    "reset": "Reset",
+    "close": "Close",
+    "expand": "Expand",
+    "all": "All",
+    "noData": "No data",
+    "search": "Search",
+    "back": "Back",
+    "supportDev": "Support the development of this site",
+    "deselectAll": "Deselect all",
+    "pin": "Pin to top",
+    "unpin": "Unpin",
+    "addFavorite": "Add to favorites",
+    "removeFavorite": "Remove from favorites",
+    "recent": "Recent"
+  },
+  "nav": {
+    "home": "Home",
+    "dashboard": "Dashboard",
+    "monitoring": "Monitoring"
+  },
+  "meta": {
+    "title": "Esports Tracker",
+    "description": "Track SoloQ statistics of professional players",
+    "comingSoon": "Coming soon"
+  },
+  "period": {
+    "7d": "7D",
+    "14d": "14D",
+    "30d": "30D",
+    "90d": "90D",
+    "7days": "7 days",
+    "14days": "14 days",
+    "30days": "30 days",
+    "90days": "90 days",
+    "label": "Period"
+  },
+  "filters": {
+    "title": "Filters",
+    "leagues": "Leagues",
+    "roles": "Roles",
+    "minGames": "Minimum games",
+    "minGamesAll": "Min games: all",
+    "minGamesValue": "Min {value} games",
+    "allLeagues": "All",
+    "allRoles": "All roles",
+    "nRoles": "{count} roles"
+  },
+  "roles": {
+    "TOP": "Top",
+    "JGL": "Jungle",
+    "MID": "Mid",
+    "ADC": "ADC",
+    "SUP": "Support"
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "team": "Team",
+    "teams": "Teams",
+    "player": "Player",
+    "players": "Players",
+    "games": "Games",
+    "winrate": "Winrate",
+    "lp": "LP",
+    "kda": "KDA",
+    "rank": "Rank",
+    "leaderboard": "Leaderboard"
+  },
+  "leaderboard": {
+    "topGrinders": "Top Grinders",
+    "topLpGainers": "Top LP+",
+    "topLpLosers": "Top LP-",
+    "rank": "#",
+    "showAccounts": "Show accounts",
+    "hideAccounts": "Hide accounts",
+    "showPlayers": "Show players",
+    "hidePlayers": "Hide players",
+    "notInTopFive": "Not counted in team stats (outside top 5 LP)",
+    "winStreaks": "Win Streaks",
+    "lossStreaks": "Loss Streaks",
+    "wins": "Wins",
+    "losses": "Losses"
+  },
+  "search": {
+    "searchTeam": "Search for a team...",
+    "searchPlayer": "Search for a player...",
+    "noTeamAvailable": "No team available",
+    "noPlayerAvailable": "No player available",
+    "noTeamFound": "No team found",
+    "noPlayerFound": "No player found",
+    "noResults": "No results"
+  },
+  "charts": {
+    "title": "Charts",
+    "gamesPlayed": "Games Played",
+    "lpEvolution": "LP Evolution",
+    "lpChange": "LP Change",
+    "dailyWinrate": "Daily Winrate",
+    "gamesPerDay": "Games per day",
+    "gamesPerWeek": "Games per week",
+    "lpPerDay": "LP +/- per day",
+    "lpPerWeek": "LP +/- per week",
+    "winratePerDay": "Winrate per day",
+    "winratePerWeek": "Winrate per week",
+    "selectPlayer": "Select a player",
+    "selectTeam": "Select a team"
+  },
+  "player": {
+    "profile": "Player Profile",
+    "notFound": "Player not found",
+    "compareWith": "Compare with a player",
+    "searchPlayer": "Search for a player...",
+    "comparingWith": "Comparing with:",
+    "playHours": "Play Hours",
+    "histogram": "Histogram",
+    "heatmap": "Heatmap",
+    "champions": "Champions",
+    "playTime": "Play Time",
+    "bestDuos": "Best Duos",
+    "winAgainst": "Wins Against",
+    "loseAgainst": "Loses Against",
+    "global": "Global",
+    "champion": "Champion",
+    "wr": "WR",
+    "cs": "CS"
+  },
+  "days": {
+    "sun": "Sun",
+    "mon": "Mon",
+    "tue": "Tue",
+    "wed": "Wed",
+    "thu": "Thu",
+    "fri": "Fri",
+    "sat": "Sat"
+  },
+  "errors": {
+    "pageNotFound": "Page not found",
+    "backToHome": "Back to home",
+    "errorOccurred": "An error occurred",
+    "unexpectedError": "An unexpected error occurred. Please try again.",
+    "criticalError": "Critical error",
+    "reloadPage": "An unexpected error occurred. Please reload the page.",
+    "errorCode": "Error code",
+    "loadLeagues": "Unable to load available leagues"
+  }
+}

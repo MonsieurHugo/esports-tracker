@@ -1,5 +1,6 @@
 import { memo } from 'react'
 import Link from 'next/link'
+import { useTranslations } from 'next-intl'
 import type { GrinderEntry } from '@/lib/types'
 import { getRankTextClass } from '@/lib/utils'
 import TeamLogo from '@/components/ui/TeamLogo'
@@ -10,15 +11,17 @@ interface TopGrindersProps {
 }
 
 function TopGrinders({ entries, isLoading }: TopGrindersProps) {
+  const t = useTranslations()
+
   return (
     <div className="bg-(--bg-card) border border-(--border) rounded-lg overflow-hidden">
       <div className="px-3.5 py-2.5 border-b border-(--border) flex items-center justify-between">
-        <span className="text-xs font-semibold text-(--text-secondary)">Top Grinders</span>
-        <span className="text-[10px] text-(--text-muted)">Games</span>
+        <span className="text-xs font-semibold text-(--text-secondary)">{t('leaderboard.topGrinders')}</span>
+        <span className="text-[10px] text-(--text-muted)">{t('dashboard.games')}</span>
       </div>
 
       {isLoading ? (
-        <div className="p-4 text-center text-(--text-muted) text-sm">Chargement...</div>
+        <div className="p-4 text-center text-(--text-muted) text-sm">{t('common.loading')}</div>
       ) : (
         <>
           {/* Display entries or placeholder rows */}

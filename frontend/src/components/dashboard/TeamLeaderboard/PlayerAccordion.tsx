@@ -2,6 +2,7 @@
 
 import { memo, useState } from 'react'
 import Image from 'next/image'
+import { useTranslations } from 'next-intl'
 import type { PlayerInTeam } from '@/lib/types'
 import { formatLp, getRankImagePath, VALID_ROLES, cn } from '@/lib/utils'
 
@@ -34,6 +35,7 @@ function RoleIcon({ role }: { role: string | null }) {
 }
 
 const PlayerAccordion = memo(function PlayerAccordion({ players, isOpen }: PlayerAccordionProps) {
+  const t = useTranslations()
   return (
     <div
       className="grid transition-[grid-template-rows] duration-300 ease-in-out"
@@ -57,7 +59,7 @@ const PlayerAccordion = memo(function PlayerAccordion({ players, isOpen }: Playe
                   ${index !== players.length - 1 ? 'border-b border-(--border)' : ''}
                   ${isGrayed ? 'opacity-40' : ''}
                 `}
-                title={isGrayed ? 'Ne compte pas dans les stats équipe (hors top 5 LP)' : undefined}
+                title={isGrayed ? t('leaderboard.notInTopFive') : undefined}
               >
                 {/* Spacer pour aligner avec le rank */}
                 <span className="w-6 sm:w-7" />

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
+import { useTranslations } from 'next-intl'
 import { VALID_ROLES } from '@/lib/constants'
 
 interface RoleDropdownProps {
@@ -17,19 +18,12 @@ const ROLE_COLORS: Record<string, { bg: string; text: string; dot: string }> = {
   'SUP': { bg: 'bg-(--role-support)/20', text: 'text-(--role-support)', dot: 'bg-(--role-support)' },
 }
 
-const ROLE_LABELS: Record<string, string> = {
-  'TOP': 'Top',
-  'JGL': 'Jungle',
-  'MID': 'Mid',
-  'ADC': 'ADC',
-  'SUP': 'Support',
-}
-
 export default function RoleDropdown({
   selected,
   onToggle,
   onSelectAll,
 }: RoleDropdownProps) {
+  const t = useTranslations()
   const [isOpen, setIsOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
@@ -48,9 +42,9 @@ export default function RoleDropdown({
   }, [])
 
   const getButtonLabel = () => {
-    if (isAllSelected) return 'Tous les rôles'
-    if (selected.length === 1) return ROLE_LABELS[selected[0]] || selected[0]
-    return `${selected.length} rôles`
+    if (isAllSelected) return t('filters.allRoles')
+    if (selected.length === 1) return t(`roles.${selected[0]}`)
+    return t('filters.nRoles', { count: selected.length })
   }
 
   return (
@@ -92,7 +86,7 @@ export default function RoleDropdown({
                 </svg>
               )}
             </span>
-            Tous
+            {t('common.all')}
           </button>
 
           <div className="h-px bg-(--border) my-1" />
@@ -120,7 +114,7 @@ export default function RoleDropdown({
                   )}
                 </span>
                 <span className={`w-2 h-2 rounded-full ${colors?.dot}`} />
-                {ROLE_LABELS[role] || role}
+                {t(`roles.${role}`)}
               </button>
             )
           })}

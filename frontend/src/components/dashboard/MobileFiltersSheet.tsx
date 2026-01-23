@@ -2,6 +2,7 @@
 
 import { memo } from 'react'
 import Image from 'next/image'
+import { useTranslations } from 'next-intl'
 import { BottomSheet } from '@/components/ui/BottomSheet'
 import { useUIStore, type LeaderboardView } from '@/stores/uiStore'
 import { VALID_ROLES } from '@/lib/constants'
@@ -23,20 +24,12 @@ const DEFAULT_COLORS: Record<string, string> = {
 
 const GAME_PRESETS = [0, 5, 10, 20, 50]
 
-const periods: { value: DashboardPeriod; label: string }[] = [
-  { value: '7d', label: '7 jours' },
-  { value: '14d', label: '14 jours' },
-  { value: '30d', label: '30 jours' },
-  { value: '90d', label: '90 jours' },
-]
-
 interface MobileFiltersSheetProps {
   // Period
   period: DashboardPeriod
   onPeriodChange: (period: DashboardPeriod) => void
-  // View
+  // View (used for conditional role filter display)
   leaderboardView: LeaderboardView
-  onViewChange: (view: LeaderboardView) => void
   // Leagues
   selectedLeagues: string[]
   onToggleLeague: (league: string) => void
@@ -57,7 +50,6 @@ function MobileFiltersSheet({
   period,
   onPeriodChange,
   leaderboardView,
-  onViewChange,
   selectedLeagues,
   onToggleLeague,
   onSelectAllLeagues,
@@ -69,7 +61,15 @@ function MobileFiltersSheet({
   onMinGamesChange,
   onResetFilters,
 }: MobileFiltersSheetProps) {
+  const t = useTranslations()
   const { isMobileFiltersOpen, closeMobileFilters } = useUIStore()
+
+  const periods: { value: DashboardPeriod; label: string }[] = [
+    { value: '7d', label: t('period.7days') },
+    { value: '14d', label: t('period.14days') },
+    { value: '30d', label: t('period.30days') },
+    { value: '90d', label: t('period.90days') },
+  ]
 
   const isAllLeaguesSelected = selectedLeagues.length === 0 || selectedLeagues.length === leagues.length
   const isAllRolesSelected = selectedRoles.length === 0 || selectedRoles.length === VALID_ROLES.length
@@ -92,13 +92,13 @@ function MobileFiltersSheet({
     <BottomSheet
       isOpen={isMobileFiltersOpen}
       onClose={closeMobileFilters}
-      title="Filtres"
+      title={t('filters.title')}
     >
       <div className="flex flex-col gap-5">
         {/* Period Selection */}
         <div>
           <label className="text-xs font-semibold text-(--text-secondary) mb-2 block">
-            Période
+            {t('period.label')}
           </label>
           <div className="grid grid-cols-4 gap-1.5">
             {periods.map((p) => (
@@ -118,46 +118,10 @@ function MobileFiltersSheet({
           </div>
         </div>
 
-        {/* View Toggle */}
-        <div>
-          <label className="text-xs font-semibold text-(--text-secondary) mb-2 block">
-            Vue
-          </label>
-          <div className="relative flex bg-(--bg-secondary) p-1 rounded-lg border border-(--border)">
-            <div
-              className={`absolute top-1 bottom-1 left-1 w-[calc(50%-4px)] bg-(--accent) rounded-md transition-transform duration-200 ease-out ${
-                leaderboardView === 'players' ? 'translate-x-full' : 'translate-x-0'
-              }`}
-            />
-            <button
-              onClick={() => onViewChange('teams')}
-              className={`
-                relative z-10 flex-1 py-2 rounded-md text-xs font-medium transition-colors
-                ${leaderboardView === 'teams'
-                  ? 'text-(--bg-primary)'
-                  : 'text-(--text-muted)'}
-              `}
-            >
-              Équipes
-            </button>
-            <button
-              onClick={() => onViewChange('players')}
-              className={`
-                relative z-10 flex-1 py-2 rounded-md text-xs font-medium transition-colors
-                ${leaderboardView === 'players'
-                  ? 'text-(--bg-primary)'
-                  : 'text-(--text-muted)'}
-              `}
-            >
-              Joueurs
-            </button>
-          </div>
-        </div>
-
         {/* League Selection */}
         <div>
           <label className="text-xs font-semibold text-(--text-secondary) mb-2 block">
-            Ligues
+            {t('filters.leagues')}
           </label>
           <div className="flex flex-wrap gap-1.5">
             {/* All button */}
@@ -170,7 +134,7 @@ function MobileFiltersSheet({
                   : 'bg-(--bg-secondary) text-(--text-secondary) hover:bg-(--bg-hover)'}
               `}
             >
-              Toutes
+              {t('filters.allLeagues')}
             </button>
             {leagues.map((league) => {
               const isSelected = selectedLeagues.includes(league.shortName) && !isAllLeaguesSelected
@@ -201,7 +165,7 @@ function MobileFiltersSheet({
         {leaderboardView === 'players' && (
           <div>
             <label className="text-xs font-semibold text-(--text-secondary) mb-2 block">
-              Rôles
+              {t('filters.roles')}
             </label>
             <div className="flex flex-wrap gap-1.5">
               {/* All button */}
@@ -249,10 +213,10 @@ function MobileFiltersSheet({
         <div>
           <div className="flex items-center justify-between mb-2">
             <label className="text-xs font-semibold text-(--text-secondary)">
-              Minimum de games
+              {t('filters.minGames')}
             </label>
             <span className="text-sm font-mono font-semibold text-(--accent)">
-              {minGames === 0 ? 'Tous' : `${minGames}+`}
+              {minGames === 0 ? t('common.all') : `${minGames}+`}
             </span>
           </div>
           <div className="flex gap-1.5">
@@ -267,7 +231,7 @@ function MobileFiltersSheet({
                     : 'bg-(--bg-secondary) text-(--text-muted) hover:bg-(--bg-hover)'}
                 `}
               >
-                {preset === 0 ? 'Tous' : preset}
+                {preset === 0 ? t('common.all') : preset}
               </button>
             ))}
           </div>
@@ -279,13 +243,13 @@ function MobileFiltersSheet({
             onClick={handleReset}
             className="flex-1 py-3 rounded-lg text-xs font-semibold bg-(--bg-secondary) text-(--text-secondary) hover:bg-(--bg-hover) transition-colors"
           >
-            Réinitialiser
+            {t('common.reset')}
           </button>
           <button
             onClick={handleApply}
             className="flex-1 py-3 rounded-lg text-xs font-semibold bg-(--accent) text-(--bg-primary) hover:bg-(--accent-hover) transition-colors"
           >
-            Appliquer
+            {t('common.apply')}
           </button>
         </div>
       </div>

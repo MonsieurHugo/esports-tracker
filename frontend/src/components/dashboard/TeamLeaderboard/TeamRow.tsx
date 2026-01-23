@@ -2,6 +2,7 @@
 
 import { memo, useState, useMemo } from 'react'
 import Image from 'next/image'
+import { useTranslations } from 'next-intl'
 import type { TeamLeaderboardEntry } from '@/lib/types'
 import type { SortOption } from '@/stores/dashboardStore'
 import { getRankTextClass, sanitizeSlug, cn } from '@/lib/utils'
@@ -21,6 +22,7 @@ interface TeamRowProps {
 }
 
 const TeamRow = memo(function TeamRow({ entry, selectionIndex, isExpanded, onSelect, onToggle, sortBy, isPinned, isLocked, onToggleLock }: TeamRowProps) {
+  const t = useTranslations()
   const [logoError, setLogoError] = useState(false)
   const isSelected = selectionIndex !== null
 
@@ -92,7 +94,7 @@ const TeamRow = memo(function TeamRow({ entry, selectionIndex, isExpanded, onSel
                   : 'text-(--text-muted) hover:text-(--text-secondary) hover:bg-(--bg-secondary)'
                 }
               `}
-              title={isLocked ? 'Désépingler' : 'Épingler en haut'}
+              title={isLocked ? t('common.unpin') : t('common.pin')}
             >
               {isLocked ? (
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -127,7 +129,7 @@ const TeamRow = memo(function TeamRow({ entry, selectionIndex, isExpanded, onSel
           className={`
             w-7 h-7 sm:w-8 sm:h-8 -my-1 flex items-center justify-center rounded-md text-(--text-muted) hover:text-(--text-primary) hover:bg-(--bg-secondary) transition-all duration-200
           `}
-          title={isExpanded ? 'Masquer les joueurs' : 'Afficher les joueurs'}
+          title={isExpanded ? t('leaderboard.hidePlayers') : t('leaderboard.showPlayers')}
         >
           <svg
             width="14"

@@ -57,6 +57,14 @@ class Settings(BaseSettings):
     riot_api_base_url: str = "https://euw1.api.riotgames.com"
     riot_api_rate_limit: int = 100  # requests per 2 minutes
 
+    # GRID Esports API (Pro Stats)
+    grid_api_key: str = ""
+    grid_rate_limit: int = 10  # requests per second
+
+    # Pro Stats Polling Intervals (in seconds)
+    pro_fetch_interval_live: int = 30  # During live matches
+    pro_fetch_interval_idle: int = 900  # 15 minutes when no live matches
+
     # Application
     debug: bool = False
     log_level: str = "INFO"
@@ -195,6 +203,14 @@ class Settings(BaseSettings):
         """Get Riot API key redacted for safe logging."""
         return redact_api_key(self.riot_api_key)
 
+    def get_redacted_grid_api_key(self) -> str:
+        """Get GRID API key redacted for safe logging."""
+        return redact_api_key(self.grid_api_key)
+
+    def has_grid_api(self) -> bool:
+        """Check if GRID API key is configured."""
+        return bool(self.grid_api_key)
+
     def __repr__(self) -> str:
         """Return a safe string representation that does not expose secrets."""
         return (
@@ -202,6 +218,7 @@ class Settings(BaseSettings):
             f"database_url={self.get_redacted_database_url()!r}, "
             f"redis_url={self.get_redacted_redis_url()!r}, "
             f"riot_api_key={self.get_redacted_api_key()!r}, "
+            f"grid_api_key={self.get_redacted_grid_api_key()!r}, "
             f"debug={self.debug}, "
             f"log_level={self.log_level!r}, "
             f"use_priority_queue={self.use_priority_queue}"

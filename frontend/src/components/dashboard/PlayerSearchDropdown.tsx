@@ -2,6 +2,7 @@
 
 import { useCallback } from 'react'
 import Image from 'next/image'
+import { useTranslations } from 'next-intl'
 import type { PlayerLeaderboardEntry } from '@/lib/types'
 import type { DashboardPeriod } from '@/lib/types'
 import api from '@/lib/api'
@@ -34,6 +35,7 @@ export default function PlayerSearchDropdown({
   lockedPlayerIds,
   onToggleLock,
 }: PlayerSearchDropdownProps) {
+  const t = useTranslations()
   // Transform PlayerLeaderboardEntry to SearchDropdownItem
   const toSearchItem = (entry: PlayerLeaderboardEntry): PlayerSearchItem => ({
     id: entry.player.playerId,
@@ -113,7 +115,7 @@ export default function PlayerSearchDropdown({
           className={`shrink-0 transition-colors ${
             favoriteProps.isFavorite ? 'text-(--favorite)' : 'text-(--text-muted) hover:text-(--favorite)'
           }`}
-          title={favoriteProps.isFavorite ? 'Retirer des favoris' : 'Ajouter aux favoris'}
+          title={favoriteProps.isFavorite ? t('common.removeFavorite') : t('common.addFavorite')}
         >
           <svg width="12" height="12" viewBox="0 0 24 24" fill={favoriteProps.isFavorite ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2">
             <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
@@ -146,7 +148,7 @@ export default function PlayerSearchDropdown({
         )}
         {favoriteProps.isRecent && !isSelected && (
           <span className="text-[8px] px-1 py-0.5 rounded bg-(--bg-secondary) text-(--text-muted)">
-            Récent
+            {t('common.recent')}
           </span>
         )}
         {isSelected && (
@@ -175,10 +177,10 @@ export default function PlayerSearchDropdown({
       onToggleLock={handleToggleLock}
       onFetch={handleFetch}
       lockedItemIds={lockedPlayerIds}
-      placeholder="Rechercher un joueur..."
-      addPlaceholder="+ joueur"
-      emptyMessage="Aucun joueur disponible"
-      noResultsMessage="Aucun joueur trouve"
+      placeholder={t('search.searchPlayer')}
+      addPlaceholder={`+ ${t('dashboard.player').toLowerCase()}`}
+      emptyMessage={t('search.noPlayerAvailable')}
+      noResultsMessage={t('search.noPlayerFound')}
       filterItems={filterItems}
       renderItem={renderItem}
       refreshKey={`${period}-${refDate}-${selectedLeagues.join(',')}`}

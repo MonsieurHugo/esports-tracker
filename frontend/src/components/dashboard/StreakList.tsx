@@ -1,4 +1,7 @@
+'use client'
+
 import { memo } from 'react'
+import { useTranslations } from 'next-intl'
 import type { StreakEntry } from '@/lib/types'
 import { getRankTextClass } from '@/lib/utils'
 import TeamLogo from '@/components/ui/TeamLogo'
@@ -13,9 +16,10 @@ interface StreakListProps {
 }
 
 function StreakList({ entries, type, isLoading, sortDirection, onSortChange }: StreakListProps) {
+  const t = useTranslations()
   const isWins = type === 'wins'
-  const title = isWins ? 'Win Streaks' : 'Loss Streaks'
-  const sortLabel = isWins ? 'Wins' : 'Losses'
+  const title = isWins ? t('leaderboard.winStreaks') : t('leaderboard.lossStreaks')
+  const sortLabel = isWins ? t('leaderboard.wins') : t('leaderboard.losses')
   const colorClass = isWins ? 'text-(--positive)' : 'text-(--negative)'
   const prefix = isWins ? '+' : '-'
 
@@ -37,7 +41,7 @@ function StreakList({ entries, type, isLoading, sortDirection, onSortChange }: S
       </div>
 
       {isLoading ? (
-        <div className="p-4 text-center text-(--text-muted) text-sm">Chargement...</div>
+        <div className="p-4 text-center text-(--text-muted) text-sm">{t('common.loading')}</div>
       ) : (
         <>
           {entries.map((entry) => (

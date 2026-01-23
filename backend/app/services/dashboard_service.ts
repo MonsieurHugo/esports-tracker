@@ -49,6 +49,8 @@ const ALLOWED_FILTER_PATTERNS: RegExp[] = [
   // LP change filters (for gainers/losers queries - no table alias)
   /^lp_change > 0$/, // lp_change > 0
   /^lp_change < 0$/, // lp_change < 0
+  /^SUM\(lp_change\) > 0$/, // SUM(lp_change) > 0 (HAVING clause for team gainers)
+  /^SUM\(lp_change\) < 0$/, // SUM(lp_change) < 0 (HAVING clause for team losers)
   /^league IN \(\?(?:,\?)*\)$/, // league IN (?,?,?)
   /^role IN \(\?(?:,\?)*\)$/, // role IN (?,?,?)
   /^games >= \?$/, // games >= ?
@@ -2415,8 +2417,10 @@ export default class DashboardService {
 
     if (viewMode === 'teams') {
       // Team mode - uses best account per player, sums across team
-      const filterConditions: string[] = ['lp_change > 0']
-      const havingConditions: string[] = []
+      // Filter conditions for intermediate CTE (league/role filters)
+      const filterConditions: string[] = []
+      // Having conditions for final aggregation (LP filter + minGames)
+      const havingConditions: string[] = ['SUM(lp_change) > 0']
       const params: (string | number | null)[] = [startDate, endDate, startDate, startDate, endDate]
 
       if (leagueFilter?.length) {
@@ -2436,12 +2440,13 @@ export default class DashboardService {
       params.push(limit)
 
       // SECURITY: Validate all conditions before building query
-      validateAllConditions(filterConditions)
-      if (havingConditions.length > 0) {
-        validateAllConditions(havingConditions)
+      if (filterConditions.length > 0) {
+        validateAllConditions(filterConditions)
       }
+      validateAllConditions(havingConditions)
 
-      const havingClause = havingConditions.length > 0 ? `HAVING ${havingConditions.join(' AND ')}` : ''
+      const whereClause = filterConditions.length > 0 ? `WHERE ${filterConditions.join(' AND ')}` : ''
+      const havingClause = `HAVING ${havingConditions.join(' AND ')}`
 
       const result = await db.rawQuery(`
         WITH last_lp AS (
@@ -2503,17 +2508,16 @@ export default class DashboardService {
         ),
         team_lp AS (
           SELECT t.team_id, t.slug, t.current_name, t.short_name, t.league, pc.role, o.logo_url,
-            SUM(plc.lp_change) as lp_change, SUM(pg.games) as games
+            plc.lp_change, pg.games
           FROM teams t
           LEFT JOIN organizations o ON t.org_id = o.org_id
           JOIN player_contracts pc ON t.team_id = pc.team_id AND pc.end_date IS NULL
           JOIN player_lp_change plc ON pc.player_id = plc.player_id
           LEFT JOIN player_games pg ON pc.player_id = pg.player_id
           WHERE t.is_active = true
-          GROUP BY t.team_id, t.slug, t.current_name, t.short_name, t.league, pc.role, o.logo_url
         )
         SELECT team_id, slug, current_name, short_name, logo_url, SUM(lp_change) as lp_change, SUM(games) as games
-        FROM team_lp WHERE ${filterConditions.join(' AND ')}
+        FROM team_lp ${whereClause}
         GROUP BY team_id, slug, current_name, short_name, logo_url
         ${havingClause}
         ORDER BY lp_change ${getSortDirection(sortDir)}
@@ -2699,8 +2703,10 @@ export default class DashboardService {
 
     if (viewMode === 'teams') {
       // Team mode - uses best account per player (at start), sums across team
-      const filterConditions: string[] = ['lp_change < 0']
-      const havingConditions: string[] = []
+      // Filter conditions for intermediate CTE (league/role filters)
+      const filterConditions: string[] = []
+      // Having conditions for final aggregation (LP filter + minGames)
+      const havingConditions: string[] = ['SUM(lp_change) < 0']
       const params: (string | number | null)[] = [startDate, endDate, startDate, endDate]
 
       if (leagueFilter?.length) {
@@ -2720,12 +2726,13 @@ export default class DashboardService {
       params.push(limit)
 
       // SECURITY: Validate all conditions before building query
-      validateAllConditions(filterConditions)
-      if (havingConditions.length > 0) {
-        validateAllConditions(havingConditions)
+      if (filterConditions.length > 0) {
+        validateAllConditions(filterConditions)
       }
+      validateAllConditions(havingConditions)
 
-      const havingClause = havingConditions.length > 0 ? `HAVING ${havingConditions.join(' AND ')}` : ''
+      const whereClause = filterConditions.length > 0 ? `WHERE ${filterConditions.join(' AND ')}` : ''
+      const havingClause = `HAVING ${havingConditions.join(' AND ')}`
 
       const result = await db.rawQuery(`
         WITH first_day_lp AS (
@@ -2787,17 +2794,16 @@ export default class DashboardService {
         ),
         team_lp AS (
           SELECT t.team_id, t.slug, t.current_name, t.short_name, t.league, pc.role, o.logo_url,
-            SUM(plc.lp_change) as lp_change, SUM(pg.games) as games
+            plc.lp_change, pg.games
           FROM teams t
           LEFT JOIN organizations o ON t.org_id = o.org_id
           JOIN player_contracts pc ON t.team_id = pc.team_id AND pc.end_date IS NULL
           JOIN player_lp_change plc ON pc.player_id = plc.player_id
           LEFT JOIN player_games pg ON pc.player_id = pg.player_id
           WHERE t.is_active = true
-          GROUP BY t.team_id, t.slug, t.current_name, t.short_name, t.league, pc.role, o.logo_url
         )
         SELECT team_id, slug, current_name, short_name, logo_url, SUM(lp_change) as lp_change, SUM(games) as games
-        FROM team_lp WHERE ${filterConditions.join(' AND ')}
+        FROM team_lp ${whereClause}
         GROUP BY team_id, slug, current_name, short_name, logo_url
         ${havingClause}
         ORDER BY lp_change ${getSortDirection(sortDir)}
