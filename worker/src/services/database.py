@@ -847,64 +847,53 @@ class DatabaseService:
             Dict with activity data, or None if account not found or row was locked.
         """
         if for_update:
-            query = """
-                SELECT
-                    a.puuid,
-                    a.activity_score,
-                    a.activity_tier,
-                    a.consecutive_empty_fetches,
-                    a.last_match_at,
-                    a.next_fetch_at,
-                    COALESCE(today.games_played, 0) as games_today,
-                    COALESCE(recent.games, 0) as games_last_3_days,
-                    COALESCE(weekly.games, 0) as games_last_7_days
-                FROM lol_accounts a
-                LEFT JOIN lol_daily_stats today
-                    ON a.puuid = today.puuid AND today.date = CURRENT_DATE
-                LEFT JOIN (
-                    SELECT puuid, SUM(games_played) as games
-                    FROM lol_daily_stats
-                    WHERE date >= CURRENT_DATE - INTERVAL '3 days'
-                    GROUP BY puuid
-                ) recent ON a.puuid = recent.puuid
-                LEFT JOIN (
-                    SELECT puuid, SUM(games_played) as games
-                    FROM lol_daily_stats
-                    WHERE date >= CURRENT_DATE - INTERVAL '7 days'
-                    GROUP BY puuid
-                ) weekly ON a.puuid = weekly.puuid
-                WHERE a.puuid = $1
+            # First, lock the lol_accounts row with FOR UPDATE SKIP LOCKED
+            # This must be done separately because FOR UPDATE cannot be used
+            # with queries containing GROUP BY in subqueries
+            lock_query = """
+                SELECT puuid
+                FROM lol_accounts
+                WHERE puuid = $1
                 FOR UPDATE SKIP LOCKED
             """
-        else:
-            query = """
-                SELECT
-                    a.puuid,
-                    a.activity_score,
-                    a.activity_tier,
-                    a.consecutive_empty_fetches,
-                    a.last_match_at,
-                    a.next_fetch_at,
-                    COALESCE(today.games_played, 0) as games_today,
-                    COALESCE(recent.games, 0) as games_last_3_days,
-                    COALESCE(weekly.games, 0) as games_last_7_days
-                FROM lol_accounts a
-                LEFT JOIN lol_daily_stats today
-                    ON a.puuid = today.puuid AND today.date = CURRENT_DATE
-                LEFT JOIN (
-                    SELECT puuid, SUM(games_played) as games
-                    FROM lol_daily_stats
-                    WHERE date >= CURRENT_DATE - INTERVAL '3 days'
-                    GROUP BY puuid
-                ) recent ON a.puuid = recent.puuid
-                LEFT JOIN (
-                    SELECT puuid, SUM(games_played) as games
-                    FROM lol_daily_stats
-                    WHERE date >= CURRENT_DATE - INTERVAL '7 days'
-                    GROUP BY puuid
-                ) weekly ON a.puuid = weekly.puuid
-                WHERE a.puuid = $1
-            """
+            if connection:
+                lock_result = await connection.fetchrow(lock_query, puuid)
+            else:
+                lock_result = await self.fetchrow(lock_query, puuid)
+
+            # If row was locked by another process, return None
+            if not lock_result:
+                return None
+
+        # Now fetch the activity data (without FOR UPDATE since we already have the lock)
+        query = """
+            SELECT
+                a.puuid,
+                a.activity_score,
+                a.activity_tier,
+                a.consecutive_empty_fetches,
+                a.last_match_at,
+                a.next_fetch_at,
+                COALESCE(today.games_played, 0) as games_today,
+                COALESCE(recent.games, 0) as games_last_3_days,
+                COALESCE(weekly.games, 0) as games_last_7_days
+            FROM lol_accounts a
+            LEFT JOIN lol_daily_stats today
+                ON a.puuid = today.puuid AND today.date = CURRENT_DATE
+            LEFT JOIN (
+                SELECT puuid, SUM(games_played) as games
+                FROM lol_daily_stats
+                WHERE date >= CURRENT_DATE - INTERVAL '3 days'
+                GROUP BY puuid
+            ) recent ON a.puuid = recent.puuid
+            LEFT JOIN (
+                SELECT puuid, SUM(games_played) as games
+                FROM lol_daily_stats
+                WHERE date >= CURRENT_DATE - INTERVAL '7 days'
+                GROUP BY puuid
+            ) weekly ON a.puuid = weekly.puuid
+            WHERE a.puuid = $1
+        """
 
         if connection:
             row = await connection.fetchrow(query, puuid)
@@ -975,4 +964,535 @@ class DatabaseService:
             JOIN players p ON a.player_id = p.player_id
             WHERE p.is_active = true
             """
+        )
+
+    # ==========================================
+    # Pro Stats - Tournaments
+    # ==========================================
+
+    async def upsert_pro_tournament(
+        self,
+        external_id: str,
+        name: str,
+        slug: str,
+        region: str | None = None,
+        season: str | None = None,
+        split: str | None = None,
+        tier: int = 1,
+        status: str = "upcoming",
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+        logo_url: str | None = None,
+        metadata: dict | None = None,
+    ) -> int:
+        """Insert or update a pro tournament."""
+        result = await self.fetchval(
+            """
+            INSERT INTO pro_tournaments (
+                external_id, name, slug, region, season, split, tier,
+                status, start_date, end_date, logo_url, metadata
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            ON CONFLICT (external_id)
+            DO UPDATE SET
+                name = EXCLUDED.name,
+                status = EXCLUDED.status,
+                start_date = COALESCE(EXCLUDED.start_date, pro_tournaments.start_date),
+                end_date = COALESCE(EXCLUDED.end_date, pro_tournaments.end_date),
+                metadata = EXCLUDED.metadata,
+                updated_at = NOW()
+            RETURNING tournament_id
+            """,
+            external_id,
+            name,
+            slug,
+            region,
+            season,
+            split,
+            tier,
+            status,
+            start_date,
+            end_date,
+            logo_url,
+            json.dumps(metadata) if metadata else None,
+        )
+        return result
+
+    async def get_pro_tournament_by_external_id(
+        self, external_id: str
+    ) -> asyncpg.Record | None:
+        """Get a tournament by its external ID."""
+        return await self.fetchrow(
+            "SELECT * FROM pro_tournaments WHERE external_id = $1",
+            external_id,
+        )
+
+    async def get_active_pro_tournaments(self) -> list[asyncpg.Record]:
+        """Get tournaments that are ongoing or upcoming."""
+        return await self.fetch(
+            """
+            SELECT * FROM pro_tournaments
+            WHERE status IN ('ongoing', 'upcoming')
+            ORDER BY start_date ASC
+            """
+        )
+
+    # ==========================================
+    # Pro Stats - Stages
+    # ==========================================
+
+    async def upsert_pro_stage(
+        self,
+        external_id: str,
+        tournament_id: int,
+        name: str,
+        stage_type: str | None = None,
+        stage_order: int = 0,
+        status: str = "upcoming",
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+        standings: dict | None = None,
+        metadata: dict | None = None,
+    ) -> int:
+        """Insert or update a pro stage."""
+        result = await self.fetchval(
+            """
+            INSERT INTO pro_stages (
+                external_id, tournament_id, name, stage_type, stage_order,
+                status, start_date, end_date, standings, metadata
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            ON CONFLICT (external_id)
+            DO UPDATE SET
+                name = EXCLUDED.name,
+                status = EXCLUDED.status,
+                standings = COALESCE(EXCLUDED.standings, pro_stages.standings),
+                metadata = EXCLUDED.metadata,
+                updated_at = NOW()
+            RETURNING stage_id
+            """,
+            external_id,
+            tournament_id,
+            name,
+            stage_type,
+            stage_order,
+            status,
+            start_date,
+            end_date,
+            json.dumps(standings) if standings else None,
+            json.dumps(metadata) if metadata else None,
+        )
+        return result
+
+    # ==========================================
+    # Pro Stats - Matches
+    # ==========================================
+
+    async def upsert_pro_match(
+        self,
+        external_id: str,
+        tournament_id: int,
+        team1_id: int | None = None,
+        team2_id: int | None = None,
+        stage_id: int | None = None,
+        team1_score: int = 0,
+        team2_score: int = 0,
+        winner_team_id: int | None = None,
+        format: str = "bo3",
+        status: str = "upcoming",
+        scheduled_at: datetime | None = None,
+        started_at: datetime | None = None,
+        ended_at: datetime | None = None,
+        stream_url: str | None = None,
+        metadata: dict | None = None,
+    ) -> int:
+        """Insert or update a pro match."""
+        result = await self.fetchval(
+            """
+            INSERT INTO pro_matches (
+                external_id, tournament_id, stage_id, team1_id, team2_id,
+                team1_score, team2_score, winner_team_id, format, status,
+                scheduled_at, started_at, ended_at, stream_url, metadata
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+            ON CONFLICT (external_id)
+            DO UPDATE SET
+                team1_score = EXCLUDED.team1_score,
+                team2_score = EXCLUDED.team2_score,
+                winner_team_id = EXCLUDED.winner_team_id,
+                status = EXCLUDED.status,
+                started_at = COALESCE(EXCLUDED.started_at, pro_matches.started_at),
+                ended_at = COALESCE(EXCLUDED.ended_at, pro_matches.ended_at),
+                stream_url = COALESCE(EXCLUDED.stream_url, pro_matches.stream_url),
+                metadata = EXCLUDED.metadata,
+                updated_at = NOW()
+            RETURNING match_id
+            """,
+            external_id,
+            tournament_id,
+            stage_id,
+            team1_id,
+            team2_id,
+            team1_score,
+            team2_score,
+            winner_team_id,
+            format,
+            status,
+            scheduled_at,
+            started_at,
+            ended_at,
+            stream_url,
+            json.dumps(metadata) if metadata else None,
+        )
+        return result
+
+    async def get_pro_match_by_external_id(
+        self, external_id: str
+    ) -> asyncpg.Record | None:
+        """Get a match by its external ID."""
+        return await self.fetchrow(
+            "SELECT * FROM pro_matches WHERE external_id = $1",
+            external_id,
+        )
+
+    async def get_live_pro_matches(self) -> list[asyncpg.Record]:
+        """Get all currently live matches."""
+        return await self.fetch(
+            "SELECT * FROM pro_matches WHERE status = 'live' ORDER BY started_at"
+        )
+
+    async def get_recent_pro_matches(
+        self, limit: int = 20
+    ) -> list[asyncpg.Record]:
+        """Get recent completed matches."""
+        return await self.fetch(
+            """
+            SELECT * FROM pro_matches
+            WHERE status = 'completed'
+            ORDER BY ended_at DESC
+            LIMIT $1
+            """,
+            limit,
+        )
+
+    # ==========================================
+    # Pro Stats - Games
+    # ==========================================
+
+    async def upsert_pro_game(
+        self,
+        external_id: str,
+        match_id: int,
+        game_number: int,
+        blue_team_id: int | None = None,
+        red_team_id: int | None = None,
+        winner_team_id: int | None = None,
+        duration: int | None = None,
+        status: str = "upcoming",
+        patch: str | None = None,
+        objectives: dict | None = None,
+        first_objectives: dict | None = None,
+        gold_diff_15: dict | None = None,
+        timeline_data: dict | None = None,
+        metadata: dict | None = None,
+        started_at: datetime | None = None,
+        ended_at: datetime | None = None,
+    ) -> int:
+        """Insert or update a pro game."""
+        result = await self.fetchval(
+            """
+            INSERT INTO pro_games (
+                external_id, match_id, game_number, blue_team_id, red_team_id,
+                winner_team_id, duration, status, patch,
+                blue_towers, red_towers, blue_dragons, red_dragons,
+                blue_barons, red_barons, blue_heralds, red_heralds,
+                blue_grubs, red_grubs,
+                first_blood_team, first_tower_team, first_dragon_team,
+                first_baron_team, first_herald_team,
+                blue_gold_at_15, red_gold_at_15, blue_kills_at_15, red_kills_at_15,
+                timeline_data, metadata, started_at, ended_at
+            )
+            VALUES (
+                $1, $2, $3, $4, $5, $6, $7, $8, $9,
+                $10, $11, $12, $13, $14, $15, $16, $17, $18, $19,
+                $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32
+            )
+            ON CONFLICT (external_id)
+            DO UPDATE SET
+                winner_team_id = EXCLUDED.winner_team_id,
+                duration = COALESCE(EXCLUDED.duration, pro_games.duration),
+                status = EXCLUDED.status,
+                blue_towers = COALESCE(EXCLUDED.blue_towers, pro_games.blue_towers),
+                red_towers = COALESCE(EXCLUDED.red_towers, pro_games.red_towers),
+                blue_dragons = COALESCE(EXCLUDED.blue_dragons, pro_games.blue_dragons),
+                red_dragons = COALESCE(EXCLUDED.red_dragons, pro_games.red_dragons),
+                blue_barons = COALESCE(EXCLUDED.blue_barons, pro_games.blue_barons),
+                red_barons = COALESCE(EXCLUDED.red_barons, pro_games.red_barons),
+                timeline_data = COALESCE(EXCLUDED.timeline_data, pro_games.timeline_data),
+                metadata = EXCLUDED.metadata,
+                ended_at = COALESCE(EXCLUDED.ended_at, pro_games.ended_at),
+                updated_at = NOW()
+            RETURNING game_id
+            """,
+            external_id,
+            match_id,
+            game_number,
+            blue_team_id,
+            red_team_id,
+            winner_team_id,
+            duration,
+            status,
+            patch,
+            objectives.get("blue_towers", 0) if objectives else 0,
+            objectives.get("red_towers", 0) if objectives else 0,
+            objectives.get("blue_dragons", 0) if objectives else 0,
+            objectives.get("red_dragons", 0) if objectives else 0,
+            objectives.get("blue_barons", 0) if objectives else 0,
+            objectives.get("red_barons", 0) if objectives else 0,
+            objectives.get("blue_heralds", 0) if objectives else 0,
+            objectives.get("red_heralds", 0) if objectives else 0,
+            objectives.get("blue_grubs", 0) if objectives else 0,
+            objectives.get("red_grubs", 0) if objectives else 0,
+            first_objectives.get("blood") if first_objectives else None,
+            first_objectives.get("tower") if first_objectives else None,
+            first_objectives.get("dragon") if first_objectives else None,
+            first_objectives.get("baron") if first_objectives else None,
+            first_objectives.get("herald") if first_objectives else None,
+            gold_diff_15.get("blue") if gold_diff_15 else None,
+            gold_diff_15.get("red") if gold_diff_15 else None,
+            gold_diff_15.get("blue_kills") if gold_diff_15 else None,
+            gold_diff_15.get("red_kills") if gold_diff_15 else None,
+            json.dumps(timeline_data) if timeline_data else None,
+            json.dumps(metadata) if metadata else None,
+            started_at,
+            ended_at,
+        )
+        return result
+
+    async def get_pro_game_by_external_id(
+        self, external_id: str
+    ) -> asyncpg.Record | None:
+        """Get a game by its external ID."""
+        return await self.fetchrow(
+            "SELECT * FROM pro_games WHERE external_id = $1",
+            external_id,
+        )
+
+    # ==========================================
+    # Pro Stats - Drafts
+    # ==========================================
+
+    async def upsert_pro_draft(
+        self,
+        game_id: int,
+        blue_picks: list[int | None],
+        red_picks: list[int | None],
+        blue_bans: list[int | None],
+        red_bans: list[int | None],
+    ) -> int:
+        """Insert or update draft for a game."""
+        # Pad lists to ensure 5 elements
+        blue_picks = (blue_picks + [None] * 5)[:5]
+        red_picks = (red_picks + [None] * 5)[:5]
+        blue_bans = (blue_bans + [None] * 5)[:5]
+        red_bans = (red_bans + [None] * 5)[:5]
+
+        result = await self.fetchval(
+            """
+            INSERT INTO pro_drafts (
+                game_id,
+                blue_pick_1, blue_pick_2, blue_pick_3, blue_pick_4, blue_pick_5,
+                red_pick_1, red_pick_2, red_pick_3, red_pick_4, red_pick_5,
+                blue_ban_1, blue_ban_2, blue_ban_3, blue_ban_4, blue_ban_5,
+                red_ban_1, red_ban_2, red_ban_3, red_ban_4, red_ban_5
+            )
+            VALUES (
+                $1,
+                $2, $3, $4, $5, $6,
+                $7, $8, $9, $10, $11,
+                $12, $13, $14, $15, $16,
+                $17, $18, $19, $20, $21
+            )
+            ON CONFLICT (game_id)
+            DO UPDATE SET
+                blue_pick_1 = EXCLUDED.blue_pick_1,
+                blue_pick_2 = EXCLUDED.blue_pick_2,
+                blue_pick_3 = EXCLUDED.blue_pick_3,
+                blue_pick_4 = EXCLUDED.blue_pick_4,
+                blue_pick_5 = EXCLUDED.blue_pick_5,
+                red_pick_1 = EXCLUDED.red_pick_1,
+                red_pick_2 = EXCLUDED.red_pick_2,
+                red_pick_3 = EXCLUDED.red_pick_3,
+                red_pick_4 = EXCLUDED.red_pick_4,
+                red_pick_5 = EXCLUDED.red_pick_5,
+                blue_ban_1 = EXCLUDED.blue_ban_1,
+                blue_ban_2 = EXCLUDED.blue_ban_2,
+                blue_ban_3 = EXCLUDED.blue_ban_3,
+                blue_ban_4 = EXCLUDED.blue_ban_4,
+                blue_ban_5 = EXCLUDED.blue_ban_5,
+                red_ban_1 = EXCLUDED.red_ban_1,
+                red_ban_2 = EXCLUDED.red_ban_2,
+                red_ban_3 = EXCLUDED.red_ban_3,
+                red_ban_4 = EXCLUDED.red_ban_4,
+                red_ban_5 = EXCLUDED.red_ban_5,
+                updated_at = NOW()
+            RETURNING draft_id
+            """,
+            game_id,
+            *blue_picks,
+            *red_picks,
+            *blue_bans,
+            *red_bans,
+        )
+        return result
+
+    async def insert_pro_draft_action(
+        self,
+        game_id: int,
+        action_order: int,
+        action_type: str,
+        team_side: str,
+        champion_id: int,
+        player_id: int | None = None,
+    ) -> None:
+        """Insert a draft action."""
+        await self.execute(
+            """
+            INSERT INTO pro_draft_actions (
+                game_id, action_order, action_type, team_side, champion_id, player_id
+            )
+            VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT (game_id, action_order) DO UPDATE SET
+                action_type = EXCLUDED.action_type,
+                team_side = EXCLUDED.team_side,
+                champion_id = EXCLUDED.champion_id,
+                player_id = EXCLUDED.player_id
+            """,
+            game_id,
+            action_order,
+            action_type,
+            team_side,
+            champion_id,
+            player_id,
+        )
+
+    # ==========================================
+    # Pro Stats - Player Stats
+    # ==========================================
+
+    async def upsert_pro_player_stats(
+        self,
+        game_id: int,
+        player_id: int,
+        team_id: int | None,
+        team_side: str,
+        role: str,
+        champion_id: int,
+        stats: dict,
+    ) -> int:
+        """Insert or update player stats for a game."""
+        result = await self.fetchval(
+            """
+            INSERT INTO pro_player_stats (
+                game_id, player_id, team_id, team_side, role, champion_id,
+                kills, deaths, assists, cs, cs_per_min,
+                gold_earned, gold_share, damage_dealt, damage_share, damage_taken,
+                vision_score, wards_placed, wards_destroyed, control_wards_purchased,
+                cs_at_15, gold_at_15, xp_at_15,
+                cs_diff_at_15, gold_diff_at_15, xp_diff_at_15,
+                kill_participation, first_blood_participant, first_blood_victim,
+                solo_kills, double_kills, triple_kills, quadra_kills, penta_kills,
+                items, runes, metadata
+            )
+            VALUES (
+                $1, $2, $3, $4, $5, $6,
+                $7, $8, $9, $10, $11,
+                $12, $13, $14, $15, $16,
+                $17, $18, $19, $20,
+                $21, $22, $23, $24, $25, $26,
+                $27, $28, $29,
+                $30, $31, $32, $33, $34,
+                $35, $36, $37
+            )
+            ON CONFLICT (game_id, player_id)
+            DO UPDATE SET
+                kills = EXCLUDED.kills,
+                deaths = EXCLUDED.deaths,
+                assists = EXCLUDED.assists,
+                cs = EXCLUDED.cs,
+                gold_earned = EXCLUDED.gold_earned,
+                damage_dealt = EXCLUDED.damage_dealt,
+                vision_score = EXCLUDED.vision_score,
+                items = EXCLUDED.items,
+                metadata = EXCLUDED.metadata,
+                updated_at = NOW()
+            RETURNING stat_id
+            """,
+            game_id,
+            player_id,
+            team_id,
+            team_side,
+            role,
+            champion_id,
+            stats.get("kills", 0),
+            stats.get("deaths", 0),
+            stats.get("assists", 0),
+            stats.get("cs", 0),
+            stats.get("cs_per_min", 0),
+            stats.get("gold_earned", 0),
+            stats.get("gold_share", 0),
+            stats.get("damage_dealt", 0),
+            stats.get("damage_share", 0),
+            stats.get("damage_taken", 0),
+            stats.get("vision_score", 0),
+            stats.get("wards_placed", 0),
+            stats.get("wards_destroyed", 0),
+            stats.get("control_wards", 0),
+            stats.get("cs_at_15", 0),
+            stats.get("gold_at_15", 0),
+            stats.get("xp_at_15", 0),
+            stats.get("cs_diff_at_15", 0),
+            stats.get("gold_diff_at_15", 0),
+            stats.get("xp_diff_at_15", 0),
+            stats.get("kill_participation", 0),
+            stats.get("first_blood_participant", False),
+            stats.get("first_blood_victim", False),
+            stats.get("solo_kills", 0),
+            stats.get("double_kills", 0),
+            stats.get("triple_kills", 0),
+            stats.get("quadra_kills", 0),
+            stats.get("penta_kills", 0),
+            json.dumps(stats.get("items")) if stats.get("items") else None,
+            json.dumps(stats.get("runes")) if stats.get("runes") else None,
+            json.dumps(stats.get("metadata")) if stats.get("metadata") else None,
+        )
+        return result
+
+    # ==========================================
+    # Pro Stats - Team Lookup
+    # ==========================================
+
+    async def find_team_by_name(self, name: str) -> asyncpg.Record | None:
+        """Find a team by name or short name."""
+        return await self.fetchrow(
+            """
+            SELECT * FROM teams
+            WHERE LOWER(current_name) = LOWER($1)
+               OR LOWER(short_name) = LOWER($1)
+               OR LOWER(slug) = LOWER($1)
+            LIMIT 1
+            """,
+            name,
+        )
+
+    async def find_player_by_name(self, name: str) -> asyncpg.Record | None:
+        """Find a player by pseudo."""
+        return await self.fetchrow(
+            """
+            SELECT * FROM players
+            WHERE LOWER(current_pseudo) = LOWER($1)
+               OR LOWER(slug) = LOWER($1)
+            LIMIT 1
+            """,
+            name,
         )
