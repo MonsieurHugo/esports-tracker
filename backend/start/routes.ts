@@ -13,6 +13,7 @@ const LolDashboardController = () => import('#controllers/lol_dashboard_controll
 const PlayersController = () => import('#controllers/players_controller')
 const WorkerController = () => import('#controllers/worker_controller')
 const DocsController = () => import('#controllers/docs_controller')
+const ProStatsController = () => import('#controllers/pro_stats_controller')
 
 /**
  * Health check
@@ -109,7 +110,7 @@ router
       .prefix('/players')
 
     /**
-     * Worker monitoring endpoints (protected by worker auth + rate limiting)
+     * Worker monitoring endpoints (public read-only for dashboard)
      */
     router
       .group(() => {
@@ -123,7 +124,40 @@ router
         router.get('/rate-limiter-stats', [WorkerController, 'rateLimiterStats'])
       })
       .prefix('/worker')
-      .use([middleware.workerAuth(), middleware.rateLimit({ type: 'worker' })])
+      .use(middleware.rateLimit({ type: 'api' }))
+
+    /**
+     * Pro Stats endpoints (professional match data)
+     */
+    router
+      .group(() => {
+        // Tournaments
+        router.get('/tournaments', [ProStatsController, 'tournaments'])
+        router.get('/tournaments/:slug', [ProStatsController, 'tournamentBySlug'])
+
+        // Matches
+        router.get('/matches', [ProStatsController, 'matches'])
+        router.get('/matches/upcoming', [ProStatsController, 'upcomingMatches'])
+        router.get('/matches/live', [ProStatsController, 'liveMatches'])
+        router.get('/matches/:id', [ProStatsController, 'matchById'])
+
+        // Games
+        router.get('/games/:id', [ProStatsController, 'gameById'])
+
+        // Team stats
+        router.get('/teams/:slug/stats', [ProStatsController, 'teamStats'])
+
+        // Player stats
+        router.get('/players/:slug/stats', [ProStatsController, 'playerStats'])
+
+        // Draft analysis
+        router.get('/drafts/analysis', [ProStatsController, 'draftsAnalysis'])
+
+        // Head-to-head
+        router.get('/head-to-head', [ProStatsController, 'headToHead'])
+      })
+      .prefix('/pro')
+      .use(middleware.rateLimit({ type: 'api' }))
 
   })
   .prefix('/api/v1')
