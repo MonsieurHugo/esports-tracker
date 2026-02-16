@@ -23,7 +23,7 @@ redis>=5.0.0
 structlog>=24.0.0
 
 # Leaguepedia (historical data sync)
-mwrogue>=0.2.0
+mwrogue>=0.1.0
 mwclient>=0.10.0
 psycopg2-binary>=2.9.0
 
