@@ -105,7 +105,7 @@ export default function PlayerSearchDropdown({
           flex items-center gap-2 px-3 py-2 transition-colors
           ${isBlocked ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}
           ${selectionIndex === 0 ? 'bg-(--accent)/10 border-l-2 border-l-(--accent)' : ''}
-          ${selectionIndex === 1 ? 'bg-(--lol)/10 border-l-2 border-l-(--lol)' : ''}
+          ${selectionIndex === 1 ? 'bg-(--chart-compare)/10 border-l-2 border-l-(--chart-compare)' : ''}
           ${!isSelected && !isBlocked ? 'hover:bg-(--bg-hover)' : ''}
         `}
       >
@@ -154,7 +154,7 @@ export default function PlayerSearchDropdown({
         {isSelected && (
           <div
             className="w-2 h-2 rounded-full"
-            style={{ backgroundColor: selectionIndex === 0 ? 'var(--accent)' : 'var(--lol)' }}
+            style={{ backgroundColor: selectionIndex === 0 ? 'var(--accent)' : 'var(--chart-compare)' }}
           />
         )}
       </div>

@@ -8,7 +8,6 @@ import LolAccount from '#models/lol_account'
 import LolDailyStat from '#models/lol_daily_stat'
 import LolStreak from '#models/lol_streak'
 import League from '#models/league'
-import Split from '#models/split'
 import { DateTime } from 'luxon'
 
 /**
@@ -141,9 +140,9 @@ async function createTestData() {
 }
 
 /**
- * Helper to create leagues and splits for metadata endpoints
+ * Helper to create leagues for metadata endpoints
  */
-async function createLeaguesAndSplits() {
+async function createLeagues() {
   const leagues = await Promise.all([
     League.create({
       name: 'League of Legends European Championship',
@@ -168,75 +167,8 @@ async function createLeaguesAndSplits() {
     }),
   ])
 
-  const splits = await Promise.all([
-    Split.create({
-      season: 2025,
-      splitNumber: 1,
-      name: 'Spring 2025',
-      startDate: DateTime.fromISO('2025-01-15'),
-      endDate: DateTime.fromISO('2025-04-15'),
-    }),
-    Split.create({
-      season: 2024,
-      splitNumber: 3,
-      name: 'Winter 2024',
-      startDate: DateTime.fromISO('2024-09-15'),
-      endDate: DateTime.fromISO('2024-12-15'),
-    }),
-  ])
-
-  return { leagues, splits }
+  return { leagues }
 }
-
-// ============================================
-// SUMMARY ENDPOINT TESTS
-// ============================================
-
-test.group('LoL Dashboard - Summary', (group) => {
-  group.each.setup(() => testUtils.db().withGlobalTransaction())
-
-  test('GET /api/v1/lol/dashboard/summary returns dashboard stats', async ({ client, assert }) => {
-    await createTestData()
-
-    const response = await client.get('/api/v1/lol/dashboard/summary')
-
-    response.assertStatus(200)
-    const body = response.body()
-    assert.isNumber(body.totalGames)
-    assert.isNumber(body.avgWinrate)
-    assert.isNumber(body.totalMinutes)
-    assert.isString(body.lastUpdated)
-  })
-
-  test('GET /api/v1/lol/dashboard/summary filters by league', async ({ client, assert }) => {
-    await createTestData()
-
-    const response = await client.get('/api/v1/lol/dashboard/summary').qs({ leagues: 'LEC' })
-
-    response.assertStatus(200)
-    const body = response.body()
-    assert.isNumber(body.totalGames)
-  })
-
-  test('GET /api/v1/lol/dashboard/summary handles period parameter', async ({ client, assert }) => {
-    await createTestData()
-
-    const response = await client.get('/api/v1/lol/dashboard/summary').qs({ period: '30d' })
-
-    response.assertStatus(200)
-    const body = response.body()
-    assert.isNumber(body.totalGames)
-  })
-
-  test('GET /api/v1/lol/dashboard/summary returns zero stats when no data', async ({ client, assert }) => {
-    const response = await client.get('/api/v1/lol/dashboard/summary')
-
-    response.assertStatus(200)
-    const body = response.body()
-    assert.equal(body.totalGames, 0)
-    assert.equal(body.avgWinrate, 0)
-  })
-})
 
 // ============================================
 // TEAMS ENDPOINT TESTS
@@ -556,385 +488,6 @@ test.group('LoL Dashboard - Players', (group) => {
 })
 
 // ============================================
-// TOP GRINDERS ENDPOINT TESTS
-// ============================================
-
-test.group('LoL Dashboard - Top Grinders', (group) => {
-  group.each.setup(() => testUtils.db().withGlobalTransaction())
-
-  test('GET /api/v1/lol/dashboard/top-grinders returns player grinders by default', async ({ client, assert }) => {
-    await createTestData()
-
-    const response = await client.get('/api/v1/lol/dashboard/top-grinders')
-
-    response.assertStatus(200)
-    const body = response.body()
-    assert.isArray(body.data)
-    assert.isAbove(body.data.length, 0)
-    assert.equal(body.data[0].entityType, 'player')
-  })
-
-  test('GET /api/v1/lol/dashboard/top-grinders returns team grinders with viewMode=teams', async ({ client, assert }) => {
-    await createTestData()
-
-    const response = await client.get('/api/v1/lol/dashboard/top-grinders').qs({ viewMode: 'teams' })
-
-    response.assertStatus(200)
-    const body = response.body()
-    assert.isAbove(body.data.length, 0)
-    assert.equal(body.data[0].entityType, 'team')
-  })
-
-  test('GET /api/v1/lol/dashboard/top-grinders respects limit parameter', async ({ client, assert }) => {
-    await createTestData()
-
-    const response = await client.get('/api/v1/lol/dashboard/top-grinders').qs({ limit: 3 })
-
-    response.assertStatus(200)
-    const body = response.body()
-    assert.isAtMost(body.data.length, 3)
-  })
-
-  test('GET /api/v1/lol/dashboard/top-grinders limits to max 10', async ({ client, assert }) => {
-    await createTestData()
-
-    const response = await client.get('/api/v1/lol/dashboard/top-grinders').qs({ limit: 100 })
-
-    response.assertStatus(200)
-    const body = response.body()
-    assert.isAtMost(body.data.length, 10)
-  })
-
-  test('GET /api/v1/lol/dashboard/top-grinders sorts descending by default', async ({ client, assert }) => {
-    await createTestData()
-
-    const response = await client.get('/api/v1/lol/dashboard/top-grinders')
-
-    response.assertStatus(200)
-    const body = response.body()
-
-    for (let i = 1; i < body.data.length; i++) {
-      assert.isAtLeast(body.data[i - 1].games, body.data[i].games)
-    }
-  })
-
-  test('GET /api/v1/lol/dashboard/top-grinders sorts ascending with sort=asc', async ({ client, assert }) => {
-    await createTestData()
-
-    const response = await client.get('/api/v1/lol/dashboard/top-grinders').qs({ sort: 'asc' })
-
-    response.assertStatus(200)
-    const body = response.body()
-
-    for (let i = 1; i < body.data.length; i++) {
-      assert.isAtMost(body.data[i - 1].games, body.data[i].games)
-    }
-  })
-
-  test('GET /api/v1/lol/dashboard/top-grinders filters by league', async ({ client, assert }) => {
-    await createTestData()
-
-    const response = await client.get('/api/v1/lol/dashboard/top-grinders').qs({ leagues: 'LEC' })
-
-    response.assertStatus(200)
-    const body = response.body()
-    assert.isArray(body.data)
-  })
-
-  test('GET /api/v1/lol/dashboard/top-grinders filters by role', async ({ client, assert }) => {
-    await createTestData()
-
-    const response = await client.get('/api/v1/lol/dashboard/top-grinders').qs({ roles: 'MID' })
-
-    response.assertStatus(200)
-    const body = response.body()
-
-    for (const item of body.data) {
-      assert.equal(item.role, 'MID')
-    }
-  })
-
-  test('GET /api/v1/lol/dashboard/top-grinders includes team info for players', async ({ client, assert }) => {
-    await createTestData()
-
-    const response = await client.get('/api/v1/lol/dashboard/top-grinders')
-
-    response.assertStatus(200)
-    const body = response.body()
-
-    if (body.data.length > 0 && body.data[0].entityType === 'player') {
-      assert.property(body.data[0], 'team')
-      assert.property(body.data[0].team, 'slug')
-    }
-  })
-})
-
-// ============================================
-// STREAKS ENDPOINT TESTS
-// ============================================
-
-test.group('LoL Dashboard - Streaks', (group) => {
-  group.each.setup(() => testUtils.db().withGlobalTransaction())
-
-  test('GET /api/v1/lol/dashboard/streaks returns win streaks', async ({ client, assert }) => {
-    await createTestData()
-
-    const response = await client.get('/api/v1/lol/dashboard/streaks')
-
-    response.assertStatus(200)
-    const body = response.body()
-    assert.isArray(body.data)
-  })
-
-  test('GET /api/v1/lol/dashboard/streaks returns only positive streaks', async ({ client, assert }) => {
-    await createTestData()
-
-    const response = await client.get('/api/v1/lol/dashboard/streaks')
-
-    response.assertStatus(200)
-    const body = response.body()
-
-    for (const item of body.data) {
-      assert.isAbove(item.streak, 0)
-    }
-  })
-
-  test('GET /api/v1/lol/dashboard/streaks respects limit parameter', async ({ client, assert }) => {
-    await createTestData()
-
-    const response = await client.get('/api/v1/lol/dashboard/streaks').qs({ limit: 2 })
-
-    response.assertStatus(200)
-    const body = response.body()
-    assert.isAtMost(body.data.length, 2)
-  })
-
-  test('GET /api/v1/lol/dashboard/streaks sorts by streak descending', async ({ client, assert }) => {
-    await createTestData()
-
-    const response = await client.get('/api/v1/lol/dashboard/streaks')
-
-    response.assertStatus(200)
-    const body = response.body()
-
-    for (let i = 1; i < body.data.length; i++) {
-      assert.isAtLeast(body.data[i - 1].streak, body.data[i].streak)
-    }
-  })
-
-  test('GET /api/v1/lol/dashboard/streaks filters by league', async ({ client, assert }) => {
-    await createTestData()
-
-    const response = await client.get('/api/v1/lol/dashboard/streaks').qs({ leagues: 'LEC' })
-
-    response.assertStatus(200)
-    const body = response.body()
-    assert.isArray(body.data)
-  })
-
-  test('GET /api/v1/lol/dashboard/streaks includes player and team info', async ({ client, assert }) => {
-    await createTestData()
-
-    const response = await client.get('/api/v1/lol/dashboard/streaks')
-
-    response.assertStatus(200)
-    const body = response.body()
-
-    if (body.data.length > 0) {
-      assert.property(body.data[0], 'player')
-      assert.property(body.data[0], 'team')
-      assert.property(body.data[0].player, 'pseudo')
-      assert.property(body.data[0].team, 'shortName')
-    }
-  })
-})
-
-// ============================================
-// TOP LP GAINERS ENDPOINT TESTS
-// ============================================
-
-test.group('LoL Dashboard - Top LP Gainers', (group) => {
-  group.each.setup(() => testUtils.db().withGlobalTransaction())
-
-  test('GET /api/v1/lol/dashboard/top-lp-gainers returns LP gainers', async ({ client, assert }) => {
-    await createTestData()
-
-    const response = await client.get('/api/v1/lol/dashboard/top-lp-gainers')
-
-    response.assertStatus(200)
-    const body = response.body()
-    assert.isArray(body.data)
-  })
-
-  test('GET /api/v1/lol/dashboard/top-lp-gainers returns only positive LP changes', async ({ client, assert }) => {
-    await createTestData()
-
-    const response = await client.get('/api/v1/lol/dashboard/top-lp-gainers')
-
-    response.assertStatus(200)
-    const body = response.body()
-
-    for (const item of body.data) {
-      assert.isAbove(item.lpChange, 0)
-    }
-  })
-
-  test('GET /api/v1/lol/dashboard/top-lp-gainers returns team gainers with viewMode=teams', async ({ client, assert }) => {
-    await createTestData()
-
-    const response = await client.get('/api/v1/lol/dashboard/top-lp-gainers').qs({ viewMode: 'teams' })
-
-    response.assertStatus(200)
-    const body = response.body()
-
-    for (const item of body.data) {
-      assert.equal(item.entityType, 'team')
-    }
-  })
-
-  test('GET /api/v1/lol/dashboard/top-lp-gainers respects limit parameter', async ({ client, assert }) => {
-    await createTestData()
-
-    const response = await client.get('/api/v1/lol/dashboard/top-lp-gainers').qs({ limit: 3 })
-
-    response.assertStatus(200)
-    const body = response.body()
-    assert.isAtMost(body.data.length, 3)
-  })
-
-  test('GET /api/v1/lol/dashboard/top-lp-gainers limits to max 10', async ({ client, assert }) => {
-    await createTestData()
-
-    const response = await client.get('/api/v1/lol/dashboard/top-lp-gainers').qs({ limit: 100 })
-
-    response.assertStatus(200)
-    const body = response.body()
-    assert.isAtMost(body.data.length, 10)
-  })
-
-  test('GET /api/v1/lol/dashboard/top-lp-gainers sorts descending by default', async ({ client, assert }) => {
-    await createTestData()
-
-    const response = await client.get('/api/v1/lol/dashboard/top-lp-gainers')
-
-    response.assertStatus(200)
-    const body = response.body()
-
-    for (let i = 1; i < body.data.length; i++) {
-      assert.isAtLeast(body.data[i - 1].lpChange, body.data[i].lpChange)
-    }
-  })
-
-  test('GET /api/v1/lol/dashboard/top-lp-gainers filters by league', async ({ client, assert }) => {
-    await createTestData()
-
-    const response = await client.get('/api/v1/lol/dashboard/top-lp-gainers').qs({ leagues: 'LEC' })
-
-    response.assertStatus(200)
-    const body = response.body()
-    assert.isArray(body.data)
-  })
-
-  test('GET /api/v1/lol/dashboard/top-lp-gainers filters by role', async ({ client, assert }) => {
-    await createTestData()
-
-    const response = await client.get('/api/v1/lol/dashboard/top-lp-gainers').qs({ roles: 'ADC' })
-
-    response.assertStatus(200)
-    const body = response.body()
-    assert.isArray(body.data)
-  })
-
-  test('GET /api/v1/lol/dashboard/top-lp-gainers includes games count', async ({ client, assert }) => {
-    await createTestData()
-
-    const response = await client.get('/api/v1/lol/dashboard/top-lp-gainers')
-
-    response.assertStatus(200)
-    const body = response.body()
-
-    for (const item of body.data) {
-      assert.property(item, 'games')
-      assert.isAtLeast(item.games, 0)
-    }
-  })
-})
-
-// ============================================
-// TOP LP LOSERS ENDPOINT TESTS
-// ============================================
-
-test.group('LoL Dashboard - Top LP Losers', (group) => {
-  group.each.setup(() => testUtils.db().withGlobalTransaction())
-
-  test('GET /api/v1/lol/dashboard/top-lp-losers returns LP losers', async ({ client, assert }) => {
-    await createTestData()
-
-    const response = await client.get('/api/v1/lol/dashboard/top-lp-losers')
-
-    response.assertStatus(200)
-    const body = response.body()
-    assert.isArray(body.data)
-  })
-
-  test('GET /api/v1/lol/dashboard/top-lp-losers returns only negative LP changes', async ({ client, assert }) => {
-    await createTestData()
-
-    const response = await client.get('/api/v1/lol/dashboard/top-lp-losers')
-
-    response.assertStatus(200)
-    const body = response.body()
-
-    for (const item of body.data) {
-      assert.isBelow(item.lpChange, 0)
-    }
-  })
-
-  test('GET /api/v1/lol/dashboard/top-lp-losers returns team losers with viewMode=teams', async ({ client, assert }) => {
-    await createTestData()
-
-    const response = await client.get('/api/v1/lol/dashboard/top-lp-losers').qs({ viewMode: 'teams' })
-
-    response.assertStatus(200)
-    const body = response.body()
-
-    for (const item of body.data) {
-      assert.equal(item.entityType, 'team')
-    }
-  })
-
-  test('GET /api/v1/lol/dashboard/top-lp-losers respects limit parameter', async ({ client, assert }) => {
-    await createTestData()
-
-    const response = await client.get('/api/v1/lol/dashboard/top-lp-losers').qs({ limit: 3 })
-
-    response.assertStatus(200)
-    const body = response.body()
-    assert.isAtMost(body.data.length, 3)
-  })
-
-  test('GET /api/v1/lol/dashboard/top-lp-losers filters by league', async ({ client, assert }) => {
-    await createTestData()
-
-    const response = await client.get('/api/v1/lol/dashboard/top-lp-losers').qs({ leagues: 'LFL' })
-
-    response.assertStatus(200)
-    const body = response.body()
-    assert.isArray(body.data)
-  })
-
-  test('GET /api/v1/lol/dashboard/top-lp-losers filters by role', async ({ client, assert }) => {
-    await createTestData()
-
-    const response = await client.get('/api/v1/lol/dashboard/top-lp-losers').qs({ roles: 'SUP' })
-
-    response.assertStatus(200)
-    const body = response.body()
-    assert.isArray(body.data)
-  })
-})
-
-// ============================================
 // LEAGUES ENDPOINT TESTS
 // ============================================
 
@@ -942,7 +495,7 @@ test.group('LoL Dashboard - Leagues', (group) => {
   group.each.setup(() => testUtils.db().withGlobalTransaction())
 
   test('GET /api/v1/lol/dashboard/leagues returns active leagues', async ({ client, assert }) => {
-    await createLeaguesAndSplits()
+    await createLeagues()
 
     const response = await client.get('/api/v1/lol/dashboard/leagues')
 
@@ -952,7 +505,7 @@ test.group('LoL Dashboard - Leagues', (group) => {
   })
 
   test('GET /api/v1/lol/dashboard/leagues excludes inactive leagues', async ({ client, assert }) => {
-    await createLeaguesAndSplits()
+    await createLeagues()
 
     const response = await client.get('/api/v1/lol/dashboard/leagues')
 
@@ -966,7 +519,7 @@ test.group('LoL Dashboard - Leagues', (group) => {
   })
 
   test('GET /api/v1/lol/dashboard/leagues includes required fields', async ({ client, assert }) => {
-    await createLeaguesAndSplits()
+    await createLeagues()
 
     const response = await client.get('/api/v1/lol/dashboard/leagues')
 
@@ -987,76 +540,6 @@ test.group('LoL Dashboard - Leagues', (group) => {
     response.assertStatus(200)
     const body = response.body()
     assert.deepEqual(body.data, [])
-  })
-})
-
-// ============================================
-// SPLITS ENDPOINT TESTS
-// ============================================
-
-test.group('LoL Dashboard - Splits', (group) => {
-  group.each.setup(() => testUtils.db().withGlobalTransaction())
-
-  test('GET /api/v1/lol/dashboard/splits returns splits', async ({ client, assert }) => {
-    await createLeaguesAndSplits()
-
-    const response = await client.get('/api/v1/lol/dashboard/splits')
-
-    response.assertStatus(200)
-    const body = response.body()
-    assert.isArray(body.data)
-  })
-
-  test('GET /api/v1/lol/dashboard/splits sorts by start_date descending', async ({ client, assert }) => {
-    await createLeaguesAndSplits()
-
-    const response = await client.get('/api/v1/lol/dashboard/splits')
-
-    response.assertStatus(200)
-    const body = response.body()
-
-    for (let i = 1; i < body.data.length; i++) {
-      const prevDate = new Date(body.data[i - 1].start_date)
-      const currDate = new Date(body.data[i].start_date)
-      assert.isAtLeast(prevDate.getTime(), currDate.getTime())
-    }
-  })
-
-  test('GET /api/v1/lol/dashboard/splits includes required fields', async ({ client, assert }) => {
-    await createLeaguesAndSplits()
-
-    const response = await client.get('/api/v1/lol/dashboard/splits')
-
-    response.assertStatus(200)
-    const body = response.body()
-
-    if (body.data.length > 0) {
-      assert.property(body.data[0], 'split_id')
-      assert.property(body.data[0], 'season')
-      assert.property(body.data[0], 'split_number')
-      assert.property(body.data[0], 'name')
-      assert.property(body.data[0], 'start_date')
-      assert.property(body.data[0], 'end_date')
-    }
-  })
-
-  test('GET /api/v1/lol/dashboard/splits limits to 10 results', async ({ client, assert }) => {
-    // Create more than 10 splits
-    for (let i = 0; i < 15; i++) {
-      await Split.create({
-        season: 2020 + Math.floor(i / 3),
-        splitNumber: (i % 3) + 1,
-        name: `Split ${i}`,
-        startDate: DateTime.fromISO(`202${Math.floor(i / 3)}-0${(i % 3) + 1}-01`),
-        endDate: DateTime.fromISO(`202${Math.floor(i / 3)}-0${(i % 3) + 4}-01`),
-      })
-    }
-
-    const response = await client.get('/api/v1/lol/dashboard/splits')
-
-    response.assertStatus(200)
-    const body = response.body()
-    assert.isAtMost(body.data.length, 10)
   })
 })
 
@@ -1112,13 +595,13 @@ test.group('LoL Dashboard - Period Parameter', (group) => {
 
     const referenceDate = DateTime.now().minus({ days: 3 }).toISODate()
 
-    const response = await client.get('/api/v1/lol/dashboard/summary').qs({
+    const response = await client.get('/api/v1/lol/dashboard/teams').qs({
       date: referenceDate,
     })
 
     response.assertStatus(200)
     const body = response.body()
-    assert.isNumber(body.totalGames)
+    assert.isArray(body.data)
   })
 })
 
@@ -1129,22 +612,16 @@ test.group('LoL Dashboard - Period Parameter', (group) => {
 test.group('LoL Dashboard - Error Handling', (group) => {
   group.each.setup(() => testUtils.db().withGlobalTransaction())
 
-  test('team-history returns 400 without teamId', async ({ client }) => {
-    const response = await client.get('/api/v1/lol/dashboard/team-history')
+  test('team-history-batch returns 422 without entityIds', async ({ client }) => {
+    const response = await client.get('/api/v1/lol/dashboard/team-history-batch')
 
-    response.assertStatus(400)
-    response.assertBodyContains({
-      error: 'teamId is required',
-    })
+    response.assertStatus(422)
   })
 
-  test('player-history returns 400 without playerId', async ({ client }) => {
-    const response = await client.get('/api/v1/lol/dashboard/player-history')
+  test('player-history-batch returns 422 without entityIds', async ({ client }) => {
+    const response = await client.get('/api/v1/lol/dashboard/player-history-batch')
 
-    response.assertStatus(400)
-    response.assertBodyContains({
-      error: 'playerId is required',
-    })
+    response.assertStatus(422)
   })
 
   test('invalid page number defaults gracefully', async ({ client }) => {
@@ -1161,163 +638,6 @@ test.group('LoL Dashboard - Error Handling', (group) => {
     const response = await client.get('/api/v1/lol/dashboard/teams').qs({ perPage: 'invalid' })
 
     response.assertStatus(200)
-  })
-})
-
-// ============================================
-// HISTORY ENDPOINTS TESTS
-// ============================================
-
-test.group('LoL Dashboard - History Endpoints', (group) => {
-  group.each.setup(() => testUtils.db().withGlobalTransaction())
-
-  test('GET /api/v1/lol/dashboard/team-history returns team history', async ({ client, assert }) => {
-    const { team } = await createTestData()
-
-    const response = await client.get('/api/v1/lol/dashboard/team-history').qs({ teamId: team.teamId })
-
-    response.assertStatus(200)
-    const body = response.body()
-    assert.isArray(body.data)
-  })
-
-  test('GET /api/v1/lol/dashboard/team-history includes daily stats', async ({ client, assert }) => {
-    const { team } = await createTestData()
-
-    const response = await client.get('/api/v1/lol/dashboard/team-history').qs({ teamId: team.teamId })
-
-    response.assertStatus(200)
-    const body = response.body()
-
-    if (body.data.length > 0) {
-      assert.property(body.data[0], 'date')
-      assert.property(body.data[0], 'label')
-      assert.property(body.data[0], 'games')
-      assert.property(body.data[0], 'wins')
-      assert.property(body.data[0], 'winrate')
-      assert.property(body.data[0], 'totalLp')
-    }
-  })
-
-  test('GET /api/v1/lol/dashboard/player-history returns player history', async ({ client, assert }) => {
-    const { players } = await createTestData()
-
-    const response = await client.get('/api/v1/lol/dashboard/player-history').qs({ playerId: players[0].playerId })
-
-    response.assertStatus(200)
-    const body = response.body()
-    assert.isArray(body.data)
-  })
-
-  test('GET /api/v1/lol/dashboard/player-history includes daily stats', async ({ client, assert }) => {
-    const { players } = await createTestData()
-
-    const response = await client.get('/api/v1/lol/dashboard/player-history').qs({ playerId: players[0].playerId })
-
-    response.assertStatus(200)
-    const body = response.body()
-
-    if (body.data.length > 0) {
-      assert.property(body.data[0], 'date')
-      assert.property(body.data[0], 'label')
-      assert.property(body.data[0], 'games')
-      assert.property(body.data[0], 'wins')
-      assert.property(body.data[0], 'winrate')
-      assert.property(body.data[0], 'totalLp')
-    }
-  })
-
-  test('GET /api/v1/lol/dashboard/team-history respects period parameter', async ({ client, assert }) => {
-    const { team } = await createTestData()
-
-    const response = await client.get('/api/v1/lol/dashboard/team-history').qs({
-      teamId: team.teamId,
-      period: '30d',
-    })
-
-    response.assertStatus(200)
-    const body = response.body()
-    assert.isArray(body.data)
-  })
-
-  test('GET /api/v1/lol/dashboard/player-history respects period parameter', async ({ client, assert }) => {
-    const { players } = await createTestData()
-
-    const response = await client.get('/api/v1/lol/dashboard/player-history').qs({
-      playerId: players[0].playerId,
-      period: '30d',
-    })
-
-    response.assertStatus(200)
-    const body = response.body()
-    assert.isArray(body.data)
-  })
-})
-
-// ============================================
-// LOSS STREAKS ENDPOINT TESTS
-// ============================================
-
-test.group('LoL Dashboard - Loss Streaks', (group) => {
-  group.each.setup(() => testUtils.db().withGlobalTransaction())
-
-  test('GET /api/v1/lol/dashboard/loss-streaks returns loss streaks', async ({ client, assert }) => {
-    await createTestData()
-
-    const response = await client.get('/api/v1/lol/dashboard/loss-streaks')
-
-    response.assertStatus(200)
-    const body = response.body()
-    assert.isArray(body.data)
-  })
-
-  test('GET /api/v1/lol/dashboard/loss-streaks returns positive streak values (absolute)', async ({ client, assert }) => {
-    await createTestData()
-
-    const response = await client.get('/api/v1/lol/dashboard/loss-streaks')
-
-    response.assertStatus(200)
-    const body = response.body()
-
-    // Loss streaks are stored as negative but returned as positive (absolute value)
-    for (const item of body.data) {
-      assert.isAbove(item.streak, 0)
-    }
-  })
-
-  test('GET /api/v1/lol/dashboard/loss-streaks respects limit parameter', async ({ client, assert }) => {
-    await createTestData()
-
-    const response = await client.get('/api/v1/lol/dashboard/loss-streaks').qs({ limit: 2 })
-
-    response.assertStatus(200)
-    const body = response.body()
-    assert.isAtMost(body.data.length, 2)
-  })
-
-  test('GET /api/v1/lol/dashboard/loss-streaks filters by league', async ({ client, assert }) => {
-    await createTestData()
-
-    const response = await client.get('/api/v1/lol/dashboard/loss-streaks').qs({ leagues: 'LEC' })
-
-    response.assertStatus(200)
-    const body = response.body()
-    assert.isArray(body.data)
-  })
-
-  test('GET /api/v1/lol/dashboard/loss-streaks includes player and team info', async ({ client, assert }) => {
-    await createTestData()
-
-    const response = await client.get('/api/v1/lol/dashboard/loss-streaks')
-
-    response.assertStatus(200)
-    const body = response.body()
-
-    if (body.data.length > 0) {
-      assert.property(body.data[0], 'player')
-      assert.property(body.data[0], 'team')
-      assert.property(body.data[0].player, 'pseudo')
-    }
   })
 })
 

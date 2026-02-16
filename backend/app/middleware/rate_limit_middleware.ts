@@ -56,6 +56,11 @@ const RATE_LIMIT_CONFIGS: Record<string, RateLimitConfig> = {
     windowMs: 10 * 60 * 1000, // 10 minutes window
     blockDurationMs: 30 * 60 * 1000, // 30 minute block
   },
+  auth: {
+    maxAttempts: 5, // 5 password attempts
+    windowMs: 15 * 60 * 1000, // 15 minutes window
+    blockDurationMs: 15 * 60 * 1000, // 15 minute block
+  },
   api: {
     maxAttempts: 500, // 500 requests per minute - allows active dashboard usage
     windowMs: 60 * 1000, // 1 minute window

@@ -73,6 +73,7 @@ obtain_certificate() {
             -d "$DOMAIN" \
             -d "www.$DOMAIN" \
             -d "api.$DOMAIN" \
+            -d "analytics.$DOMAIN" \
             --email "$EMAIL" \
             --agree-tos \
             --non-interactive \
@@ -91,6 +92,7 @@ obtain_certificate() {
             -d "$DOMAIN" \
             -d "www.$DOMAIN" \
             -d "api.$DOMAIN" \
+            -d "analytics.$DOMAIN" \
             --email "$EMAIL" \
             --agree-tos \
             --non-interactive

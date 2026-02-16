@@ -19,147 +19,82 @@ function StatsCards({
   getTeamLpStats,
   getPlayerLpStats,
 }: StatsCardsProps) {
-  if (viewMode === 'teams') {
-    // Teams stats
-    if (selectedTeams.length === 2) {
-      return (
-        <>
-          <StatCard
-            label="Games"
-            changeUnit=""
-            teams={selectedTeams.map((t) => ({
-              value: t.games === -1 ? '-' : t.games,
-              change: t.games === -1 ? undefined : t.gamesChange,
-            }))}
-          />
-          <StatCard
-            label="Winrate"
-            changeUnit="%"
-            teams={selectedTeams.map((t) => ({
-              value: t.winrate === -1 || t.games === 0 ? '-' : `${t.winrate.toFixed(1)}%`,
-              change: t.winrate === -1 || t.games === 0 ? undefined : t.winrateChange,
-            }))}
-          />
-          <StatCard
-            label="LP"
-            changeUnit=" LP"
-            teams={selectedTeams.map((t) => {
-              const lpStats = getTeamLpStats(t)
-              return {
-                value: lpStats.totalLp.toLocaleString('fr-FR'),
-                change: lpStats.lpChange,
-              }
-            })}
-          />
-        </>
-      )
-    }
+  const entities = viewMode === 'teams' ? selectedTeams : selectedPlayers
+  const getLpStats = (e: TeamLeaderboardEntry | PlayerLeaderboardEntry) =>
+    viewMode === 'teams'
+      ? getTeamLpStats(e as TeamLeaderboardEntry)
+      : getPlayerLpStats(e as PlayerLeaderboardEntry)
 
-    if (selectedTeams.length === 1) {
-      const team = selectedTeams[0]
-      const lpStats = getTeamLpStats(team)
-      return (
-        <>
-          <StatCard
-            label="Games"
-            value={team.games === -1 ? '-' : team.games}
-            change={team.games === -1 ? undefined : team.gamesChange}
-            changeUnit=""
-          />
-          <StatCard
-            label="Winrate"
-            value={team.winrate === -1 || team.games === 0 ? '-' : `${team.winrate.toFixed(1)}%`}
-            change={team.winrate === -1 || team.games === 0 ? undefined : team.winrateChange}
-            changeUnit="%"
-          />
-          <StatCard
-            label="LP"
-            value={lpStats.totalLp.toLocaleString('fr-FR')}
-            change={lpStats.lpChange}
-            changeUnit=" LP"
-          />
-        </>
-      )
-    }
+  const cards = [
+    {
+      label: 'Games',
+      changeUnit: '',
+      getValue: (e: TeamLeaderboardEntry | PlayerLeaderboardEntry) => ({
+        value: e.games === -1 ? '-' as const : e.games,
+        change: e.games === -1 ? undefined : e.gamesChange,
+      }),
+    },
+    {
+      label: 'Winrate',
+      changeUnit: '%',
+      getValue: (e: TeamLeaderboardEntry | PlayerLeaderboardEntry) => ({
+        value: e.winrate === -1 || e.games === 0 ? '-' as const : `${e.winrate.toFixed(1)}%`,
+        change: e.winrate === -1 || e.games === 0 ? undefined : e.winrateChange,
+      }),
+    },
+    {
+      label: 'LP',
+      changeUnit: ' LP',
+      getValue: (e: TeamLeaderboardEntry | PlayerLeaderboardEntry) => {
+        const lpStats = getLpStats(e)
+        return {
+          value: lpStats.totalLp.toLocaleString('fr-FR'),
+          change: lpStats.lpChange,
+        }
+      },
+    },
+  ]
 
-    // No team selected
+  if (entities.length === 0) {
     return (
       <>
-        <StatCard label="Games" value="-" />
-        <StatCard label="Winrate" value="-" />
-        <StatCard label="LP" value="-" />
+        {cards.map((card) => (
+          <StatCard key={card.label} label={card.label} value="-" />
+        ))}
       </>
     )
   }
 
-  // Players stats
-  if (selectedPlayers.length === 2) {
+  if (entities.length === 2) {
     return (
       <>
-        <StatCard
-          label="Games"
-          changeUnit=""
-          teams={selectedPlayers.map((p) => ({
-            value: p.games === -1 ? '-' : p.games,
-            change: p.games === -1 ? undefined : p.gamesChange,
-          }))}
-        />
-        <StatCard
-          label="Winrate"
-          changeUnit="%"
-          teams={selectedPlayers.map((p) => ({
-            value: p.winrate === -1 || p.games === 0 ? '-' : `${p.winrate.toFixed(1)}%`,
-            change: p.winrate === -1 || p.games === 0 ? undefined : p.winrateChange,
-          }))}
-        />
-        <StatCard
-          label="LP"
-          changeUnit=" LP"
-          teams={selectedPlayers.map((p) => {
-            const lpStats = getPlayerLpStats(p)
-            return {
-              value: lpStats.totalLp.toLocaleString('fr-FR'),
-              change: lpStats.lpChange,
-            }
-          })}
-        />
+        {cards.map((card) => (
+          <StatCard
+            key={card.label}
+            label={card.label}
+            changeUnit={card.changeUnit}
+            teams={entities.map((e) => card.getValue(e))}
+          />
+        ))}
       </>
     )
   }
 
-  if (selectedPlayers.length === 1) {
-    const player = selectedPlayers[0]
-    const lpStats = getPlayerLpStats(player)
-    return (
-      <>
-        <StatCard
-          label="Games"
-          value={player.games === -1 ? '-' : player.games}
-          change={player.games === -1 ? undefined : player.gamesChange}
-          changeUnit=""
-        />
-        <StatCard
-          label="Winrate"
-          value={player.winrate === -1 || player.games === 0 ? '-' : `${player.winrate.toFixed(1)}%`}
-          change={player.winrate === -1 || player.games === 0 ? undefined : player.winrateChange}
-          changeUnit="%"
-        />
-        <StatCard
-          label="LP"
-          value={lpStats.totalLp.toLocaleString('fr-FR')}
-          change={lpStats.lpChange}
-          changeUnit=" LP"
-        />
-      </>
-    )
-  }
-
-  // No player selected
+  const entity = entities[0]
   return (
     <>
-      <StatCard label="Games" value="-" />
-      <StatCard label="Winrate" value="-" />
-      <StatCard label="LP" value="-" />
+      {cards.map((card) => {
+        const { value, change } = card.getValue(entity)
+        return (
+          <StatCard
+            key={card.label}
+            label={card.label}
+            value={value}
+            change={change}
+            changeUnit={card.changeUnit}
+          />
+        )
+      })}
     </>
   )
 }

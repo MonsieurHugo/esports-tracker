@@ -12,8 +12,13 @@ import { metricsCollector } from '#utils/metrics'
 const LolDashboardController = () => import('#controllers/lol_dashboard_controller')
 const PlayersController = () => import('#controllers/players_controller')
 const WorkerController = () => import('#controllers/worker_controller')
-const DocsController = () => import('#controllers/docs_controller')
 const ProStatsController = () => import('#controllers/pro_stats_controller')
+const ProDataController = () => import('#controllers/pro_data_controller')
+const ProLeagueStatsController = () => import('#controllers/pro_league_stats_controller')
+const ProAdminController = () => import('#controllers/pro_admin_controller')
+const ProMappingController = () => import('#controllers/pro_mapping_controller')
+const DocsController = () => import('#controllers/docs_controller')
+const SoloqAdminController = () => import('#controllers/soloq_admin_controller')
 
 /**
  * Health check
@@ -127,37 +132,125 @@ router
       .use(middleware.rateLimit({ type: 'api' }))
 
     /**
-     * Pro Stats endpoints (professional match data)
+     * Pro esports monitoring endpoints - READ ONLY (public)
      */
     router
       .group(() => {
-        // Tournaments
-        router.get('/tournaments', [ProStatsController, 'tournaments'])
-        router.get('/tournaments/:slug', [ProStatsController, 'tournamentBySlug'])
+        router.get('/stats', [ProStatsController, 'stats'])
+        router.get('/stats/enhanced', [ProStatsController, 'statsEnhanced'])
+        router.get('/tournaments', [ProDataController, 'tournaments'])
+        router.get('/matches', [ProDataController, 'matches'])
+        router.get('/games/:id', [ProDataController, 'game'])
+        router.get('/games/:id/events', [ProDataController, 'gameEvents'])
+        router.get('/games-by-match/:matchId', [ProDataController, 'gamesByMatch'])
+        // Data quality & health
+        router.get('/data-quality', [ProStatsController, 'dataQuality'])
 
-        // Matches
-        router.get('/matches', [ProStatsController, 'matches'])
-        router.get('/matches/upcoming', [ProStatsController, 'upcomingMatches'])
-        router.get('/matches/live', [ProStatsController, 'liveMatches'])
-        router.get('/matches/:id', [ProStatsController, 'matchById'])
+        // Analytics
+        router.get('/teams/rankings', [ProDataController, 'teamRankings'])
+        router.get('/players/rankings', [ProDataController, 'playerRankings'])
+        router.get('/champions/stats', [ProDataController, 'championStats'])
 
-        // Games
-        router.get('/games/:id', [ProStatsController, 'gameById'])
+        // League listing (read-only)
+        router.get('/leagues', [ProAdminController, 'leagues'])
 
-        // Team stats
-        router.get('/teams/:slug/stats', [ProStatsController, 'teamStats'])
-
-        // Player stats
-        router.get('/players/:slug/stats', [ProStatsController, 'playerStats'])
-
-        // Draft analysis
-        router.get('/drafts/analysis', [ProStatsController, 'draftsAnalysis'])
-
-        // Head-to-head
-        router.get('/head-to-head', [ProStatsController, 'headToHead'])
+        // Entity mapping (read-only)
+        router.get('/proposals', [ProMappingController, 'proposals'])
+        router.get('/mappings', [ProMappingController, 'mappings'])
+        router.get('/entities/search', [ProMappingController, 'searchEntities'])
       })
-      .prefix('/pro')
+      .prefix('/pro/monitoring')
       .use(middleware.rateLimit({ type: 'api' }))
+
+    /**
+     * Pro esports monitoring endpoints - WRITE (requires API key authentication)
+     */
+    router
+      .group(() => {
+        // Destructive operations (cleanTables requires confirmation param)
+        router.post('/clean-tables', [ProAdminController, 'cleanTables'])
+
+        // League management
+        router.post('/leagues', [ProAdminController, 'createLeague'])
+        router.patch('/leagues/:id', [ProAdminController, 'updateLeague'])
+        router.delete('/leagues/:id', [ProAdminController, 'deleteLeague'])
+
+        // Tournament league assignment
+        router.patch('/tournaments/:id/league', [ProAdminController, 'assignLeague'])
+
+        // Entity mapping management
+        router.patch('/proposals/:id', [ProMappingController, 'updateProposal'])
+        router.post('/proposals/batch', [ProMappingController, 'batchUpdateProposals'])
+        router.post('/mappings', [ProMappingController, 'createMapping'])
+        router.delete('/mappings/:id', [ProMappingController, 'deleteMapping'])
+      })
+      .prefix('/pro/monitoring')
+      .use(middleware.rateLimit({ type: 'api' }))
+      .use(middleware.proAdminAuth())
+
+    /**
+     * Pro stats page endpoints (public read, password verify)
+     */
+    router
+      .group(() => {
+        router
+          .post('/verify-password', [ProLeagueStatsController, 'verifyPassword'])
+          .use(middleware.rateLimit({ type: 'auth' }))
+        router.get('/filter-map', [ProLeagueStatsController, 'filterMap'])
+        router.get('/records', [ProLeagueStatsController, 'records'])
+        router.get('/player-leaderboards', [ProLeagueStatsController, 'playerLeaderboards'])
+        router.get('/team-leaderboards', [ProLeagueStatsController, 'teamLeaderboards'])
+        router.get('/champion-stats', [ProLeagueStatsController, 'championStats'])
+        router.get('/leagues', [ProLeagueStatsController, 'leagues'])
+        router.get('/teams', [ProLeagueStatsController, 'proTeams'])
+        router.get('/tournaments', [ProLeagueStatsController, 'tournaments'])
+        router.get('/players', [ProLeagueStatsController, 'proPlayers'])
+        router.get('/years', [ProLeagueStatsController, 'years'])
+      })
+      .prefix('/pro/stats')
+      .use(middleware.rateLimit({ type: 'api' }))
+
+    /**
+     * SoloQ Admin endpoints
+     */
+    router
+      .post('/soloq/admin/verify-password', [SoloqAdminController, 'verifyPassword'])
+      .use(middleware.rateLimit({ type: 'auth' }))
+
+    router
+      .group(() => {
+        // Players
+        router.get('/players', [SoloqAdminController, 'listPlayers'])
+        router.post('/players', [SoloqAdminController, 'createPlayer'])
+        router.post('/players/full', [SoloqAdminController, 'createFullPlayer'])
+        router.patch('/players/:id', [SoloqAdminController, 'updatePlayer'])
+        router.delete('/players/:id', [SoloqAdminController, 'deletePlayer'])
+
+        // Accounts
+        router.post('/players/:id/accounts', [SoloqAdminController, 'addAccount'])
+        router.delete('/players/:id/accounts/:accountId', [SoloqAdminController, 'deleteAccount'])
+
+        // Contracts
+        router.post('/players/:id/contract', [SoloqAdminController, 'upsertContract'])
+        router.post('/players/:id/contract/end', [SoloqAdminController, 'endContract'])
+
+        // Organizations
+        router.get('/organizations', [SoloqAdminController, 'listOrganizations'])
+        router.post('/organizations', [SoloqAdminController, 'createOrganization'])
+        router.patch('/organizations/:id', [SoloqAdminController, 'updateOrganization'])
+        router.delete('/organizations/:id', [SoloqAdminController, 'deleteOrganization'])
+
+        // Teams
+        router.get('/teams', [SoloqAdminController, 'listTeams'])
+        router.post('/teams', [SoloqAdminController, 'createTeam'])
+        router.patch('/teams/:id', [SoloqAdminController, 'updateTeam'])
+        router.delete('/teams/:id', [SoloqAdminController, 'deleteTeam'])
+
+        // Leagues (read-only for dropdowns)
+        router.get('/leagues', [SoloqAdminController, 'listLeagues'])
+      })
+      .prefix('/soloq/admin')
+      .use(middleware.soloqAdminAuth())
 
   })
   .prefix('/api/v1')

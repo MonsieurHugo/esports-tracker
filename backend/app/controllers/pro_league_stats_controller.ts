@@ -37,155 +37,404 @@ export default class ProLeagueStatsController {
    * All-time records across leagues
    */
   async records(ctx: HttpContext) {
-    const { leagueId } = ctx.request.qs()
-    const parsedLeagueId = leagueId ? Number(leagueId) : null
+    const { leagueId, year, role, years, leagueIds, teamIds, playerIds, tournamentIds, tier, isPlayoffs } = ctx.request.qs()
+    const validRoles = ['Top', 'Jungle', 'Mid', 'ADC', 'Support']
+    const parsedRole = role && validRoles.includes(role) ? role : null
 
-    const cacheKey = `pro:stats:records:${parsedLeagueId || 'all'}`
+    // Parse array params (comma-separated), falling back to legacy single values
+    const parsedYears = this.parseIds(years) ?? (year ? [Number(year)] : [])
+    const parsedLeagueIds = this.parseIds(leagueIds) ?? (leagueId ? [Number(leagueId)] : [])
+    const parsedTeamIds = this.parseIds(teamIds) ?? []
+    const parsedPlayerIds = this.parseIds(playerIds) ?? []
+    const parsedTournamentIds = this.parseIds(tournamentIds) ?? []
+    const parsedTier = tier && Number.isFinite(Number(tier)) ? Number(tier) : null
+    const parsedIsPlayoffs = isPlayoffs === 'true' ? true : isPlayoffs === 'false' ? false : null
+
+    const cacheKey = `pro:stats:records:l=${[...parsedLeagueIds].sort().join(',') || 'all'}:y=${[...parsedYears].sort().join(',') || 'all'}:t=${[...parsedTeamIds].sort().join(',') || 'all'}:p=${[...parsedPlayerIds].sort().join(',') || 'all'}:tn=${[...parsedTournamentIds].sort().join(',') || 'all'}:ti=${parsedTier ?? 'all'}:po=${parsedIsPlayoffs ?? 'all'}:r=${parsedRole || 'all'}`
 
     const result = await cacheService.getOrSet(cacheKey, CACHE_TTL.LONG, async () => {
-      const leagueFilter = parsedLeagueId
-        ? `AND t.pro_league_id = ${parsedLeagueId}`
-        : ''
+      // Build parameterized filters
+      const playerClauses: string[] = []
+      const playerBindings: unknown[] = []
+      const teamClauses: string[] = []
+      const teamBindings: unknown[] = []
+
+      if (parsedLeagueIds.length > 0) {
+        playerClauses.push(`AND tr.pro_league_id IN (${parsedLeagueIds.map(() => '?').join(',')})`)
+        playerBindings.push(...parsedLeagueIds)
+        teamClauses.push(`AND tr.pro_league_id IN (${parsedLeagueIds.map(() => '?').join(',')})`)
+        teamBindings.push(...parsedLeagueIds)
+      }
+      if (parsedYears.length > 0) {
+        playerClauses.push(`AND tr.year IN (${parsedYears.map(() => '?').join(',')})`)
+        playerBindings.push(...parsedYears)
+        teamClauses.push(`AND tr.year IN (${parsedYears.map(() => '?').join(',')})`)
+        teamBindings.push(...parsedYears)
+      }
+      if (parsedTournamentIds.length > 0) {
+        playerClauses.push(`AND m.tournament_id IN (${parsedTournamentIds.map(() => '?').join(',')})`)
+        playerBindings.push(...parsedTournamentIds)
+        teamClauses.push(`AND m.tournament_id IN (${parsedTournamentIds.map(() => '?').join(',')})`)
+        teamBindings.push(...parsedTournamentIds)
+      }
+      if (parsedTier !== null) {
+        playerClauses.push('AND pl.tier = ?')
+        playerBindings.push(parsedTier)
+        teamClauses.push('AND pl.tier = ?')
+        teamBindings.push(parsedTier)
+      }
+      if (parsedIsPlayoffs !== null) {
+        playerClauses.push('AND tr.is_playoffs = ?')
+        playerBindings.push(parsedIsPlayoffs)
+        teamClauses.push('AND tr.is_playoffs = ?')
+        teamBindings.push(parsedIsPlayoffs)
+      }
+      if (parsedRole) {
+        playerClauses.push('AND ps.role = ?')
+        playerBindings.push(parsedRole)
+      }
+      if (parsedTeamIds.length > 0) {
+        playerClauses.push(`AND ps.team_id IN (${parsedTeamIds.map(() => '?').join(',')})`)
+        playerBindings.push(...parsedTeamIds)
+      }
+      if (parsedPlayerIds.length > 0) {
+        playerClauses.push(`AND ps.player_id IN (${parsedPlayerIds.map(() => '?').join(',')})`)
+        playerBindings.push(...parsedPlayerIds)
+      }
+
+      const playerFilterSql = playerClauses.join(' ')
+      const teamFilterSql = teamClauses.join(' ')
+
+      // Team ID filter for team game records (fastest win, longest game)
+      let teamGameFilterSql = ''
+      const teamGameFilterBindings: (number | string)[] = []
+      if (parsedTeamIds.length > 0) {
+        const placeholders = parsedTeamIds.map(() => '?').join(',')
+        teamGameFilterSql = ` AND (g.blue_team_id IN (${placeholders}) OR g.red_team_id IN (${placeholders}))`
+        teamGameFilterBindings.push(...parsedTeamIds, ...parsedTeamIds)
+      }
+
+      // Team ID filter for streak queries (on ts.team_id)
+      let teamIdStreakSql = ''
+      const teamIdStreakBindings: (number | string)[] = []
+      if (parsedTeamIds.length > 0) {
+        teamIdStreakSql = ` AND ts.team_id IN (${parsedTeamIds.map(() => '?').join(',')})`
+        teamIdStreakBindings.push(...parsedTeamIds)
+      }
+
+      // Team ID filter for BO queries (EXISTS on pro_team_stats)
+      let boTeamFilterSql = ''
+      const boTeamFilterBindings: (number | string)[] = []
+      if (parsedTeamIds.length > 0) {
+        boTeamFilterSql = ` AND EXISTS (SELECT 1 FROM pro_team_stats ts_f WHERE ts_f.match_id = m.match_id AND ts_f.team_id IN (${parsedTeamIds.map(() => '?').join(',')}))`
+        boTeamFilterBindings.push(...parsedTeamIds)
+      }
+
+      const playerJoins = `
+        FROM pro_player_stats ps
+        JOIN pro_games g ON ps.game_id = g.game_id
+        JOIN pro_matches m ON g.match_id = m.match_id
+        JOIN pro_tournaments tr ON m.tournament_id = tr.tournament_id
+        LEFT JOIN pro_leagues pl ON tr.pro_league_id = pl.league_id
+        LEFT JOIN pro_teams pt ON ps.team_id = pt.team_id
+        LEFT JOIN pro_teams bt ON g.blue_team_id = bt.team_id
+        LEFT JOIN pro_teams rt ON g.red_team_id = rt.team_id
+        LEFT JOIN players p ON ps.player_id = p.player_id
+        WHERE g.status IN ('completed', 'processed') ${playerFilterSql}
+      `
+      const opponentCol = `CASE WHEN ps.team_id = g.blue_team_id THEN COALESCE(rt.short_name, rt.name) ELSE COALESCE(bt.short_name, bt.name) END as opponent_name`
+      const winCol = `(g.winner_team_id = ps.team_id) as win`
+
+      const teamGameJoins = `
+        FROM pro_games g
+        JOIN pro_matches m ON g.match_id = m.match_id
+        JOIN pro_tournaments tr ON m.tournament_id = tr.tournament_id
+        LEFT JOIN pro_leagues pl ON tr.pro_league_id = pl.league_id
+        LEFT JOIN pro_teams bt ON g.blue_team_id = bt.team_id
+        LEFT JOIN pro_teams rt ON g.red_team_id = rt.team_id
+        WHERE g.status IN ('completed', 'processed') ${teamFilterSql}${teamGameFilterSql}
+      `
+      const teamGameBindings = [...teamBindings, ...teamGameFilterBindings]
 
       const [
         mostKills,
+        mostAssists,
         bestKda,
         highestCsPerMin,
+        highestDpm,
         mostDamage,
         mostPentaKills,
+        fastestQuest,
+        slowestQuest,
         fastestWin,
         longestGame,
+        fastestBo3,
+        slowestBo3,
+        fastestBo5,
+        slowestBo5,
+        gameWinStreaks,
+        gameLossStreaks,
+        matchWinStreaks,
+        matchLossStreaks,
+        avgKillsPerGameByTournament,
       ] = await Promise.all([
         // Most kills in a single game
         db.rawQuery(`
-          SELECT ps.player_name, ps.champion_name, ps.kills as value,
-                 g.duration, pt.name as team_name, tr.name as tournament_name,
-                 g.started_at as game_date
-          FROM pro_player_stats ps
-          JOIN pro_games g ON ps.game_id = g.game_id
-          JOIN pro_matches m ON g.match_id = m.match_id
-          JOIN pro_tournaments tr ON m.tournament_id = tr.tournament_id
-          LEFT JOIN pro_teams pt ON ps.team_id = pt.team_id
-          WHERE g.status = 'completed' ${leagueFilter.replace(/t\./g, 'tr.')}
+          SELECT p.current_pseudo as player_name, ps.champion_id, ps.kills as value,
+                 g.duration, COALESCE(pt.short_name, pt.name) as team_name, tr.name as tournament_name,
+                 g.started_at as game_date, ps.role, ${opponentCol}, ${winCol}
+          ${playerJoins}
           ORDER BY ps.kills DESC
-          LIMIT 5
-        `),
+          LIMIT 50
+        `, [...playerBindings]),
+
+        // Most assists in a single game
+        db.rawQuery(`
+          SELECT p.current_pseudo as player_name, ps.champion_id, ps.assists as value,
+                 g.duration, COALESCE(pt.short_name, pt.name) as team_name, tr.name as tournament_name,
+                 g.started_at as game_date, ps.role, ${opponentCol}, ${winCol}
+          ${playerJoins}
+          ORDER BY ps.assists DESC
+          LIMIT 50
+        `, [...playerBindings]),
 
         // Best KDA in a single game (min 15 min duration)
         db.rawQuery(`
-          SELECT ps.player_name, ps.champion_name,
+          SELECT p.current_pseudo as player_name, ps.champion_id,
                  ROUND((ps.kills + ps.assists)::numeric / GREATEST(ps.deaths, 1), 2) as value,
                  ps.kills, ps.deaths, ps.assists,
-                 g.duration, pt.name as team_name, tr.name as tournament_name,
-                 g.started_at as game_date
-          FROM pro_player_stats ps
-          JOIN pro_games g ON ps.game_id = g.game_id
-          JOIN pro_matches m ON g.match_id = m.match_id
-          JOIN pro_tournaments tr ON m.tournament_id = tr.tournament_id
-          LEFT JOIN pro_teams pt ON ps.team_id = pt.team_id
-          WHERE g.status = 'completed' AND g.duration > 900 ${leagueFilter.replace(/t\./g, 'tr.')}
+                 g.duration, COALESCE(pt.short_name, pt.name) as team_name, tr.name as tournament_name,
+                 g.started_at as game_date, ps.role, ${opponentCol}, ${winCol}
+          ${playerJoins} AND g.duration > 900
           ORDER BY (ps.kills + ps.assists)::numeric / GREATEST(ps.deaths, 1) DESC
-          LIMIT 5
-        `),
+          LIMIT 50
+        `, [...playerBindings]),
 
         // Highest CS/min
         db.rawQuery(`
-          SELECT ps.player_name, ps.champion_name,
+          SELECT p.current_pseudo as player_name, ps.champion_id,
                  ROUND(ps.cs * 60.0 / GREATEST(g.duration, 1), 2) as value,
-                 ps.cs, g.duration, pt.name as team_name, tr.name as tournament_name,
-                 g.started_at as game_date
-          FROM pro_player_stats ps
-          JOIN pro_games g ON ps.game_id = g.game_id
-          JOIN pro_matches m ON g.match_id = m.match_id
-          JOIN pro_tournaments tr ON m.tournament_id = tr.tournament_id
-          LEFT JOIN pro_teams pt ON ps.team_id = pt.team_id
-          WHERE g.status = 'completed' AND g.duration > 900 ${leagueFilter.replace(/t\./g, 'tr.')}
+                 ps.cs, g.duration, COALESCE(pt.short_name, pt.name) as team_name, tr.name as tournament_name,
+                 g.started_at as game_date, ps.role, ${opponentCol}, ${winCol}
+          ${playerJoins} AND g.duration > 900
           ORDER BY ps.cs * 60.0 / GREATEST(g.duration, 1) DESC
-          LIMIT 5
-        `),
+          LIMIT 50
+        `, [...playerBindings]),
+
+        // Highest DPM (damage per minute, min 15 min)
+        db.rawQuery(`
+          SELECT p.current_pseudo as player_name, ps.champion_id,
+                 ROUND(ps.damage_dealt * 60.0 / GREATEST(g.duration, 1), 0) as value,
+                 ps.damage_dealt, g.duration, COALESCE(pt.short_name, pt.name) as team_name, tr.name as tournament_name,
+                 g.started_at as game_date, ps.role, ${opponentCol}, ${winCol}
+          ${playerJoins} AND g.duration > 900
+          ORDER BY ps.damage_dealt * 60.0 / GREATEST(g.duration, 1) DESC
+          LIMIT 50
+        `, [...playerBindings]),
 
         // Most damage in a single game
         db.rawQuery(`
-          SELECT ps.player_name, ps.champion_name, ps.damage_dealt as value,
-                 g.duration, pt.name as team_name, tr.name as tournament_name,
-                 g.started_at as game_date
-          FROM pro_player_stats ps
-          JOIN pro_games g ON ps.game_id = g.game_id
-          JOIN pro_matches m ON g.match_id = m.match_id
-          JOIN pro_tournaments tr ON m.tournament_id = tr.tournament_id
-          LEFT JOIN pro_teams pt ON ps.team_id = pt.team_id
-          WHERE g.status = 'completed' ${leagueFilter.replace(/t\./g, 'tr.')}
+          SELECT p.current_pseudo as player_name, ps.champion_id, ps.damage_dealt as value,
+                 g.duration, COALESCE(pt.short_name, pt.name) as team_name, tr.name as tournament_name,
+                 g.started_at as game_date, ps.role, ${opponentCol}, ${winCol}
+          ${playerJoins}
           ORDER BY ps.damage_dealt DESC
-          LIMIT 5
-        `),
+          LIMIT 50
+        `, [...playerBindings]),
 
         // Most penta kills (single game)
         db.rawQuery(`
-          SELECT ps.player_name, ps.champion_name,
+          SELECT p.current_pseudo as player_name, ps.champion_id,
                  COALESCE((ps.multi_kills->>'penta')::int, 0) as value,
-                 pt.name as team_name, tr.name as tournament_name,
-                 g.started_at as game_date
-          FROM pro_player_stats ps
-          JOIN pro_games g ON ps.game_id = g.game_id
-          JOIN pro_matches m ON g.match_id = m.match_id
-          JOIN pro_tournaments tr ON m.tournament_id = tr.tournament_id
-          LEFT JOIN pro_teams pt ON ps.team_id = pt.team_id
-          WHERE g.status = 'completed'
+                 COALESCE(pt.short_name, pt.name) as team_name, tr.name as tournament_name,
+                 g.started_at as game_date, ps.role, ${opponentCol}, ${winCol}
+          ${playerJoins}
             AND COALESCE((ps.multi_kills->>'penta')::int, 0) > 0
-            ${leagueFilter.replace(/t\./g, 'tr.')}
           ORDER BY (ps.multi_kills->>'penta')::int DESC
-          LIMIT 5
-        `),
+          LIMIT 50
+        `, [...playerBindings]),
+
+        // Fastest quest completion (only 2025+ data has quest_completed_at)
+        db.rawQuery(`
+          SELECT p.current_pseudo as player_name, ps.champion_id,
+                 ps.quest_completed_at as value,
+                 COALESCE(pt.short_name, pt.name) as team_name, tr.name as tournament_name,
+                 g.started_at as game_date, ps.role, ${opponentCol}, ${winCol}
+          ${playerJoins}
+            AND ps.quest_completed_at IS NOT NULL
+            AND ps.quest_completed_at > 0
+            AND tr.year >= 2025
+          ORDER BY ps.quest_completed_at ASC
+          LIMIT 50
+        `, [...playerBindings]),
+
+        // Slowest quest completion
+        db.rawQuery(`
+          SELECT p.current_pseudo as player_name, ps.champion_id,
+                 ps.quest_completed_at as value,
+                 COALESCE(pt.short_name, pt.name) as team_name, tr.name as tournament_name,
+                 g.started_at as game_date, ps.role, ${opponentCol}, ${winCol}
+          ${playerJoins}
+            AND ps.quest_completed_at IS NOT NULL
+            AND ps.quest_completed_at > 0
+            AND tr.year >= 2025
+          ORDER BY ps.quest_completed_at DESC
+          LIMIT 50
+        `, [...playerBindings]),
 
         // Fastest win
         db.rawQuery(`
           SELECT g.duration as value,
-                 bt.name as blue_team_name, rt.name as red_team_name,
-                 CASE WHEN g.winner_team_id = g.blue_team_id THEN bt.name ELSE rt.name END as winner_name,
-                 CASE WHEN g.winner_team_id = g.blue_team_id THEN rt.name ELSE bt.name END as loser_name,
+                 COALESCE(bt.short_name, bt.name) as blue_team_name, COALESCE(rt.short_name, rt.name) as red_team_name,
+                 CASE WHEN g.winner_team_id = g.blue_team_id THEN COALESCE(bt.short_name, bt.name) ELSE COALESCE(rt.short_name, rt.name) END as winner_name,
+                 CASE WHEN g.winner_team_id = g.blue_team_id THEN COALESCE(rt.short_name, rt.name) ELSE COALESCE(bt.short_name, bt.name) END as loser_name,
                  tr.name as tournament_name, g.started_at as game_date
-          FROM pro_games g
-          JOIN pro_matches m ON g.match_id = m.match_id
-          JOIN pro_tournaments tr ON m.tournament_id = tr.tournament_id
-          LEFT JOIN pro_teams bt ON g.blue_team_id = bt.team_id
-          LEFT JOIN pro_teams rt ON g.red_team_id = rt.team_id
-          WHERE g.status = 'completed' AND g.winner_team_id IS NOT NULL AND g.duration > 0
-            ${leagueFilter.replace(/t\./g, 'tr.')}
+          ${teamGameJoins} AND g.winner_team_id IS NOT NULL AND g.duration > 0
           ORDER BY g.duration ASC
-          LIMIT 5
-        `),
+          LIMIT 50
+        `, [...teamGameBindings]),
 
         // Longest game
         db.rawQuery(`
           SELECT g.duration as value,
-                 bt.name as blue_team_name, rt.name as red_team_name,
-                 CASE WHEN g.winner_team_id = g.blue_team_id THEN bt.name ELSE rt.name END as winner_name,
-                 CASE WHEN g.winner_team_id = g.blue_team_id THEN rt.name ELSE bt.name END as loser_name,
+                 COALESCE(bt.short_name, bt.name) as blue_team_name, COALESCE(rt.short_name, rt.name) as red_team_name,
+                 CASE WHEN g.winner_team_id = g.blue_team_id THEN COALESCE(bt.short_name, bt.name) ELSE COALESCE(rt.short_name, rt.name) END as winner_name,
+                 CASE WHEN g.winner_team_id = g.blue_team_id THEN COALESCE(rt.short_name, rt.name) ELSE COALESCE(bt.short_name, bt.name) END as loser_name,
                  tr.name as tournament_name, g.started_at as game_date
-          FROM pro_games g
-          JOIN pro_matches m ON g.match_id = m.match_id
-          JOIN pro_tournaments tr ON m.tournament_id = tr.tournament_id
-          LEFT JOIN pro_teams bt ON g.blue_team_id = bt.team_id
-          LEFT JOIN pro_teams rt ON g.red_team_id = rt.team_id
-          WHERE g.status = 'completed' AND g.duration > 0
-            ${leagueFilter.replace(/t\./g, 'tr.')}
+          ${teamGameJoins} AND g.duration > 0
           ORDER BY g.duration DESC
-          LIMIT 5
-        `),
+          LIMIT 50
+        `, [...teamGameBindings]),
+
+        // Fastest BO3
+        this.queryBoRecords('bo3', 'ASC', teamFilterSql, teamBindings, boTeamFilterSql, boTeamFilterBindings),
+
+        // Slowest BO3
+        this.queryBoRecords('bo3', 'DESC', teamFilterSql, teamBindings, boTeamFilterSql, boTeamFilterBindings),
+
+        // Fastest BO5
+        this.queryBoRecords('bo5', 'ASC', teamFilterSql, teamBindings, boTeamFilterSql, boTeamFilterBindings),
+
+        // Slowest BO5
+        this.queryBoRecords('bo5', 'DESC', teamFilterSql, teamBindings, boTeamFilterSql, boTeamFilterBindings),
+
+        // Longest game win streak
+        this.queryGameStreaks(true, teamFilterSql, teamBindings, teamIdStreakSql, teamIdStreakBindings),
+
+        // Longest game loss streak
+        this.queryGameStreaks(false, teamFilterSql, teamBindings, teamIdStreakSql, teamIdStreakBindings),
+
+        // Longest match win streak
+        this.queryMatchStreaks(true, teamFilterSql, teamBindings, teamIdStreakSql, teamIdStreakBindings),
+
+        // Longest match loss streak
+        this.queryMatchStreaks(false, teamFilterSql, teamBindings, teamIdStreakSql, teamIdStreakBindings),
+
+        // Average kills per game by tournament
+        db.rawQuery(`
+          SELECT tr.name as tournament_name,
+                 COUNT(DISTINCT ts.game_id) as total_games,
+                 ROUND(SUM(ts.kills)::numeric / GREATEST(COUNT(DISTINCT ts.game_id), 1), 1) as avg_kills_per_game
+          FROM pro_team_stats ts
+          JOIN pro_tournaments tr ON ts.tournament_id = tr.tournament_id
+          LEFT JOIN pro_leagues pl ON tr.pro_league_id = pl.league_id
+          WHERE 1=1 ${teamFilterSql}${teamIdStreakSql}
+          GROUP BY tr.tournament_id, tr.name
+          HAVING COUNT(DISTINCT ts.game_id) >= 5
+          ORDER BY avg_kills_per_game DESC
+        `, [...teamBindings, ...teamIdStreakBindings]),
       ])
 
       return {
         playerRecords: {
           mostKills: this.formatPlayerRecords(mostKills.rows),
+          mostAssists: this.formatPlayerRecords(mostAssists.rows),
           bestKda: this.formatPlayerRecords(bestKda.rows),
           highestCsPerMin: this.formatPlayerRecords(highestCsPerMin.rows),
+          highestDpm: this.formatPlayerRecords(highestDpm.rows),
           mostDamage: this.formatPlayerRecords(mostDamage.rows),
           mostPentaKills: this.formatPlayerRecords(mostPentaKills.rows),
+          fastestQuest: this.formatPlayerRecords(fastestQuest.rows),
+          slowestQuest: this.formatPlayerRecords(slowestQuest.rows),
         },
         teamRecords: {
           fastestWin: this.formatTeamRecords(fastestWin.rows),
           longestGame: this.formatTeamRecords(longestGame.rows),
+          fastestBo3: this.formatBoRecords(fastestBo3.rows),
+          slowestBo3: this.formatBoRecords(slowestBo3.rows),
+          fastestBo5: this.formatBoRecords(fastestBo5.rows),
+          slowestBo5: this.formatBoRecords(slowestBo5.rows),
         },
+        streakRecords: {
+          longestGameWinStreak: this.formatStreakRecords(gameWinStreaks.rows),
+          longestGameLossStreak: this.formatStreakRecords(gameLossStreaks.rows),
+          longestMatchWinStreak: this.formatStreakRecords(matchWinStreaks.rows),
+          longestMatchLossStreak: this.formatStreakRecords(matchLossStreaks.rows),
+        },
+        tournamentRecords: {
+          avgKillsPerGame: avgKillsPerGameByTournament.rows.map(
+            (row: Record<string, unknown>) => ({
+              tournamentName: row.tournament_name,
+              totalGames: Number(row.total_games),
+              avgKillsPerGame: Number(row.avg_kills_per_game),
+            })
+          ),
+        },
+      }
+    })
+
+    return ctx.response.ok(result)
+  }
+
+  /**
+   * GET /api/v1/pro/stats/tournaments
+   * List tournaments that have player aggregated stats
+   */
+  async tournaments(ctx: HttpContext) {
+    const { leagueId, year } = ctx.request.qs()
+    const parsedLeagueId = leagueId ? Number(leagueId) : null
+    const parsedYear = year ? Number(year) : null
+
+    const cacheKey = `pro:stats:tournaments:${parsedLeagueId || 'all'}:${parsedYear || 'all'}`
+
+    const result = await cacheService.getOrSet(cacheKey, CACHE_TTL.LONG, async () => {
+      const clauses: string[] = []
+      const bindings: (number | string)[] = []
+
+      if (parsedLeagueId) {
+        clauses.push('AND t.pro_league_id = ?')
+        bindings.push(parsedLeagueId)
+      }
+      if (parsedYear) {
+        clauses.push('AND t.year = ?')
+        bindings.push(parsedYear)
+      }
+
+      const filterSql = clauses.join(' ')
+
+      const dataResult = await db.rawQuery(`
+        SELECT DISTINCT t.tournament_id, t.name, t.year, t.pro_league_id,
+               l.short_name as league_short_name, t.start_date, t.is_playoffs, t.split
+        FROM pro_tournaments t
+        JOIN pro_matches m ON m.tournament_id = t.tournament_id
+        JOIN pro_games g ON g.match_id = m.match_id
+        JOIN pro_player_stats ps ON ps.game_id = g.game_id
+        LEFT JOIN pro_leagues l ON t.pro_league_id = l.league_id
+        WHERE 1=1 ${filterSql}
+        ORDER BY t.start_date DESC NULLS LAST, t.name
+      `, [...bindings])
+
+      return {
+        data: dataResult.rows.map((row: Record<string, unknown>) => ({
+          tournamentId: Number(row.tournament_id),
+          name: row.name,
+          year: row.year != null ? Number(row.year) : null,
+          leagueId: row.pro_league_id != null ? Number(row.pro_league_id) : null,
+          leagueShortName: row.league_short_name ?? null,
+          startDate: row.start_date ?? null,
+          isPlayoffs: Boolean(row.is_playoffs),
+          split: row.split ?? null,
+        })),
       }
     })
 
@@ -199,6 +448,16 @@ export default class ProLeagueStatsController {
   async playerLeaderboards(ctx: HttpContext) {
     const {
       leagueId,
+      leagueIds,
+      teamId,
+      teamIds,
+      tournamentId,
+      tournamentIds,
+      year,
+      years,
+      playerIds,
+      tier,
+      isPlayoffs,
       role,
       search,
       minGames = 5,
@@ -207,7 +466,13 @@ export default class ProLeagueStatsController {
       perPage = 20,
     } = ctx.request.qs()
 
-    const parsedLeagueId = leagueId ? Number(leagueId) : null
+    const parsedLeagueIds = this.parseIds(leagueIds) ?? (leagueId ? [Number(leagueId)] : [])
+    const parsedTeamIds = this.parseIds(teamIds) ?? (teamId ? [Number(teamId)] : [])
+    const parsedTournamentIds = this.parseIds(tournamentIds) ?? (tournamentId ? [Number(tournamentId)] : [])
+    const parsedYears = this.parseIds(years) ?? (year ? [Number(year)] : [])
+    const parsedPlayerIds = this.parseIds(playerIds) ?? []
+    const parsedTier = tier && Number.isFinite(Number(tier)) ? Number(tier) : null
+    const parsedIsPlayoffs = isPlayoffs === 'true' ? true : isPlayoffs === 'false' ? false : null
     const parsedMinGames = Math.max(1, Number(minGames) || 5)
     const pageNum = Math.max(1, Number(page))
     const perPageNum = Math.min(100, Math.max(1, Number(perPage)))
@@ -224,84 +489,479 @@ export default class ProLeagueStatsController {
       kills: 'total_kills',
       deaths: 'total_deaths',
       assists: 'total_assists',
+      visionScore: 'avg_vision_score',
+      goldShare: 'avg_gold_share',
+      damageShare: 'avg_damage_share',
+      csDiffAt15: 'avg_cs_diff_at_15',
+      xpDiffAt15: 'avg_xp_diff_at_15',
+      firstBloodParticipations: 'first_blood_participations',
+      doubleKills: 'double_kills',
+      tripleKills: 'triple_kills',
+      quadraKills: 'quadra_kills',
+      pentaKills: 'penta_kills',
+      uniqueChampions: 'unique_champions_played',
+      avgKills: 'avg_kills',
+      avgDeaths: 'avg_deaths',
+      avgAssists: 'avg_assists',
+      proximityTop: 'avg_proximity_top',
+      proximityJungle: 'avg_proximity_jungle',
+      proximityMid: 'avg_proximity_mid',
+      proximityAdc: 'avg_proximity_adc',
+      proximitySupport: 'avg_proximity_support',
+      isolation: 'avg_isolation',
+      botlane2v2Kills: 'total_2v2_kills',
+      botlane2v2Deaths: 'total_2v2_deaths',
+      goldAt15: 'avg_gold_at_15',
+      xpAt15: 'avg_xp_at_15',
+      csAt15: 'avg_cs_at_15',
+      killsAt15: 'avg_kills_at_15',
+      kpAt15: 'avg_kp_at_15',
+      teamKillsAt15: 'avg_team_kills_at_15',
+      deathsAt15: 'avg_deaths_at_15',
+      soloKills: 'avg_solo_kills',
+      vspm: 'avg_vspm',
+      plates: 'avg_plates',
     }
 
     const orderColumn = sortColumns[sortBy] || 'avg_kda'
 
-    const leagueFilter = parsedLeagueId
-      ? `AND tr.pro_league_id = ${parsedLeagueId}`
-      : ''
-
     const validRoles = ['Top', 'Jungle', 'Mid', 'ADC', 'Support']
-    const roleFilter = role && validRoles.includes(role)
-      ? `AND pas.role = '${role}'`
-      : ''
+    const parsedRoles = role
+      ? String(role).split(',').filter((r: string) => validRoles.includes(r))
+      : []
+    const duoMode = parsedRoles.length === 2
 
-    const sanitizedSearch = search ? String(search).replace(/[%_'\\]/g, '').trim() : ''
-    const searchFilter = sanitizedSearch
-      ? `AND (p.current_pseudo ILIKE '%${sanitizedSearch}%'
+    // Build parameterized filters
+    const filterClauses: string[] = []
+    const filterBindings: unknown[] = []
+
+    if (parsedLeagueIds.length > 0) {
+      filterClauses.push(`AND tr.pro_league_id IN (${parsedLeagueIds.map(() => '?').join(',')})`)
+      filterBindings.push(...parsedLeagueIds)
+    }
+    if (parsedTournamentIds.length > 0) {
+      filterClauses.push(`AND m.tournament_id IN (${parsedTournamentIds.map(() => '?').join(',')})`)
+      filterBindings.push(...parsedTournamentIds)
+    }
+    if (parsedYears.length > 0) {
+      filterClauses.push(`AND tr.year IN (${parsedYears.map(() => '?').join(',')})`)
+      filterBindings.push(...parsedYears)
+    }
+    if (parsedTier !== null) {
+      filterClauses.push('AND pl.tier = ?')
+      filterBindings.push(parsedTier)
+    }
+    if (parsedIsPlayoffs !== null) {
+      filterClauses.push('AND tr.is_playoffs = ?')
+      filterBindings.push(parsedIsPlayoffs)
+    }
+    if (parsedTeamIds.length > 0) {
+      filterClauses.push(`AND ${duoMode ? 'ps1' : 'ps'}.team_id IN (${parsedTeamIds.map(() => '?').join(',')})`)
+      filterBindings.push(...parsedTeamIds)
+    }
+    if (parsedPlayerIds.length > 0 && !duoMode) {
+      filterClauses.push(`AND ps.player_id IN (${parsedPlayerIds.map(() => '?').join(',')})`)
+      filterBindings.push(...parsedPlayerIds)
+    }
+    if (!duoMode && parsedRoles.length > 0) {
+      filterClauses.push(`AND ps.role IN (${parsedRoles.map(() => '?').join(',')})`)
+      filterBindings.push(...parsedRoles)
+    }
+
+    const sanitizedSearch = search ? String(search).replace(/[%_'\\]/g, '').trim().slice(0, 100) : ''
+    if (sanitizedSearch && !duoMode) {
+      filterClauses.push(`AND (p.current_pseudo ILIKE ?
           OR p.player_id IN (
             SELECT pa.player_id FROM player_aliases pa
-            WHERE LOWER(pa.alias) LIKE LOWER('%${sanitizedSearch}%')
-          ))`
-      : ''
+            WHERE LOWER(pa.alias) LIKE LOWER(?)
+          ))`)
+      filterBindings.push(`%${sanitizedSearch}%`, `%${sanitizedSearch}%`)
+    }
 
-    const cacheKey = `pro:stats:player-lb:${parsedLeagueId || 'all'}:${role || 'all'}:${sanitizedSearch || 'all'}:${parsedMinGames}:${sortBy}:${pageNum}:${perPageNum}`
+    const filterSql = filterClauses.join(' ')
+    const needsLeagueJoin = parsedTier !== null
+
+    const cacheKey = `pro:stats:player-lb:l=${[...parsedLeagueIds].sort().join(',') || 'all'}:tn=${[...parsedTournamentIds].sort().join(',') || 'all'}:y=${[...parsedYears].sort().join(',') || 'all'}:t=${[...parsedTeamIds].sort().join(',') || 'all'}:p=${[...parsedPlayerIds].sort().join(',') || 'all'}:ti=${parsedTier ?? 'all'}:po=${parsedIsPlayoffs ?? 'all'}:${parsedRoles.join(',') || 'all'}:${duoMode ? 'duo' : 'solo'}:${sanitizedSearch || 'all'}:${parsedMinGames}:${sortBy}:${pageNum}:${perPageNum}`
 
     const result = await cacheService.getOrSet(cacheKey, CACHE_TTL.MEDIUM, async () => {
+      // Duo mode: combine stats of two roles from the same team per game
+      if (duoMode) {
+        const roleBindings = [parsedRoles[0], parsedRoles[1]]
+
+        const countResult = await db.rawQuery(`
+          SELECT COUNT(*) as total FROM (
+            SELECT ps1.team_id
+            FROM pro_player_stats ps1
+            JOIN pro_player_stats ps2
+              ON ps1.game_id = ps2.game_id
+              AND ps1.team_id = ps2.team_id
+              AND ps1.role = ? AND ps2.role = ?
+            JOIN pro_games g ON ps1.game_id = g.game_id
+            JOIN pro_matches m ON g.match_id = m.match_id
+            JOIN pro_tournaments tr ON m.tournament_id = tr.tournament_id
+            ${needsLeagueJoin ? 'LEFT JOIN pro_leagues pl ON tr.pro_league_id = pl.league_id' : ''}
+            WHERE g.status IN ('completed', 'processed') ${filterSql}
+            GROUP BY ps1.team_id
+            HAVING COUNT(*) >= ?
+          ) sub
+        `, [...roleBindings, ...filterBindings, parsedMinGames])
+
+        const total = Number(countResult.rows[0]?.total || 0)
+
+        const dataResult = await db.rawQuery(`
+          WITH duo_games AS (
+            SELECT
+              ps1.team_id,
+              ps1.game_id,
+              g.winner_team_id,
+              g.duration,
+              (ps1.kills + ps2.kills) as kills,
+              (ps1.deaths + ps2.deaths) as deaths,
+              (ps1.assists + ps2.assists) as assists,
+              (ps1.cs + ps2.cs) as cs,
+              (ps1.gold_earned + ps2.gold_earned) as gold_earned,
+              (ps1.damage_dealt + ps2.damage_dealt) as damage_dealt,
+              COALESCE((ps1.vision->>'score')::numeric, 0) + COALESCE((ps2.vision->>'score')::numeric, 0) as vision_score,
+              team_totals.team_kills,
+              team_totals.team_gold,
+              team_totals.team_damage,
+              team_totals.team_kills_at_15,
+              COALESCE((ps1.timing_data->'15'->>'cs_diff')::numeric, 0) + COALESCE((ps2.timing_data->'15'->>'cs_diff')::numeric, 0) as cs_diff_at_15,
+              COALESCE((ps1.timing_data->'15'->>'gold_diff')::numeric, 0) + COALESCE((ps2.timing_data->'15'->>'gold_diff')::numeric, 0) as gold_diff_at_15,
+              COALESCE((ps1.timing_data->'15'->>'xp_diff')::numeric, 0) + COALESCE((ps2.timing_data->'15'->>'xp_diff')::numeric, 0) as xp_diff_at_15,
+              (ps1.first_blood_participant OR ps2.first_blood_participant) as first_blood_participant,
+              (ps1.first_blood_victim OR ps2.first_blood_victim) as first_blood_victim,
+              COALESCE((ps1.multi_kills->>'double')::int, 0) + COALESCE((ps2.multi_kills->>'double')::int, 0) as double_kills,
+              COALESCE((ps1.multi_kills->>'triple')::int, 0) + COALESCE((ps2.multi_kills->>'triple')::int, 0) as triple_kills,
+              COALESCE((ps1.multi_kills->>'quadra')::int, 0) + COALESCE((ps2.multi_kills->>'quadra')::int, 0) as quadra_kills,
+              COALESCE((ps1.multi_kills->>'penta')::int, 0) + COALESCE((ps2.multi_kills->>'penta')::int, 0) as penta_kills,
+              COALESCE((ps1.solo_stats->>'botlane_2v2_kills')::int, 0) + COALESCE((ps2.solo_stats->>'botlane_2v2_kills')::int, 0) as botlane_2v2_kills,
+              COALESCE((ps1.solo_stats->>'botlane_2v2_deaths')::int, 0) + COALESCE((ps2.solo_stats->>'botlane_2v2_deaths')::int, 0) as botlane_2v2_deaths,
+              COALESCE((ps1.timing_data->'15'->>'gold')::numeric, 0) + COALESCE((ps2.timing_data->'15'->>'gold')::numeric, 0) as gold_at_15,
+              COALESCE((ps1.timing_data->'15'->>'xp')::numeric, 0) + COALESCE((ps2.timing_data->'15'->>'xp')::numeric, 0) as xp_at_15,
+              COALESCE((ps1.timing_data->'15'->>'cs')::numeric, 0) + COALESCE((ps2.timing_data->'15'->>'cs')::numeric, 0) as cs_at_15,
+              COALESCE((ps1.timing_data->'15'->>'kills')::numeric, 0) + COALESCE((ps2.timing_data->'15'->>'kills')::numeric, 0) as kills_at_15,
+              COALESCE((ps1.timing_data->'15'->>'deaths')::numeric, 0) + COALESCE((ps2.timing_data->'15'->>'deaths')::numeric, 0) as deaths_at_15,
+              COALESCE((ps1.timing_data->'15'->>'kills')::numeric, 0) + COALESCE((ps1.timing_data->'15'->>'assists')::numeric, 0)
+              + COALESCE((ps2.timing_data->'15'->>'kills')::numeric, 0) + COALESCE((ps2.timing_data->'15'->>'assists')::numeric, 0) as kp_at_15_numerator
+            FROM pro_player_stats ps1
+            JOIN pro_player_stats ps2
+              ON ps1.game_id = ps2.game_id
+              AND ps1.team_id = ps2.team_id
+              AND ps1.role = ? AND ps2.role = ?
+            JOIN pro_games g ON ps1.game_id = g.game_id
+            JOIN pro_matches m ON g.match_id = m.match_id
+            JOIN pro_tournaments tr ON m.tournament_id = tr.tournament_id
+            ${needsLeagueJoin ? 'LEFT JOIN pro_leagues pl ON tr.pro_league_id = pl.league_id' : ''}
+            LEFT JOIN LATERAL (
+              SELECT SUM(ps3.kills) as team_kills,
+                     SUM(ps3.gold_earned) as team_gold,
+                     SUM(ps3.damage_dealt) as team_damage,
+                     SUM(COALESCE((ps3.timing_data->'15'->>'kills')::numeric, 0)) as team_kills_at_15
+              FROM pro_player_stats ps3
+              WHERE ps3.game_id = ps1.game_id AND ps3.team_id = ps1.team_id
+            ) team_totals ON true
+            WHERE g.status IN ('completed', 'processed') ${filterSql}
+          )
+          SELECT
+            dg.team_id,
+            COALESCE(pt.short_name, pt.name) as team_short_name,
+            pt.name as team_name,
+            COUNT(*)::int as games_played,
+            COUNT(*) FILTER (WHERE dg.winner_team_id = dg.team_id)::int as games_won,
+            ROUND(COUNT(*) FILTER (WHERE dg.winner_team_id = dg.team_id) * 100.0 / GREATEST(COUNT(*), 1), 1) as win_rate,
+            ROUND(AVG(dg.kills), 2) as avg_kills,
+            ROUND(AVG(dg.deaths), 2) as avg_deaths,
+            ROUND(AVG(dg.assists), 2) as avg_assists,
+            ROUND((SUM(dg.kills) + SUM(dg.assists))::numeric / GREATEST(SUM(dg.deaths), 1), 2) as avg_kda,
+            ROUND(AVG(dg.cs * 60.0 / GREATEST(dg.duration, 1)), 2) as avg_cs_per_min,
+            ROUND(AVG(dg.gold_earned * 60.0 / GREATEST(dg.duration, 1)), 0) as avg_gold_per_min,
+            ROUND(AVG(dg.damage_dealt * 60.0 / GREATEST(dg.duration, 1)), 0) as avg_damage_per_min,
+            SUM(dg.kills)::int as total_kills,
+            SUM(dg.deaths)::int as total_deaths,
+            SUM(dg.assists)::int as total_assists,
+            ROUND(AVG(dg.vision_score), 1) as avg_vision_score,
+            ROUND(AVG(CASE WHEN dg.team_gold > 0 THEN dg.gold_earned * 100.0 / dg.team_gold ELSE 0 END), 1) as avg_gold_share,
+            ROUND(AVG(CASE WHEN dg.team_damage > 0 THEN dg.damage_dealt * 100.0 / dg.team_damage ELSE 0 END), 1) as avg_damage_share,
+            ROUND(AVG(CASE WHEN dg.team_kills > 0 THEN (dg.kills + dg.assists) * 100.0 / dg.team_kills ELSE 0 END), 1) as avg_kill_participation,
+            ROUND(AVG(dg.cs_diff_at_15), 1) as avg_cs_diff_at_15,
+            ROUND(AVG(dg.gold_diff_at_15), 0) as avg_gold_diff_at_15,
+            ROUND(AVG(dg.xp_diff_at_15), 0) as avg_xp_diff_at_15,
+            COUNT(*) FILTER (WHERE dg.first_blood_participant)::int as first_blood_participations,
+            COUNT(*) FILTER (WHERE dg.first_blood_victim)::int as first_blood_victims,
+            SUM(dg.double_kills)::int as double_kills,
+            SUM(dg.triple_kills)::int as triple_kills,
+            SUM(dg.quadra_kills)::int as quadra_kills,
+            SUM(dg.penta_kills)::int as penta_kills,
+            0::int as unique_champions_played,
+            SUM(dg.botlane_2v2_kills)::int as total_2v2_kills,
+            SUM(dg.botlane_2v2_deaths)::int as total_2v2_deaths,
+            ROUND(AVG(dg.gold_at_15), 0) as avg_gold_at_15,
+            ROUND(AVG(dg.xp_at_15), 0) as avg_xp_at_15,
+            ROUND(AVG(dg.cs_at_15), 1) as avg_cs_at_15,
+            ROUND(AVG(dg.kills_at_15), 2) as avg_kills_at_15,
+            ROUND(AVG(dg.deaths_at_15), 2) as avg_deaths_at_15,
+            ROUND(AVG(
+              CASE WHEN COALESCE(dg.team_kills_at_15, 0) > 0
+              THEN dg.kp_at_15_numerator * 100.0 / dg.team_kills_at_15
+              ELSE 0 END
+            ), 0) as avg_kp_at_15,
+            ROUND(AVG(COALESCE(dg.team_kills_at_15, 0)), 2) as avg_team_kills_at_15,
+            0::numeric as avg_proximity_top,
+            0::numeric as avg_proximity_jungle,
+            0::numeric as avg_proximity_mid,
+            0::numeric as avg_proximity_adc,
+            0::numeric as avg_proximity_support,
+            0::numeric as avg_isolation,
+            0::numeric as avg_solo_kills,
+            ROUND(AVG(dg.vision_score * 60.0 / GREATEST(dg.duration, 1)), 2) as avg_vspm
+          FROM duo_games dg
+          LEFT JOIN pro_teams pt ON dg.team_id = pt.team_id
+          GROUP BY dg.team_id, pt.short_name, pt.name
+          HAVING COUNT(*) >= ?
+          ORDER BY ${orderColumn} DESC
+          OFFSET ?
+          LIMIT ?
+        `, [...roleBindings, ...filterBindings, parsedMinGames, (pageNum - 1) * perPageNum, perPageNum])
+
+        return {
+          data: dataResult.rows.map((row: Record<string, unknown>) => ({
+            playerId: row.team_id,
+            playerName: null,
+            role: null,
+            teamName: row.team_name,
+            teamShortName: row.team_short_name,
+            duoMode: true,
+            gamesPlayed: Number(row.games_played),
+            gamesWon: Number(row.games_won),
+            winRate: Number(row.win_rate),
+            avgKills: Number(row.avg_kills),
+            avgDeaths: Number(row.avg_deaths),
+            avgAssists: Number(row.avg_assists),
+            avgKda: Number(row.avg_kda),
+            avgCsPerMin: Number(row.avg_cs_per_min),
+            avgGoldPerMin: Number(row.avg_gold_per_min),
+            avgDamagePerMin: Number(row.avg_damage_per_min),
+            avgKillParticipation: Number(row.avg_kill_participation),
+            avgGoldDiffAt15: Number(row.avg_gold_diff_at_15),
+            totalKills: Number(row.total_kills),
+            totalDeaths: Number(row.total_deaths),
+            totalAssists: Number(row.total_assists),
+            pentaKills: Number(row.penta_kills),
+            avgVisionScore: Number(row.avg_vision_score),
+            avgGoldShare: Number(row.avg_gold_share),
+            avgDamageShare: Number(row.avg_damage_share),
+            avgCsDiffAt15: Number(row.avg_cs_diff_at_15),
+            avgXpDiffAt15: Number(row.avg_xp_diff_at_15),
+            firstBloodParticipations: Number(row.first_blood_participations),
+            firstBloodVictims: Number(row.first_blood_victims),
+            doubleKills: Number(row.double_kills),
+            tripleKills: Number(row.triple_kills),
+            quadraKills: Number(row.quadra_kills),
+            uniqueChampionsPlayed: 0,
+            avgProximityTop: 0,
+            avgProximityJungle: 0,
+            avgProximityMid: 0,
+            avgProximityAdc: 0,
+            avgProximitySupport: 0,
+            avgIsolation: 0,
+            total2v2Kills: Number(row.total_2v2_kills),
+            total2v2Deaths: Number(row.total_2v2_deaths),
+            avgGoldAt15: Number(row.avg_gold_at_15),
+            avgXpAt15: Number(row.avg_xp_at_15),
+            avgCsAt15: Number(row.avg_cs_at_15),
+            avgKillsAt15: Number(row.avg_kills_at_15),
+            avgDeathsAt15: Number(row.avg_deaths_at_15),
+            avgKpAt15: Number(row.avg_kp_at_15),
+            avgTeamKillsAt15: Number(row.avg_team_kills_at_15),
+            avgSoloKills: Number(row.avg_solo_kills),
+            avgVspm: Number(row.avg_vspm),
+            avgPlates: 0,
+          })),
+          meta: {
+            total,
+            perPage: perPageNum,
+            currentPage: pageNum,
+            lastPage: Math.ceil(total / perPageNum),
+          },
+        }
+      }
+
+      // Base joins for querying per-game player stats
+      const baseJoins = `
+        FROM pro_player_stats ps
+        JOIN pro_games g ON ps.game_id = g.game_id
+        JOIN pro_matches m ON g.match_id = m.match_id
+        JOIN pro_tournaments tr ON m.tournament_id = tr.tournament_id
+        ${needsLeagueJoin ? 'LEFT JOIN pro_leagues pl ON tr.pro_league_id = pl.league_id' : ''}
+        LEFT JOIN players p ON ps.player_id = p.player_id
+        WHERE g.status IN ('completed', 'processed') ${filterSql}
+      `
+
       // Count query
       const countResult = await db.rawQuery(`
         SELECT COUNT(*) as total FROM (
-          SELECT pas.player_id, pas.role
-          FROM pro_player_aggregated_stats pas
-          JOIN pro_tournaments tr ON pas.tournament_id = tr.tournament_id
-          ${searchFilter ? 'LEFT JOIN players p ON pas.player_id = p.player_id' : ''}
-          WHERE 1=1 ${leagueFilter} ${roleFilter} ${searchFilter}
-          GROUP BY pas.player_id, pas.role
-          HAVING SUM(pas.games_played) >= ${parsedMinGames}
+          SELECT ps.player_id
+          ${baseJoins}
+          GROUP BY ps.player_id
+          HAVING COUNT(*) >= ?
         ) sub
-      `)
+      `, [...filterBindings, parsedMinGames])
 
       const total = Number(countResult.rows[0]?.total || 0)
 
-      // Data query - aggregate across tournaments
+      // Data query - aggregate per-game stats, one row per player
       const dataResult = await db.rawQuery(`
         SELECT
-          pas.player_id,
+          ps.player_id,
           p.current_pseudo as player_name,
-          pas.role,
-          MAX(t.name) as team_name,
-          MAX(t.short_name) as team_short_name,
-          SUM(pas.games_played)::int as games_played,
-          SUM(pas.games_won)::int as games_won,
-          ROUND(SUM(pas.games_won) * 100.0 / GREATEST(SUM(pas.games_played), 1), 1) as win_rate,
-          ROUND(SUM(pas.total_kills)::numeric / GREATEST(SUM(pas.games_played), 1), 2) as avg_kills,
-          ROUND(SUM(pas.total_deaths)::numeric / GREATEST(SUM(pas.games_played), 1), 2) as avg_deaths,
-          ROUND(SUM(pas.total_assists)::numeric / GREATEST(SUM(pas.games_played), 1), 2) as avg_assists,
-          ROUND(
-            (SUM(pas.total_kills) + SUM(pas.total_assists))::numeric /
-            GREATEST(SUM(pas.total_deaths), 1), 2
-          ) as avg_kda,
-          ROUND(AVG(pas.avg_cs_per_min), 2) as avg_cs_per_min,
-          ROUND(AVG(pas.avg_gold_per_min), 0) as avg_gold_per_min,
-          ROUND(AVG(pas.avg_damage_per_min), 0) as avg_damage_per_min,
-          ROUND(AVG(pas.avg_kill_participation), 1) as avg_kill_participation,
-          ROUND(AVG(pas.avg_gold_diff_at_15), 0) as avg_gold_diff_at_15,
-          SUM(pas.total_kills)::int as total_kills,
-          SUM(pas.total_deaths)::int as total_deaths,
-          SUM(pas.total_assists)::int as total_assists,
-          SUM(pas.penta_kills)::int as penta_kills
-        FROM pro_player_aggregated_stats pas
-        JOIN pro_tournaments tr ON pas.tournament_id = tr.tournament_id
-        LEFT JOIN players p ON pas.player_id = p.player_id
-        LEFT JOIN pro_teams t ON pas.team_id = t.team_id
-        WHERE 1=1 ${leagueFilter} ${roleFilter} ${searchFilter}
-        GROUP BY pas.player_id, p.current_pseudo, pas.role
-        HAVING SUM(pas.games_played) >= ${parsedMinGames}
+
+          -- Role (most played)
+          (SELECT sub.role FROM pro_player_stats sub
+           JOIN pro_games sg ON sub.game_id = sg.game_id
+           WHERE sub.player_id = ps.player_id
+             AND sg.status IN ('completed', 'processed')
+           GROUP BY sub.role ORDER BY COUNT(*) DESC LIMIT 1
+          ) as role,
+
+          -- Team (most recent)
+          (SELECT COALESCE(st.short_name, st.name) FROM pro_player_stats sub2
+           JOIN pro_games sg2 ON sub2.game_id = sg2.game_id
+           LEFT JOIN pro_teams st ON sub2.team_id = st.team_id
+           WHERE sub2.player_id = ps.player_id
+             AND sg2.status IN ('completed', 'processed')
+           ORDER BY sg2.started_at DESC NULLS LAST LIMIT 1
+          ) as team_short_name,
+
+          (SELECT st2.name FROM pro_player_stats sub3
+           JOIN pro_games sg3 ON sub3.game_id = sg3.game_id
+           LEFT JOIN pro_teams st2 ON sub3.team_id = st2.team_id
+           WHERE sub3.player_id = ps.player_id
+             AND sg3.status IN ('completed', 'processed')
+           ORDER BY sg3.started_at DESC NULLS LAST LIMIT 1
+          ) as team_name,
+
+          -- Core aggregates
+          COUNT(*)::int as games_played,
+          COUNT(*) FILTER (WHERE g.winner_team_id = ps.team_id)::int as games_won,
+          ROUND(COUNT(*) FILTER (WHERE g.winner_team_id = ps.team_id) * 100.0 / GREATEST(COUNT(*), 1), 1) as win_rate,
+          ROUND(AVG(ps.kills), 2) as avg_kills,
+          ROUND(AVG(ps.deaths), 2) as avg_deaths,
+          ROUND(AVG(ps.assists), 2) as avg_assists,
+          ROUND((SUM(ps.kills) + SUM(ps.assists))::numeric / GREATEST(SUM(ps.deaths), 1), 2) as avg_kda,
+          ROUND(AVG(ps.cs * 60.0 / GREATEST(g.duration, 1)), 2) as avg_cs_per_min,
+          ROUND(AVG(ps.gold_earned * 60.0 / GREATEST(g.duration, 1)), 0) as avg_gold_per_min,
+          ROUND(AVG(ps.damage_dealt * 60.0 / GREATEST(g.duration, 1)), 0) as avg_damage_per_min,
+          SUM(ps.kills)::int as total_kills,
+          SUM(ps.deaths)::int as total_deaths,
+          SUM(ps.assists)::int as total_assists,
+
+          -- Vision
+          ROUND(AVG(COALESCE((ps.vision->>'score')::numeric, 0)), 1) as avg_vision_score,
+
+          -- Gold/damage share (computed via lateral join)
+          ROUND(AVG(CASE WHEN team_totals.team_gold > 0 THEN ps.gold_earned * 100.0 / team_totals.team_gold ELSE 0 END), 1) as avg_gold_share,
+          ROUND(AVG(CASE WHEN team_totals.team_damage > 0 THEN ps.damage_dealt * 100.0 / team_totals.team_damage ELSE 0 END), 1) as avg_damage_share,
+
+          -- Kill participation
+          ROUND(AVG(CASE WHEN team_totals.team_kills > 0 THEN (ps.kills + ps.assists) * 100.0 / team_totals.team_kills ELSE 0 END), 1) as avg_kill_participation,
+
+          -- Diffs @15 (from timing_data JSONB)
+          ROUND(AVG(COALESCE((ps.timing_data->'15'->>'cs_diff')::numeric, 0)), 1) as avg_cs_diff_at_15,
+          ROUND(AVG(COALESCE((ps.timing_data->'15'->>'gold_diff')::numeric, 0)), 0) as avg_gold_diff_at_15,
+          ROUND(AVG(COALESCE((ps.timing_data->'15'->>'xp_diff')::numeric, 0)), 0) as avg_xp_diff_at_15,
+
+          -- First blood
+          COUNT(*) FILTER (WHERE ps.first_blood_participant)::int as first_blood_participations,
+          COUNT(*) FILTER (WHERE ps.first_blood_victim)::int as first_blood_victims,
+
+          -- Multi-kills (from JSONB)
+          SUM(COALESCE((ps.multi_kills->>'double')::int, 0))::int as double_kills,
+          SUM(COALESCE((ps.multi_kills->>'triple')::int, 0))::int as triple_kills,
+          SUM(COALESCE((ps.multi_kills->>'quadra')::int, 0))::int as quadra_kills,
+          SUM(COALESCE((ps.multi_kills->>'penta')::int, 0))::int as penta_kills,
+
+          -- Unique champions
+          COUNT(DISTINCT ps.champion_id)::int as unique_champions_played,
+
+          -- Early game stats (@15min, from timing_data->'15')
+          SUM(COALESCE((ps.solo_stats->>'botlane_2v2_kills')::int, 0))::int as total_2v2_kills,
+          SUM(COALESCE((ps.solo_stats->>'botlane_2v2_deaths')::int, 0))::int as total_2v2_deaths,
+          ROUND(AVG(COALESCE((ps.timing_data->'15'->>'gold')::numeric, 0)), 0) as avg_gold_at_15,
+          ROUND(AVG(COALESCE((ps.timing_data->'15'->>'xp')::numeric, 0)), 0) as avg_xp_at_15,
+          ROUND(AVG(COALESCE((ps.timing_data->'15'->>'cs')::numeric, 0)), 1) as avg_cs_at_15,
+          ROUND(AVG(COALESCE((ps.timing_data->'15'->>'kills')::numeric, 0)), 2) as avg_kills_at_15,
+          ROUND(AVG(COALESCE((ps.timing_data->'15'->>'deaths')::numeric, 0)), 2) as avg_deaths_at_15,
+          ROUND(AVG(
+            CASE WHEN COALESCE(team_totals.team_kills_at_15, 0) > 0
+            THEN (COALESCE((ps.timing_data->'15'->>'kills')::numeric, 0) + COALESCE((ps.timing_data->'15'->>'assists')::numeric, 0)) * 100.0 / team_totals.team_kills_at_15
+            ELSE 0 END
+          ), 0) as avg_kp_at_15,
+          ROUND(AVG(COALESCE(team_totals.team_kills_at_15, 0)), 2) as avg_team_kills_at_15,
+
+          -- Proximity % (time near each role as % of own lane time)
+          ROUND(AVG(
+            CASE WHEN COALESCE((ps.proximity->>ps.role)::numeric, 0) > 0
+            THEN COALESCE((ps.proximity->>'Top')::numeric, 0) * 100.0 / (ps.proximity->>ps.role)::numeric
+            ELSE 0 END
+          ), 1) as avg_proximity_top,
+          ROUND(AVG(
+            CASE WHEN COALESCE((ps.proximity->>ps.role)::numeric, 0) > 0
+            THEN COALESCE((ps.proximity->>'Jungle')::numeric, 0) * 100.0 / (ps.proximity->>ps.role)::numeric
+            ELSE 0 END
+          ), 1) as avg_proximity_jungle,
+          ROUND(AVG(
+            CASE WHEN COALESCE((ps.proximity->>ps.role)::numeric, 0) > 0
+            THEN COALESCE((ps.proximity->>'Mid')::numeric, 0) * 100.0 / (ps.proximity->>ps.role)::numeric
+            ELSE 0 END
+          ), 1) as avg_proximity_mid,
+          ROUND(AVG(
+            CASE WHEN COALESCE((ps.proximity->>ps.role)::numeric, 0) > 0
+            THEN COALESCE((ps.proximity->>'ADC')::numeric, 0) * 100.0 / (ps.proximity->>ps.role)::numeric
+            ELSE 0 END
+          ), 1) as avg_proximity_adc,
+          ROUND(AVG(
+            CASE WHEN COALESCE((ps.proximity->>ps.role)::numeric, 0) > 0
+            THEN COALESCE((ps.proximity->>'Support')::numeric, 0) * 100.0 / (ps.proximity->>ps.role)::numeric
+            ELSE 0 END
+          ), 1) as avg_proximity_support,
+
+          -- Isolation % (time alone as % of own lane time)
+          ROUND(AVG(
+            CASE WHEN COALESCE((ps.proximity->>ps.role)::numeric, 0) > 0
+            THEN ps.isolation * 100.0 / (ps.proximity->>ps.role)::numeric
+            ELSE 0 END
+          ), 1) as avg_isolation,
+
+          -- Solo kills
+          ROUND(AVG(COALESCE((ps.solo_stats->>'solo_kills')::numeric, 0)), 2) as avg_solo_kills,
+
+          -- Vision score per minute
+          ROUND(AVG(COALESCE((ps.vision->>'score')::numeric, 0) * 60.0 / GREATEST(g.duration, 1)), 2) as avg_vspm,
+
+          -- Plates destroyed
+          ROUND(AVG(COALESCE((ps.plates->>'destroyed')::numeric, 0)), 2) as avg_plates
+
+        FROM pro_player_stats ps
+        JOIN pro_games g ON ps.game_id = g.game_id
+        JOIN pro_matches m ON g.match_id = m.match_id
+        JOIN pro_tournaments tr ON m.tournament_id = tr.tournament_id
+        LEFT JOIN players p ON ps.player_id = p.player_id
+        LEFT JOIN LATERAL (
+          SELECT SUM(ps2.kills) as team_kills,
+                 SUM(ps2.gold_earned) as team_gold,
+                 SUM(ps2.damage_dealt) as team_damage,
+                 SUM(COALESCE((ps2.timing_data->'15'->>'kills')::numeric, 0)) as team_kills_at_15
+          FROM pro_player_stats ps2
+          WHERE ps2.game_id = ps.game_id AND ps2.team_id = ps.team_id
+        ) team_totals ON true
+        WHERE g.status IN ('completed', 'processed') ${filterSql}
+        GROUP BY ps.player_id, p.current_pseudo
+        HAVING COUNT(*) >= ?
         ORDER BY ${orderColumn} DESC
-        OFFSET ${(pageNum - 1) * perPageNum}
-        LIMIT ${perPageNum}
-      `)
+        OFFSET ?
+        LIMIT ?
+      `, [...filterBindings, parsedMinGames, (pageNum - 1) * perPageNum, perPageNum])
 
       return {
         data: dataResult.rows.map((row: Record<string, unknown>) => ({
@@ -326,6 +986,35 @@ export default class ProLeagueStatsController {
           totalDeaths: Number(row.total_deaths),
           totalAssists: Number(row.total_assists),
           pentaKills: Number(row.penta_kills),
+          avgVisionScore: Number(row.avg_vision_score),
+          avgGoldShare: Number(row.avg_gold_share),
+          avgDamageShare: Number(row.avg_damage_share),
+          avgCsDiffAt15: Number(row.avg_cs_diff_at_15),
+          avgXpDiffAt15: Number(row.avg_xp_diff_at_15),
+          firstBloodParticipations: Number(row.first_blood_participations),
+          firstBloodVictims: Number(row.first_blood_victims),
+          doubleKills: Number(row.double_kills),
+          tripleKills: Number(row.triple_kills),
+          quadraKills: Number(row.quadra_kills),
+          uniqueChampionsPlayed: Number(row.unique_champions_played),
+          avgProximityTop: Number(row.avg_proximity_top),
+          avgProximityJungle: Number(row.avg_proximity_jungle),
+          avgProximityMid: Number(row.avg_proximity_mid),
+          avgProximityAdc: Number(row.avg_proximity_adc),
+          avgProximitySupport: Number(row.avg_proximity_support),
+          avgIsolation: Number(row.avg_isolation),
+          total2v2Kills: Number(row.total_2v2_kills),
+          total2v2Deaths: Number(row.total_2v2_deaths),
+          avgGoldAt15: Number(row.avg_gold_at_15),
+          avgXpAt15: Number(row.avg_xp_at_15),
+          avgCsAt15: Number(row.avg_cs_at_15),
+          avgKillsAt15: Number(row.avg_kills_at_15),
+          avgDeathsAt15: Number(row.avg_deaths_at_15),
+          avgKpAt15: Number(row.avg_kp_at_15),
+          avgTeamKillsAt15: Number(row.avg_team_kills_at_15),
+          avgSoloKills: Number(row.avg_solo_kills),
+          avgVspm: Number(row.avg_vspm),
+          avgPlates: Number(row.avg_plates),
         })),
         meta: {
           total,
@@ -341,18 +1030,27 @@ export default class ProLeagueStatsController {
 
   /**
    * GET /api/v1/pro/stats/team-leaderboards
-   * Cross-tournament team leaderboards
+   * Cross-tournament team leaderboards (from per-game pro_team_stats)
    */
   async teamLeaderboards(ctx: HttpContext) {
     const {
       leagueId,
+      leagueIds,
+      years,
+      tournamentIds,
+      tier,
+      isPlayoffs,
       minGames = 3,
       sortBy = 'winRate',
       page = 1,
       perPage = 20,
     } = ctx.request.qs()
 
-    const parsedLeagueId = leagueId ? Number(leagueId) : null
+    const parsedLeagueIds = this.parseIds(leagueIds) ?? (leagueId ? [Number(leagueId)] : [])
+    const parsedYears = this.parseIds(years) ?? []
+    const parsedTournamentIds = this.parseIds(tournamentIds) ?? []
+    const parsedTier = tier && Number.isFinite(Number(tier)) ? Number(tier) : null
+    const parsedIsPlayoffs = isPlayoffs === 'true' ? true : isPlayoffs === 'false' ? false : null
     const parsedMinGames = Math.max(1, Number(minGames) || 3)
     const pageNum = Math.max(1, Number(page))
     const perPageNum = Math.min(100, Math.max(1, Number(perPage)))
@@ -361,67 +1059,174 @@ export default class ProLeagueStatsController {
       winRate: 'game_win_rate',
       games: 'total_games',
       avgKills: 'avg_kills',
+      avgDeaths: 'avg_deaths',
       avgDuration: 'avg_duration',
+      avgTowers: 'avg_towers',
+      avgDragons: 'avg_dragons',
+      avgBarons: 'avg_barons',
       firstBloodRate: 'first_blood_rate',
       firstTowerRate: 'first_tower_rate',
+      firstDragonRate: 'first_dragon_rate',
+      firstHeraldRate: 'first_herald_rate',
+      firstGrubsRate: 'first_grubs_rate',
+      firstBaronRate: 'first_baron_rate',
+      avgGoldAt15: 'avg_gold_at_15',
+      avgGoldDiffAt15: 'avg_gold_diff_at_15',
+      avgFirstDragonTime: 'avg_first_dragon_time',
+      avgFirstTowerTime: 'avg_first_tower_time',
+      dragonSoulRate: 'dragon_soul_rate',
+      avgHeralds: 'avg_heralds',
+      avgGrubs: 'avg_grubs',
+      avgPlates: 'avg_plates',
+      avgElderDragons: 'avg_elder_dragons',
+      avgDragonsAt15: 'avg_dragons_at_15',
+      avgTowersAt15: 'avg_towers_at_15',
+      avgTotalGold: 'avg_total_gold',
+      avgVisionScore: 'avg_vision_score',
+      avgWardsPlaced: 'avg_wards_placed',
     }
 
     const orderColumn = sortColumns[sortBy] || 'game_win_rate'
 
-    const leagueFilter = parsedLeagueId
-      ? `AND tr.pro_league_id = ${parsedLeagueId}`
-      : ''
+    // Build parameterized filters
+    const filterClauses: string[] = []
+    const filterBindings: unknown[] = []
 
-    const cacheKey = `pro:stats:team-lb:${parsedLeagueId || 'all'}:${parsedMinGames}:${sortBy}:${pageNum}:${perPageNum}`
+    if (parsedLeagueIds.length > 0) {
+      filterClauses.push(`AND tr.pro_league_id IN (${parsedLeagueIds.map(() => '?').join(',')})`)
+      filterBindings.push(...parsedLeagueIds)
+    }
+    if (parsedYears.length > 0) {
+      filterClauses.push(`AND tr.year IN (${parsedYears.map(() => '?').join(',')})`)
+      filterBindings.push(...parsedYears)
+    }
+    if (parsedTournamentIds.length > 0) {
+      filterClauses.push(`AND ts.tournament_id IN (${parsedTournamentIds.map(() => '?').join(',')})`)
+      filterBindings.push(...parsedTournamentIds)
+    }
+    if (parsedTier !== null) {
+      filterClauses.push('AND pl.tier = ?')
+      filterBindings.push(parsedTier)
+    }
+    if (parsedIsPlayoffs !== null) {
+      filterClauses.push('AND tr.is_playoffs = ?')
+      filterBindings.push(parsedIsPlayoffs)
+    }
+
+    const filterSql = filterClauses.join(' ')
+    const needsLeagueJoin = parsedTier !== null
+
+    const cacheKey = `pro:stats:team-lb:l=${[...parsedLeagueIds].sort().join(',') || 'all'}:y=${[...parsedYears].sort().join(',') || 'all'}:tn=${[...parsedTournamentIds].sort().join(',') || 'all'}:ti=${parsedTier ?? 'all'}:po=${parsedIsPlayoffs ?? 'all'}:${parsedMinGames}:${sortBy}:${pageNum}:${perPageNum}`
 
     const result = await cacheService.getOrSet(cacheKey, CACHE_TTL.MEDIUM, async () => {
+      const leagueJoinSql = needsLeagueJoin ? 'LEFT JOIN pro_leagues pl ON tr.pro_league_id = pl.league_id' : ''
+
       const countResult = await db.rawQuery(`
         SELECT COUNT(*) as total FROM (
           SELECT ts.team_id
           FROM pro_team_stats ts
           JOIN pro_tournaments tr ON ts.tournament_id = tr.tournament_id
-          WHERE 1=1 ${leagueFilter}
+          ${leagueJoinSql}
+          WHERE 1=1 ${filterSql}
           GROUP BY ts.team_id
-          HAVING SUM(ts.games_played) >= ${parsedMinGames}
+          HAVING COUNT(*) >= ?
         ) sub
-      `)
+      `, [...filterBindings, parsedMinGames])
 
       const total = Number(countResult.rows[0]?.total || 0)
 
       const dataResult = await db.rawQuery(`
-        SELECT
-          ts.team_id,
-          t.name as team_name,
-          t.short_name,
-          SUM(ts.games_played)::int as total_games,
-          SUM(ts.games_won)::int as total_wins,
-          ROUND(SUM(ts.games_won) * 100.0 / GREATEST(SUM(ts.games_played), 1), 1) as game_win_rate,
-          SUM(ts.matches_played)::int as total_matches,
-          SUM(ts.matches_won)::int as total_matches_won,
-          ROUND(AVG(ts.avg_game_duration), 0) as avg_duration,
-          ROUND(AVG(ts.avg_kills), 1) as avg_kills,
-          ROUND(
-            SUM(ts.first_blood_rate * ts.games_played)::numeric /
-            GREATEST(SUM(ts.games_played), 1), 0
-          ) as first_blood_rate,
-          ROUND(
-            SUM(ts.first_tower_rate * ts.games_played)::numeric /
-            GREATEST(SUM(ts.games_played), 1), 0
-          ) as first_tower_rate,
-          SUM(ts.blue_side_games)::int as blue_games,
-          SUM(ts.blue_side_wins)::int as blue_wins,
-          SUM(ts.red_side_games)::int as red_games,
-          SUM(ts.red_side_wins)::int as red_wins
-        FROM pro_team_stats ts
-        JOIN pro_tournaments tr ON ts.tournament_id = tr.tournament_id
-        LEFT JOIN pro_teams t ON ts.team_id = t.team_id
-        WHERE 1=1 ${leagueFilter}
-        GROUP BY ts.team_id, t.name, t.short_name
-        HAVING SUM(ts.games_played) >= ${parsedMinGames}
+        WITH team_agg AS (
+          SELECT
+            ts.team_id,
+            t.name as team_name,
+            COALESCE(t.short_name, t.name) as short_name,
+            COUNT(*) as total_games,
+            COUNT(*) FILTER (WHERE ts.win) as total_wins,
+            ROUND(COUNT(*) FILTER (WHERE ts.win) * 100.0 / COUNT(*), 1) as game_win_rate,
+            ROUND(AVG(ts.duration), 0) as avg_duration,
+            ROUND(AVG(ts.kills)::numeric, 1) as avg_kills,
+            ROUND(AVG(ts.deaths)::numeric, 1) as avg_deaths,
+            ROUND(AVG(ts.towers)::numeric, 1) as avg_towers,
+            ROUND(AVG(ts.dragons)::numeric, 1) as avg_dragons,
+            ROUND(AVG(ts.barons)::numeric, 1) as avg_barons,
+            ROUND(COUNT(*) FILTER (WHERE ts.first_blood) * 100.0 / COUNT(*), 1) as first_blood_rate,
+            ROUND(COUNT(*) FILTER (WHERE ts.first_tower) * 100.0 / COUNT(*), 1) as first_tower_rate,
+            ROUND(COUNT(*) FILTER (WHERE ts.first_dragon) * 100.0 / COUNT(*), 1) as first_dragon_rate,
+            ROUND(COUNT(*) FILTER (WHERE ts.first_herald) * 100.0 / COUNT(*), 1) as first_herald_rate,
+            ROUND(COUNT(*) FILTER (WHERE ts.first_grubs) * 100.0 / NULLIF(COUNT(*), 0), 1) as first_grubs_rate,
+            ROUND(COUNT(*) FILTER (WHERE ts.first_baron) * 100.0 / NULLIF(COUNT(*), 0), 1) as first_baron_rate,
+            ROUND(AVG(ts.gold_at_15)::numeric, 0) as avg_gold_at_15,
+            ROUND(AVG(ts.gold_diff_at_15)::numeric, 0) as avg_gold_diff_at_15,
+            COUNT(*) FILTER (WHERE ts.side = 'blue') as blue_games,
+            COUNT(*) FILTER (WHERE ts.side = 'blue' AND ts.win) as blue_wins,
+            COUNT(*) FILTER (WHERE ts.side = 'red') as red_games,
+            COUNT(*) FILTER (WHERE ts.side = 'red' AND ts.win) as red_wins,
+            -- First objective avg timings (only when team got the first)
+            ROUND(AVG(ts.first_blood_time) FILTER (WHERE ts.first_blood_time IS NOT NULL)::numeric, 0) as avg_first_blood_time,
+            ROUND(AVG(ts.first_tower_time) FILTER (WHERE ts.first_tower_time IS NOT NULL)::numeric, 0) as avg_first_tower_time,
+            ROUND(AVG(ts.first_dragon_time) FILTER (WHERE ts.first_dragon_time IS NOT NULL)::numeric, 0) as avg_first_dragon_time,
+            ROUND(AVG(ts.first_herald_time) FILTER (WHERE ts.first_herald_time IS NOT NULL)::numeric, 0) as avg_first_herald_time,
+            ROUND(AVG(ts.first_baron_time) FILTER (WHERE ts.first_baron_time IS NOT NULL)::numeric, 0) as avg_first_baron_time,
+            ROUND(AVG(ts.first_grubs_time) FILTER (WHERE ts.first_grubs_time IS NOT NULL)::numeric, 0) as avg_first_grubs_time,
+            -- Dragon type averages per game
+            ROUND(AVG(ts.fire_dragons)::numeric, 2) as avg_fire_dragons,
+            ROUND(AVG(ts.ocean_dragons)::numeric, 2) as avg_ocean_dragons,
+            ROUND(AVG(ts.mountain_dragons)::numeric, 2) as avg_mountain_dragons,
+            ROUND(AVG(ts.air_dragons)::numeric, 2) as avg_air_dragons,
+            ROUND(AVG(ts.hextech_dragons)::numeric, 2) as avg_hextech_dragons,
+            ROUND(AVG(ts.chemtech_dragons)::numeric, 2) as avg_chemtech_dragons,
+            ROUND(AVG(ts.elder_dragons)::numeric, 2) as avg_elder_dragons,
+            -- Dragon soul rate
+            ROUND(COUNT(*) FILTER (WHERE ts.dragon_soul) * 100.0 / NULLIF(COUNT(*), 0), 1) as dragon_soul_rate,
+            -- Heralds, grubs, plates
+            ROUND(AVG(ts.heralds)::numeric, 1) as avg_heralds,
+            ROUND(AVG(ts.grubs)::numeric, 1) as avg_grubs,
+            ROUND(AVG(ts.plates)::numeric, 1) as avg_plates,
+            -- Early game @15min
+            ROUND(AVG(ts.dragons_at_15)::numeric, 2) as avg_dragons_at_15,
+            ROUND(AVG(ts.towers_at_15)::numeric, 2) as avg_towers_at_15,
+            -- Gold and vision
+            ROUND(AVG(ts.total_gold)::numeric, 0) as avg_total_gold,
+            ROUND(AVG(ts.vision_score)::numeric, 1) as avg_vision_score,
+            ROUND(AVG(ts.wards_placed)::numeric, 1) as avg_wards_placed,
+            ROUND(AVG(ts.wards_destroyed)::numeric, 1) as avg_wards_destroyed,
+            ROUND(AVG(ts.control_wards)::numeric, 1) as avg_control_wards
+          FROM pro_team_stats ts
+          JOIN pro_tournaments tr ON ts.tournament_id = tr.tournament_id
+          ${leagueJoinSql}
+          LEFT JOIN pro_teams t ON ts.team_id = t.team_id
+          WHERE 1=1 ${filterSql}
+          GROUP BY ts.team_id, t.name, t.short_name
+          HAVING COUNT(*) >= ?
+        ),
+        match_agg AS (
+          SELECT
+            sub.team_id,
+            COUNT(DISTINCT sub.match_id) as total_matches,
+            COUNT(DISTINCT sub.match_id) FILTER (WHERE sub.match_won) as total_matches_won
+          FROM (
+            SELECT
+              ts.match_id,
+              ts.team_id,
+              COUNT(*) FILTER (WHERE ts.win) > COUNT(*) FILTER (WHERE NOT ts.win) as match_won
+            FROM pro_team_stats ts
+            JOIN pro_tournaments tr ON ts.tournament_id = tr.tournament_id
+            ${leagueJoinSql}
+            WHERE 1=1 ${filterSql}
+            GROUP BY ts.match_id, ts.team_id
+          ) sub
+          GROUP BY sub.team_id
+        )
+        SELECT ta.*,
+               COALESCE(ma.total_matches, 0) as total_matches,
+               COALESCE(ma.total_matches_won, 0) as total_matches_won
+        FROM team_agg ta
+        LEFT JOIN match_agg ma ON ta.team_id = ma.team_id
         ORDER BY ${orderColumn} DESC
-        OFFSET ${(pageNum - 1) * perPageNum}
-        LIMIT ${perPageNum}
-      `)
+        OFFSET ?
+        LIMIT ?
+      `, [...filterBindings, parsedMinGames, ...filterBindings, (pageNum - 1) * perPageNum, perPageNum])
 
       return {
         data: dataResult.rows.map((row: Record<string, unknown>) => ({
@@ -435,12 +1240,51 @@ export default class ProLeagueStatsController {
           matchesWon: Number(row.total_matches_won),
           avgDuration: Number(row.avg_duration),
           avgKills: Number(row.avg_kills),
+          avgDeaths: Number(row.avg_deaths),
+          avgTowers: Number(row.avg_towers),
+          avgDragons: Number(row.avg_dragons),
+          avgBarons: Number(row.avg_barons),
           firstBloodRate: Number(row.first_blood_rate),
           firstTowerRate: Number(row.first_tower_rate),
+          firstDragonRate: Number(row.first_dragon_rate),
+          firstHeraldRate: Number(row.first_herald_rate),
+          firstGrubsRate: Number(row.first_grubs_rate),
+          firstBaronRate: Number(row.first_baron_rate),
+          avgGoldAt15: Number(row.avg_gold_at_15),
+          avgGoldDiffAt15: Number(row.avg_gold_diff_at_15),
           blueGames: Number(row.blue_games),
           blueWins: Number(row.blue_wins),
           redGames: Number(row.red_games),
           redWins: Number(row.red_wins),
+          // First objective timings
+          avgFirstBloodTime: row.avg_first_blood_time != null ? Number(row.avg_first_blood_time) : null,
+          avgFirstTowerTime: row.avg_first_tower_time != null ? Number(row.avg_first_tower_time) : null,
+          avgFirstDragonTime: row.avg_first_dragon_time != null ? Number(row.avg_first_dragon_time) : null,
+          avgFirstHeraldTime: row.avg_first_herald_time != null ? Number(row.avg_first_herald_time) : null,
+          avgFirstBaronTime: row.avg_first_baron_time != null ? Number(row.avg_first_baron_time) : null,
+          avgFirstGrubsTime: row.avg_first_grubs_time != null ? Number(row.avg_first_grubs_time) : null,
+          // Dragon type averages
+          avgFireDragons: Number(row.avg_fire_dragons),
+          avgOceanDragons: Number(row.avg_ocean_dragons),
+          avgMountainDragons: Number(row.avg_mountain_dragons),
+          avgAirDragons: Number(row.avg_air_dragons),
+          avgHextechDragons: Number(row.avg_hextech_dragons),
+          avgChemtechDragons: Number(row.avg_chemtech_dragons),
+          avgElderDragons: Number(row.avg_elder_dragons),
+          // Dragon soul & other objectives
+          dragonSoulRate: Number(row.dragon_soul_rate),
+          avgHeralds: Number(row.avg_heralds),
+          avgGrubs: Number(row.avg_grubs),
+          avgPlates: Number(row.avg_plates),
+          // Early game @15min
+          avgDragonsAt15: Number(row.avg_dragons_at_15),
+          avgTowersAt15: Number(row.avg_towers_at_15),
+          // Gold and vision
+          avgTotalGold: Number(row.avg_total_gold),
+          avgVisionScore: Number(row.avg_vision_score),
+          avgWardsPlaced: Number(row.avg_wards_placed),
+          avgWardsDestroyed: Number(row.avg_wards_destroyed),
+          avgControlWards: Number(row.avg_control_wards),
         })),
         meta: {
           total,
@@ -459,23 +1303,52 @@ export default class ProLeagueStatsController {
    * Champion pick/ban stats aggregated across tournaments
    */
   async championStats(ctx: HttpContext) {
-    const { leagueId } = ctx.request.qs()
-    const parsedLeagueId = leagueId ? Number(leagueId) : null
+    const { leagueId, leagueIds, years, tournamentIds, tier, isPlayoffs } = ctx.request.qs()
+    const parsedLeagueIds = this.parseIds(leagueIds) ?? (leagueId ? [Number(leagueId)] : [])
+    const parsedYears = this.parseIds(years) ?? []
+    const parsedTournamentIds = this.parseIds(tournamentIds) ?? []
+    const parsedTier = tier && Number.isFinite(Number(tier)) ? Number(tier) : null
+    const parsedIsPlayoffs = isPlayoffs === 'true' ? true : isPlayoffs === 'false' ? false : null
 
-    const cacheKey = `pro:stats:champion-stats:${parsedLeagueId || 'all'}`
+    const cacheKey = `pro:stats:champion-stats:l=${[...parsedLeagueIds].sort().join(',') || 'all'}:y=${[...parsedYears].sort().join(',') || 'all'}:tn=${[...parsedTournamentIds].sort().join(',') || 'all'}:ti=${parsedTier ?? 'all'}:po=${parsedIsPlayoffs ?? 'all'}`
 
     const result = await cacheService.getOrSet(cacheKey, CACHE_TTL.MEDIUM, async () => {
-      const leagueFilter = parsedLeagueId
-        ? `AND t.pro_league_id = ${parsedLeagueId}`
-        : ''
+      const filterClauses: string[] = []
+      const filterBindings: unknown[] = []
+
+      if (parsedLeagueIds.length > 0) {
+        filterClauses.push(`AND t.pro_league_id IN (${parsedLeagueIds.map(() => '?').join(',')})`)
+        filterBindings.push(...parsedLeagueIds)
+      }
+      if (parsedYears.length > 0) {
+        filterClauses.push(`AND t.year IN (${parsedYears.map(() => '?').join(',')})`)
+        filterBindings.push(...parsedYears)
+      }
+      if (parsedTournamentIds.length > 0) {
+        filterClauses.push(`AND cs.tournament_id IN (${parsedTournamentIds.map(() => '?').join(',')})`)
+        filterBindings.push(...parsedTournamentIds)
+      }
+      if (parsedTier !== null) {
+        filterClauses.push('AND pl.tier = ?')
+        filterBindings.push(parsedTier)
+      }
+      if (parsedIsPlayoffs !== null) {
+        filterClauses.push('AND t.is_playoffs = ?')
+        filterBindings.push(parsedIsPlayoffs)
+      }
+
+      const filterSql = filterClauses.join(' ')
+      const needsLeagueJoin = parsedTier !== null
+      const leagueJoinSql = needsLeagueJoin ? 'LEFT JOIN pro_leagues pl ON t.pro_league_id = pl.league_id' : ''
 
       const totalGamesResult = await db.rawQuery(`
         SELECT COUNT(DISTINCT g.game_id) as total
         FROM pro_games g
         JOIN pro_matches m ON g.match_id = m.match_id
         JOIN pro_tournaments t ON m.tournament_id = t.tournament_id
-        WHERE g.status IN ('completed', 'processed') ${leagueFilter}
-      `)
+        ${leagueJoinSql}
+        WHERE g.status IN ('completed', 'processed') ${filterSql}
+      `, [...filterBindings])
       const totalGames = Number(totalGamesResult.rows[0]?.total || 1)
 
       const dataResult = await db.rawQuery(`
@@ -496,10 +1369,11 @@ export default class ProLeagueStatsController {
           SUM(cs.support_picks)::int as support_picks
         FROM pro_champion_stats cs
         JOIN pro_tournaments t ON cs.tournament_id = t.tournament_id
-        WHERE 1=1 ${leagueFilter}
+        ${leagueJoinSql}
+        WHERE 1=1 ${filterSql}
         GROUP BY cs.champion_id
         ORDER BY SUM(cs.picks) DESC
-      `)
+      `, [...filterBindings])
 
       return {
         totalGames,
@@ -560,7 +1434,407 @@ export default class ProLeagueStatsController {
     return ctx.response.ok(result)
   }
 
-  // --- Helpers ---
+  /**
+   * GET /api/v1/pro/stats/tournaments
+   * List tournaments filtered by league/year (for tournament filter dropdown)
+   */
+  async tournaments(ctx: HttpContext) {
+    const { leagueId, year } = ctx.request.qs()
+    const parsedLeagueId = leagueId ? Number(leagueId) : null
+    const parsedYear = year ? Number(year) : null
+
+    const cacheKey = `pro:stats:tournaments:${parsedLeagueId || 'all'}:${parsedYear || 'all'}`
+
+    const result = await cacheService.getOrSet(cacheKey, CACHE_TTL.LONG, async () => {
+      const clauses: string[] = []
+      const bindings: (number | string)[] = []
+
+      if (parsedLeagueId) {
+        clauses.push('AND t.pro_league_id = ?')
+        bindings.push(parsedLeagueId)
+      }
+      if (parsedYear) {
+        clauses.push('AND t.year = ?')
+        bindings.push(parsedYear)
+      }
+
+      const filterSql = clauses.join(' ')
+
+      const dataResult = await db.rawQuery(`
+        SELECT t.tournament_id, t.name, t.year, t.start_date,
+               t.pro_league_id,
+               l.short_name as league_short_name,
+               COUNT(DISTINCT m.match_id)::int as match_count
+        FROM pro_tournaments t
+        LEFT JOIN pro_leagues l ON t.pro_league_id = l.league_id
+        LEFT JOIN pro_matches m ON t.tournament_id = m.tournament_id
+        WHERE 1=1 ${filterSql}
+        GROUP BY t.tournament_id, t.name, t.year, t.start_date,
+                 t.pro_league_id, l.short_name
+        HAVING COUNT(DISTINCT m.match_id) > 0
+        ORDER BY t.start_date DESC NULLS LAST
+      `, [...bindings])
+
+      return {
+        data: dataResult.rows.map((row: Record<string, unknown>) => {
+          const name = String(row.name || '')
+          const isPlayoffs = /playoff/i.test(name)
+          let split: string | null = null
+          if (/spring/i.test(name)) split = 'Spring'
+          else if (/summer/i.test(name)) split = 'Summer'
+          else if (/winter/i.test(name)) split = 'Winter'
+
+          return {
+            tournamentId: Number(row.tournament_id),
+            name,
+            year: row.year != null ? Number(row.year) : null,
+            leagueId: row.pro_league_id != null ? Number(row.pro_league_id) : null,
+            leagueShortName: row.league_short_name ?? null,
+            startDate: row.start_date ?? null,
+            isPlayoffs,
+            split,
+          }
+        }),
+      }
+    })
+
+    return ctx.response.ok(result)
+  }
+
+  /**
+   * GET /api/v1/pro/stats/teams
+   * List all pro teams (for team filter dropdown)
+   * Supports optional leagueId and year params to filter teams
+   */
+  async proTeams(ctx: HttpContext) {
+    const { leagueId, year } = ctx.request.qs()
+    const parsedLeagueId = leagueId ? Number(leagueId) : null
+    const parsedYear = year ? Number(year) : null
+
+    const cacheKey = `pro:stats:teams:${parsedLeagueId || 'all'}:${parsedYear || 'all'}`
+    const result = await cacheService.getOrSet(cacheKey, CACHE_TTL.LONG, async () => {
+      if (!parsedLeagueId && !parsedYear) {
+        // No filters: use simpler query
+        const dataResult = await db.rawQuery(`
+          SELECT DISTINCT t.team_id, t.name, COALESCE(t.short_name, t.name) as short_name
+          FROM pro_teams t
+          JOIN pro_team_stats ts ON ts.team_id = t.team_id
+          ORDER BY COALESCE(t.short_name, t.name)
+        `)
+        return {
+          data: dataResult.rows.map((row: Record<string, unknown>) => ({
+            teamId: Number(row.team_id),
+            name: row.name,
+            shortName: row.short_name,
+          })),
+        }
+      }
+
+      // Filtered: join through games/matches/tournaments
+      const clauses: string[] = []
+      const bindings: (number | string)[] = []
+      if (parsedLeagueId) {
+        clauses.push('AND tr.pro_league_id = ?')
+        bindings.push(parsedLeagueId)
+      }
+      if (parsedYear) {
+        clauses.push('AND tr.year = ?')
+        bindings.push(parsedYear)
+      }
+      const filterSql = clauses.join(' ')
+
+      const dataResult = await db.rawQuery(`
+        SELECT DISTINCT t.team_id, t.name, COALESCE(t.short_name, t.name) as short_name
+        FROM pro_teams t
+        JOIN pro_team_stats ts ON ts.team_id = t.team_id
+        JOIN pro_matches m ON ts.match_id = m.match_id
+        JOIN pro_tournaments tr ON m.tournament_id = tr.tournament_id
+        WHERE 1=1 ${filterSql}
+        ORDER BY COALESCE(t.short_name, t.name)
+      `, [...bindings])
+
+      return {
+        data: dataResult.rows.map((row: Record<string, unknown>) => ({
+          teamId: Number(row.team_id),
+          name: row.name,
+          shortName: row.short_name,
+        })),
+      }
+    })
+    return ctx.response.ok(result)
+  }
+
+  /**
+   * GET /api/v1/pro/stats/players
+   * List all pro players (for player H2H dropdown)
+   */
+  async proPlayers(ctx: HttpContext) {
+    const cacheKey = 'pro:stats:players'
+    const result = await cacheService.getOrSet(cacheKey, CACHE_TTL.LONG, async () => {
+      const dataResult = await db.rawQuery(`
+        SELECT DISTINCT p.player_id, p.current_pseudo as name,
+          (SELECT sub.role FROM pro_player_stats sub
+           WHERE sub.player_id = p.player_id
+           GROUP BY sub.role ORDER BY COUNT(*) DESC LIMIT 1
+          ) as role,
+          (SELECT COALESCE(st.short_name, st.name) FROM pro_player_stats sub2
+           JOIN pro_games g2 ON sub2.game_id = g2.game_id
+           LEFT JOIN pro_teams st ON sub2.team_id = st.team_id
+           WHERE sub2.player_id = p.player_id
+           ORDER BY g2.started_at DESC NULLS LAST LIMIT 1
+          ) as team_short_name
+        FROM players p
+        JOIN pro_player_stats ps ON ps.player_id = p.player_id
+        ORDER BY p.current_pseudo
+      `)
+      return {
+        data: dataResult.rows.map((row: Record<string, unknown>) => ({
+          playerId: Number(row.player_id),
+          name: row.name,
+          role: row.role ?? null,
+          teamShortName: row.team_short_name ?? null,
+        })),
+      }
+    })
+    return ctx.response.ok(result)
+  }
+
+
+
+  // --- Query helpers ---
+
+  private async queryBoRecords(format: string, order: 'ASC' | 'DESC', filterSql: string, filterBindings: unknown[], boTeamFilterSql = '', boTeamFilterBindings: unknown[] = []) {
+    const validFormats = ['bo1', 'bo3', 'bo5']
+    if (!validFormats.includes(format)) return { rows: [] }
+
+    return db.rawQuery(`
+      WITH bo_games AS (
+        SELECT m.match_id, m.format, m.team1_score, m.team2_score,
+               SUM(g.duration) as total_duration,
+               COUNT(g.game_id) as games_played,
+               MIN(g.started_at) as game_date,
+               tr.name as tournament_name
+        FROM pro_games g
+        JOIN pro_matches m ON g.match_id = m.match_id
+        JOIN pro_tournaments tr ON m.tournament_id = tr.tournament_id
+        LEFT JOIN pro_leagues pl ON tr.pro_league_id = pl.league_id
+        WHERE g.status IN ('completed', 'processed') AND m.format = ? AND g.duration > 0
+          ${filterSql}${boTeamFilterSql}
+        GROUP BY m.match_id, m.format, m.team1_score, m.team2_score, tr.name
+      ),
+      bo_with_teams AS (
+        SELECT bg.*,
+               COALESCE(t1.short_name, t1.name) as team1_name, COALESCE(t2.short_name, t2.name) as team2_name,
+               CASE WHEN ts1_wins > ts2_wins THEN COALESCE(t1.short_name, t1.name) ELSE COALESCE(t2.short_name, t2.name) END as winner_name
+        FROM bo_games bg
+        LEFT JOIN LATERAL (
+          SELECT ts.team_id, COUNT(*) FILTER (WHERE ts.win) as wins
+          FROM pro_team_stats ts WHERE ts.match_id = bg.match_id
+          GROUP BY ts.team_id ORDER BY wins DESC LIMIT 1
+        ) w1 ON true
+        LEFT JOIN LATERAL (
+          SELECT DISTINCT ts.team_id FROM pro_team_stats ts
+          WHERE ts.match_id = bg.match_id AND ts.team_id != COALESCE(w1.team_id, 0)
+          LIMIT 1
+        ) w2 ON true
+        LEFT JOIN pro_teams t1 ON w1.team_id = t1.team_id
+        LEFT JOIN pro_teams t2 ON w2.team_id = t2.team_id
+        LEFT JOIN LATERAL (
+          SELECT COUNT(*) FILTER (WHERE ts.win) as ts1_wins
+          FROM pro_team_stats ts WHERE ts.match_id = bg.match_id AND ts.team_id = w1.team_id
+        ) s1 ON true
+        LEFT JOIN LATERAL (
+          SELECT COUNT(*) FILTER (WHERE ts.win) as ts2_wins
+          FROM pro_team_stats ts WHERE ts.match_id = bg.match_id AND ts.team_id = COALESCE(w2.team_id, 0)
+        ) s2 ON true
+      )
+      SELECT total_duration, format, team1_name, team2_name, winner_name,
+             tournament_name, game_date, games_played
+      FROM bo_with_teams
+      ORDER BY total_duration ${order}
+      LIMIT 50
+    `, [format, ...filterBindings, ...boTeamFilterBindings])
+  }
+
+  private async queryGameStreaks(isWin: boolean, filterSql: string, filterBindings: unknown[], teamIdFilterSql = '', teamIdFilterBindings: unknown[] = []) {
+    const winCondition = isWin ? 'win = true' : 'win = false'
+    return db.rawQuery(`
+      WITH game_results AS (
+        SELECT ts.team_id, COALESCE(t.short_name, t.name) as team_name, g.started_at, ts.win,
+          ROW_NUMBER() OVER (PARTITION BY ts.team_id ORDER BY g.started_at) -
+          ROW_NUMBER() OVER (PARTITION BY ts.team_id, ts.win ORDER BY g.started_at) as grp
+        FROM pro_team_stats ts
+        JOIN pro_games g ON ts.game_id = g.game_id
+        JOIN pro_teams t ON ts.team_id = t.team_id
+        JOIN pro_matches m ON ts.match_id = m.match_id
+        JOIN pro_tournaments tr ON m.tournament_id = tr.tournament_id
+        LEFT JOIN pro_leagues pl ON tr.pro_league_id = pl.league_id
+        WHERE g.status IN ('completed', 'processed') ${filterSql}${teamIdFilterSql}
+      )
+      SELECT team_name, COUNT(*) as streak_length,
+             MIN(started_at) as streak_start, MAX(started_at) as streak_end
+      FROM game_results
+      WHERE ${winCondition}
+      GROUP BY team_id, team_name, grp
+      ORDER BY streak_length DESC
+      LIMIT 50
+    `, [...filterBindings, ...teamIdFilterBindings])
+  }
+
+  private async queryMatchStreaks(isWin: boolean, filterSql: string, filterBindings: unknown[], teamIdFilterSql = '', teamIdFilterBindings: unknown[] = []) {
+    const winCondition = isWin ? 'match_won = true' : 'match_won = false'
+    return db.rawQuery(`
+      WITH match_results AS (
+        SELECT ts.team_id, COALESCE(t.short_name, t.name) as team_name, ts.match_id,
+               MIN(g.started_at) as match_date,
+               COUNT(*) FILTER (WHERE ts.win) > COUNT(*) FILTER (WHERE NOT ts.win) as match_won
+        FROM pro_team_stats ts
+        JOIN pro_games g ON ts.game_id = g.game_id
+        JOIN pro_teams t ON ts.team_id = t.team_id
+        JOIN pro_matches m ON ts.match_id = m.match_id
+        JOIN pro_tournaments tr ON m.tournament_id = tr.tournament_id
+        LEFT JOIN pro_leagues pl ON tr.pro_league_id = pl.league_id
+        WHERE g.status IN ('completed', 'processed') ${filterSql}${teamIdFilterSql}
+        GROUP BY ts.team_id, t.name, t.short_name, ts.match_id
+      ),
+      numbered AS (
+        SELECT *,
+          ROW_NUMBER() OVER (PARTITION BY team_id ORDER BY match_date) -
+          ROW_NUMBER() OVER (PARTITION BY team_id, match_won ORDER BY match_date) as grp
+        FROM match_results
+      )
+      SELECT team_name, COUNT(*) as streak_length,
+             MIN(match_date) as streak_start, MAX(match_date) as streak_end
+      FROM numbered
+      WHERE ${winCondition}
+      GROUP BY team_id, team_name, grp
+      ORDER BY streak_length DESC
+      LIMIT 50
+    `, [...filterBindings, ...teamIdFilterBindings])
+  }
+
+  /**
+   * GET /api/v1/pro/stats/filter-map
+   * Returns independent filter lists (no cascading).
+   * Each dropdown shows all available values — lightweight queries with EXISTS.
+   */
+  async filterMap(ctx: HttpContext) {
+    const cacheKey = 'pro:stats:filter-map'
+
+    const result = await cacheService.getOrSet(cacheKey, CACHE_TTL.LONG, async () => {
+      const [yearsResult, leaguesResult, teamsResult, playersResult, tournamentsResult] = await Promise.all([
+        // Years: distinct years from tournaments that have completed games
+        db.rawQuery(`
+          SELECT DISTINCT tr.year
+          FROM pro_tournaments tr
+          JOIN pro_matches m ON m.tournament_id = tr.tournament_id
+          JOIN pro_games g ON g.match_id = m.match_id
+          WHERE g.status IN ('completed', 'processed')
+            AND tr.year IS NOT NULL AND tr.pro_league_id IS NOT NULL
+          ORDER BY tr.year DESC
+        `),
+
+        // Leagues
+        db.rawQuery(`
+          SELECT league_id, name, short_name, tier FROM pro_leagues ORDER BY name
+        `),
+
+        // Teams (only those with completed/processed games)
+        db.rawQuery(`
+          SELECT DISTINCT t.team_id, t.name, COALESCE(t.short_name, t.name) as short_name
+          FROM pro_teams t
+          WHERE EXISTS (
+            SELECT 1 FROM pro_player_stats ps
+            JOIN pro_games g ON ps.game_id = g.game_id
+            WHERE ps.team_id = t.team_id AND g.status IN ('completed', 'processed')
+          )
+          ORDER BY COALESCE(t.short_name, t.name)
+        `),
+
+        // Players (only those with completed/processed games)
+        db.rawQuery(`
+          SELECT DISTINCT p.player_id, p.current_pseudo as name
+          FROM players p
+          WHERE EXISTS (
+            SELECT 1 FROM pro_player_stats ps
+            JOIN pro_games g ON ps.game_id = g.game_id
+            WHERE ps.player_id = p.player_id AND g.status IN ('completed', 'processed')
+          )
+          ORDER BY p.current_pseudo
+        `),
+
+        // Tournaments (only those with completed/processed games)
+        db.rawQuery(`
+          SELECT DISTINCT t.tournament_id, t.name
+          FROM pro_tournaments t
+          WHERE EXISTS (
+            SELECT 1 FROM pro_matches m
+            JOIN pro_games g ON g.match_id = m.match_id
+            WHERE m.tournament_id = t.tournament_id AND g.status IN ('completed', 'processed')
+          )
+            AND t.year IS NOT NULL AND t.pro_league_id IS NOT NULL
+          ORDER BY t.name
+        `),
+      ])
+
+      // Extract distinct tiers from leagues
+      const tiers = [...new Set(leaguesResult.rows.map((r: Record<string, unknown>) => Number(r.tier ?? 1)))].sort((a, b) => a - b)
+
+      return {
+        years: yearsResult.rows.map((r: Record<string, unknown>) => Number(r.year)),
+        tiers,
+        leagues: leaguesResult.rows.map((r: Record<string, unknown>) => ({
+          leagueId: Number(r.league_id),
+          name: r.name as string,
+          shortName: (r.short_name as string) ?? null,
+          tier: Number(r.tier ?? 1),
+        })),
+        teams: teamsResult.rows.map((r: Record<string, unknown>) => ({
+          teamId: Number(r.team_id),
+          name: r.name as string,
+          shortName: r.short_name as string,
+        })),
+        players: playersResult.rows.map((r: Record<string, unknown>) => ({
+          playerId: Number(r.player_id),
+          name: r.name as string,
+        })),
+        tournaments: tournamentsResult.rows.map((r: Record<string, unknown>) => ({
+          tournamentId: Number(r.tournament_id),
+          name: r.name as string,
+        })),
+      }
+    })
+
+    return ctx.response.ok(result)
+  }
+
+  /**
+   * GET /api/v1/pro/stats/years
+   * Distinct years from pro_tournaments
+   */
+  async years(ctx: HttpContext) {
+    const cacheKey = 'pro:stats:years'
+    const result = await cacheService.getOrSet(cacheKey, CACHE_TTL.LONG, async () => {
+      const dataResult = await db.rawQuery(`
+        SELECT DISTINCT year FROM pro_tournaments
+        WHERE year IS NOT NULL ORDER BY year DESC
+      `)
+      return { data: dataResult.rows.map((r: Record<string, unknown>) => Number(r.year)) }
+    })
+    return ctx.response.ok(result)
+  }
+
+  // --- Format helpers ---
+
+  private parseIds(value: string | undefined, max = 50): number[] | null {
+    if (!value || typeof value !== 'string') return null
+    const ids = value
+      .split(',')
+      .map((s) => Number(s.trim()))
+      .filter((n) => Number.isFinite(n) && n > 0)
+      .slice(0, max)
+    return ids.length > 0 ? ids : null
+  }
 
   private secureCompare(a: string, b: string): boolean {
     if (a.length !== b.length) {
@@ -572,15 +1846,18 @@ export default class ProLeagueStatsController {
   private formatPlayerRecords(rows: Record<string, unknown>[]) {
     return rows.map((row) => ({
       playerName: row.player_name,
-      championName: row.champion_name,
+      championId: row.champion_id != null ? Number(row.champion_id) : null,
       value: Number(row.value),
       teamName: row.team_name,
+      opponentName: row.opponent_name ?? null,
+      role: row.role ?? null,
       tournamentName: row.tournament_name,
       gameDate: row.game_date,
       kills: row.kills != null ? Number(row.kills) : undefined,
       deaths: row.deaths != null ? Number(row.deaths) : undefined,
       assists: row.assists != null ? Number(row.assists) : undefined,
       duration: row.duration != null ? Number(row.duration) : undefined,
+      win: row.win ?? null,
     }))
   }
 
@@ -593,4 +1870,27 @@ export default class ProLeagueStatsController {
       gameDate: row.game_date,
     }))
   }
+
+  private formatBoRecords(rows: Record<string, unknown>[]) {
+    return rows.map((row) => ({
+      value: Number(row.total_duration),
+      format: row.format,
+      team1Name: row.team1_name ?? null,
+      team2Name: row.team2_name ?? null,
+      winnerName: row.winner_name ?? null,
+      tournamentName: row.tournament_name,
+      gameDate: row.game_date ?? null,
+      gamesPlayed: Number(row.games_played),
+    }))
+  }
+
+  private formatStreakRecords(rows: Record<string, unknown>[]) {
+    return rows.map((row) => ({
+      teamName: row.team_name,
+      value: Number(row.streak_length),
+      streakStart: row.streak_start ?? null,
+      streakEnd: row.streak_end ?? null,
+    }))
+  }
+
 }

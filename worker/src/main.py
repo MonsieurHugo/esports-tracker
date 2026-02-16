@@ -1,17 +1,16 @@
 """
-Esports Tracker - Worker
-Python async worker for Riot Games API data fetching
+Esports Tracker - SoloQ Worker
+Python async worker for Riot Games API data fetching (SoloQ matches)
 """
 
 import asyncio
-import logging
 import signal
 import sys
 
-import structlog
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from src.config import settings
+from src.logging_config import setup_logging
 from src.services.database import DatabaseService
 from src.jobs.fetch_matches import FetchMatchesJob
 from src.jobs.fetch_matches_v2 import FetchMatchesJobV2
@@ -19,37 +18,11 @@ from src.jobs.sync_champions import SyncChampionsJob
 from src.jobs.validate_accounts import ValidateAccountsJob
 from src.services.account_selector import AccountSelectorConfig
 
-# Configure standard logging
-logging.basicConfig(
-    format="%(message)s",
-    stream=sys.stdout,
-    level=getattr(logging, settings.log_level.upper(), logging.INFO),
-)
-
-# Configure structlog
-structlog.configure(
-    processors=[
-        structlog.stdlib.filter_by_level,
-        structlog.stdlib.add_logger_name,
-        structlog.stdlib.add_log_level,
-        structlog.stdlib.PositionalArgumentsFormatter(),
-        structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.StackInfoRenderer(),
-        structlog.processors.format_exc_info,
-        structlog.processors.UnicodeDecoder(),
-        structlog.dev.ConsoleRenderer() if settings.debug else structlog.processors.JSONRenderer(),
-    ],
-    wrapper_class=structlog.stdlib.BoundLogger,
-    context_class=dict,
-    logger_factory=structlog.stdlib.LoggerFactory(),
-    cache_logger_on_first_use=True,
-)
-
-logger = structlog.get_logger(__name__)
+logger = setup_logging("worker.soloq")
 
 
-class Worker:
-    """Main worker class that orchestrates all background jobs."""
+class SoloQWorker:
+    """Worker for SoloQ data fetching via Riot Games API."""
 
     def __init__(self):
         self.scheduler = AsyncIOScheduler()
@@ -62,7 +35,12 @@ class Worker:
 
     async def setup(self):
         """Initialize services and connections."""
-        logger.info("Initializing worker services...")
+        logger.info("Initializing SoloQ worker services...")
+
+        # Validate Riot API key
+        if not settings.has_riot_api():
+            logger.error("RIOT_API_KEY is not configured. Set it in worker/.env")
+            raise ValueError("RIOT_API_KEY environment variable is required for SoloQ worker")
 
         # Initialize database connection
         self.db = DatabaseService(settings.database_url)
@@ -86,10 +64,7 @@ class Worker:
             logger.warning("Champion sync failed at startup", error=str(e))
 
     async def _setup_jobs(self):
-        """Setup all jobs."""
-        # Fetch matches job (continuous, runs as background task)
-        # Note: Rank is fetched directly in fetch_matches when new matches are found
-
+        """Setup SoloQ jobs."""
         account_selector = None
 
         if self.use_priority_queue:
@@ -145,7 +120,7 @@ class Worker:
         await self.db.log_worker_activity(
             log_type="info",
             severity="info",
-            message="Worker démarré"
+            message="Worker SoloQ démarré"
         )
 
         # Start the scheduler for periodic jobs
@@ -162,7 +137,7 @@ class Worker:
 
         self.running = True
         logger.info(
-            "Worker started",
+            "SoloQ Worker started",
             scheduled_jobs=len(self.scheduler.get_jobs()),
             background_tasks=1,
         )
@@ -171,85 +146,54 @@ class Worker:
         while self.running:
             await asyncio.sleep(1)
 
+    async def _safe_shutdown_step(self, name: str, coro, timeout: float = 5.0):
+        """Execute a shutdown step safely, logging warnings on failure."""
+        try:
+            await asyncio.wait_for(coro, timeout=timeout)
+        except asyncio.TimeoutError:
+            logger.warning(f"Timeout: {name}")
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.warning(f"Error during {name}", error=str(e))
+
     async def shutdown(self):
         """Graceful shutdown with proper error handling."""
         logger.info("Starting graceful shutdown...")
         self.running = False
 
-        errors = []
-
-        # Stop the fetch matches job first
         if self.fetch_matches_job:
-            try:
-                await asyncio.wait_for(self.fetch_matches_job.stop(), timeout=5.0)
-            except asyncio.TimeoutError:
-                errors.append("Timeout stopping fetch matches job")
-                logger.warning("Timeout stopping fetch matches job")
-            except Exception as e:
-                errors.append(f"Fetch matches job stop: {e}")
-                logger.warning("Error stopping fetch matches job", error=str(e))
+            await self._safe_shutdown_step("stop fetch matches job", self.fetch_matches_job.stop())
 
-        # Cancel and wait for the background task
         if self.fetch_matches_task:
             self.fetch_matches_task.cancel()
-            try:
-                await asyncio.wait_for(self.fetch_matches_task, timeout=10.0)
-            except asyncio.TimeoutError:
-                errors.append("Timeout waiting for fetch matches task cancellation")
-                logger.warning("Timeout waiting for fetch matches task cancellation")
-            except asyncio.CancelledError:
-                pass  # Expected behavior
-            except Exception as e:
-                errors.append(f"Fetch matches task: {e}")
-                logger.warning("Error waiting for fetch matches task", error=str(e))
+            await self._safe_shutdown_step("cancel fetch matches task", self.fetch_matches_task, timeout=10.0)
 
-        # Shutdown scheduler
         try:
             self.scheduler.shutdown(wait=True)
         except Exception as e:
-            errors.append(f"Scheduler shutdown: {e}")
             logger.warning("Error shutting down scheduler", error=str(e))
 
-        # Update worker status in database
         if self.db:
-            try:
-                await self.db.set_worker_running(False)
-            except Exception as e:
-                errors.append(f"Worker status update: {e}")
-                logger.warning("Failed to update worker status", error=str(e))
-
-            try:
-                await self.db.log_worker_activity(
-                    log_type="info",
-                    severity="info",
-                    message="Worker arrêté"
-                )
-            except Exception as e:
-                errors.append(f"Worker activity log: {e}")
-                logger.warning("Failed to log worker stop activity", error=str(e))
-
-            # Disconnect database
+            await self._safe_shutdown_step("update worker status", self.db.set_worker_running(False))
+            await self._safe_shutdown_step(
+                "log worker stop",
+                self.db.log_worker_activity(log_type="info", severity="info", message="Worker SoloQ arrêté"),
+            )
             try:
                 await asyncio.wait_for(self.db.disconnect(), timeout=10.0)
             except asyncio.TimeoutError:
-                errors.append("Database disconnect timeout")
                 logger.warning("Timeout disconnecting database, forcing pool termination")
-                # Force terminate on timeout to prevent connection leaks
                 await self.db.force_terminate()
-                logger.warning("Database pool terminated forcefully due to timeout")
             except Exception as e:
-                errors.append(f"Database disconnect: {e}")
                 logger.warning("Failed to disconnect database", error=str(e))
 
-        if errors:
-            logger.warning("Shutdown completed with errors", errors=errors)
-        else:
-            logger.info("Shutdown completed successfully")
+        logger.info("Shutdown completed")
 
 
 async def main():
     """Main entry point."""
-    worker = Worker()
+    worker = SoloQWorker()
     shutdown_event = asyncio.Event()
 
     # Setup signal handlers (platform-specific)
@@ -276,6 +220,10 @@ async def main():
 
     try:
         await worker.start()
+    except ValueError as e:
+        # Configuration error (e.g., missing RIOT_API_KEY)
+        logger.error(str(e))
+        sys.exit(1)
     except Exception as e:
         logger.exception("Worker error", error=str(e))
         shutdown_event.set()

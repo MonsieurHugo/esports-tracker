@@ -25,5 +25,6 @@ router.use([
  */
 export const middleware = router.named({
   rateLimit: () => import('#middleware/rate_limit_middleware'),
-  workerAuth: () => import('#middleware/worker_auth_middleware'),
+  proAdminAuth: () => import('#middleware/pro_admin_auth_middleware'),
+  soloqAdminAuth: () => import('#middleware/soloq_admin_auth_middleware'),
 })

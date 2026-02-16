@@ -33,7 +33,7 @@ function StatCard({ label, value, change, changeUnit = '%', teams }: StatCardPro
               <div key={index} className="flex items-center gap-1.5">
                 <div
                   className="w-2 h-2 rounded-full shrink-0"
-                  style={{ backgroundColor: index === 0 ? 'var(--accent)' : 'var(--lol)' }}
+                  style={{ backgroundColor: index === 0 ? 'var(--accent)' : 'var(--chart-compare)' }}
                 />
                 <span className="font-mono text-sm font-bold leading-none">
                   {typeof team.value === 'number' ? team.value.toLocaleString('fr-FR') : team.value}

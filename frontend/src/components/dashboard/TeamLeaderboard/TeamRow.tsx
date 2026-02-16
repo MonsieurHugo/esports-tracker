@@ -53,10 +53,10 @@ const TeamRow = memo(function TeamRow({ entry, selectionIndex, isExpanded, onSel
         className={`
           flex items-center px-2 sm:px-3 py-1.5 cursor-pointer transition-colors duration-150 border-b border-(--border)
           ${selectionIndex === 0 ? 'bg-(--accent)/10 border-l-2 border-l-(--accent)' : ''}
-          ${selectionIndex === 1 ? 'bg-(--lol)/10 border-l-2 border-l-(--lol)' : ''}
+          ${selectionIndex === 1 ? 'bg-(--chart-compare)/10 border-l-2 border-l-(--chart-compare)' : ''}
           ${selectionIndex === null ? 'hover:bg-(--bg-hover)' : ''}
           ${isPinned && selectionIndex === 0 ? 'bg-(--accent)/15 border-b-2 border-b-(--accent)/30' : ''}
-          ${isPinned && selectionIndex === 1 ? 'bg-(--lol)/15 border-b-2 border-b-(--lol)/30' : ''}
+          ${isPinned && selectionIndex === 1 ? 'bg-(--chart-compare)/15 border-b-2 border-b-(--chart-compare)/30' : ''}
         `}
       >
         <span className={`font-mono font-semibold text-[10px] sm:text-[11px] w-6 sm:w-7 ${entry.rank === -1 ? 'text-(--text-muted)' : getRankTextClass(entry.rank)}`}>

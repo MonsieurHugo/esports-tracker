@@ -33,30 +33,3 @@ export function logWarn(message: string, context?: LogContext): void {
     console.warn(`[WARN] ${message}`, context)
   }
 }
-
-/**
- * Logs debug information in development only.
- */
-export function logDebug(message: string, context?: LogContext): void {
-  if (isDev) {
-    console.debug(`[DEBUG] ${message}`, context)
-  }
-}
-
-/**
- * Logs info in development only.
- */
-export function logInfo(message: string, context?: LogContext): void {
-  if (isDev) {
-    console.info(`[INFO] ${message}`, context)
-  }
-}
-
-export const logger = {
-  error: logError,
-  warn: logWarn,
-  debug: logDebug,
-  info: logInfo,
-}
-
-export default logger

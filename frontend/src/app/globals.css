@@ -129,6 +129,25 @@
   --muted: var(--text-muted);
 }
 
+/* Custom scrollbar for dark theme */
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.scrollbar-thin::-webkit-scrollbar {
+  width: 6px;
+}
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background-color: var(--border);
+  border-radius: 3px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background-color: var(--text-muted);
+}
+
 body {
   background-color: var(--bg-primary);
   color: var(--text-primary);
@@ -142,15 +161,15 @@ body {
 
 /* Écrans QHD (1440p) sans scaling - légèrement plus grand */
 @media (min-height: 1350px) and (max-height: 1600px) {
-  body {
-    zoom: 1.1;
+  :root {
+    font-size: 110%;
   }
 }
 
 /* Écrans 4K sans scaling - plus grand */
 @media (min-height: 2000px) {
-  body {
-    zoom: 1.25;
+  :root {
+    font-size: 125%;
   }
 }
 

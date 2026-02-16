@@ -215,7 +215,7 @@ function getDefaultTicks(strategy: TickStrategy): number[] {
  * Format LP values for axis display
  * Examples: 234 → "234", 2350 → "2.4k", 15000 → "15k"
  */
-export function formatLp(value: number): string {
+export function formatLpAxis(value: number): string {
   if (value >= 10000) return `${(value / 1000).toFixed(0)}k`
   if (value >= 1000) return `${(value / 1000).toFixed(1).replace(/\.0$/, '')}k`
   return value.toString()
@@ -241,7 +241,7 @@ export function formatSigned(value: number): string {
  */
 export function formatSignedLp(value: number): string {
   const prefix = value > 0 ? '+' : ''
-  return `${prefix}${formatLp(Math.abs(value))}`
+  return `${prefix}${formatLpAxis(Math.abs(value))}`
 }
 
 // ============================================================================

@@ -174,7 +174,7 @@ export default function GamesFilter({ value, onChange, max = 500 }: GamesFilterP
                 onClick={() => handlePresetClick(preset)}
                 className={`flex-1 py-1 text-[10px] rounded transition-colors ${
                   localValue === preset
-                    ? 'bg-(--accent) text-white'
+                    ? 'bg-(--accent) text-black'
                     : 'bg-(--bg-secondary) text-(--text-muted) hover:bg-(--bg-hover)'
                 }`}
               >

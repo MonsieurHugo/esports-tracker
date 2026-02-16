@@ -8,11 +8,12 @@ Data flow:
   Leaguepedia → pro_leagues, pro_tournaments, pro_teams, players,
                 pro_matches, pro_games, pro_player_stats,
                 pro_drafts, pro_draft_actions,
-                pro_player_aggregated_stats, pro_team_stats, pro_champion_stats
+                pro_team_stats, pro_champion_stats
 """
 
 import json
 import os
+import re
 import sys
 import time
 from collections import defaultdict
@@ -37,7 +38,9 @@ logger = structlog.get_logger(__name__)
 # Configuration
 # ==========================================
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/esports_tracker")
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise ValueError("DATABASE_URL environment variable is required")
 LEAGUEPEDIA_MAX_YEAR = int(os.getenv("LEAGUEPEDIA_MAX_YEAR", "2025"))
 
 LEAGUES = [
@@ -112,10 +115,18 @@ def load_champion_mapping() -> None:
             data = json.load(f)
         logger.info("Loaded champion mapping from local file", count=len(data.get("champions", {})))
     else:
-        # Fetch from DDragon
+        # Fetch from DDragon (get latest version first)
         try:
+            versions_resp = httpx.get(
+                "https://ddragon.leagueoflegends.com/api/versions.json",
+                timeout=15,
+            )
+            versions_resp.raise_for_status()
+            latest_version = versions_resp.json()[0]
+            logger.info("Using DDragon version", version=latest_version)
+
             resp = httpx.get(
-                "https://ddragon.leagueoflegends.com/cdn/16.1.1/data/en_US/champion.json",
+                f"https://ddragon.leagueoflegends.com/cdn/{latest_version}/data/en_US/champion.json",
                 timeout=30,
             )
             resp.raise_for_status()
@@ -203,6 +214,27 @@ def make_slug(text: str) -> str:
     return text.lower().replace("/", "-").replace(" ", "-").replace("'", "")
 
 
+def parse_player_name(raw_name: str) -> tuple[str, str, str | None, str | None]:
+    """Parse Leaguepedia disambiguated player name.
+
+    Leaguepedia uses 'Pseudo (First Last)' for players sharing the same pseudo.
+    Returns (clean_pseudo, slug, first_name, last_name).
+    The slug keeps the full disambiguated form to avoid collisions.
+    """
+    match = re.match(r'^(.+?)\s*\((.+)\)\s*$', raw_name.strip())
+    if match:
+        pseudo = match.group(1).strip()
+        real_name = match.group(2).strip()
+        # Keep disambiguated slug to avoid collisions (e.g. two "Knight" players)
+        slug = raw_name.strip().lower().replace(" ", "-")
+        parts = real_name.split(None, 1)
+        first_name = parts[0]
+        last_name = parts[1] if len(parts) > 1 else None
+        return (pseudo, slug, first_name, last_name)
+    clean = raw_name.strip()
+    return (clean, clean.lower().replace(" ", "-"), None, None)
+
+
 def parse_datetime(dt_str: str | None) -> datetime | None:
     """Parse Leaguepedia datetime string."""
     if not dt_str:
@@ -241,10 +273,21 @@ def extract_year(overview_page: str, date_start: str | None) -> int | None:
 class DB:
     """Synchronous PostgreSQL operations for Leaguepedia sync."""
 
-    def __init__(self, dsn: str):
-        self.conn = psycopg2.connect(dsn)
-        self.conn.autocommit = False
-        logger.info("Database connected")
+    def __init__(self, dsn: str, max_retries: int = 3):
+        for attempt in range(1, max_retries + 1):
+            try:
+                self.conn = psycopg2.connect(dsn)
+                self.conn.autocommit = False
+                logger.info("Database connected")
+                return
+            except psycopg2.OperationalError as e:
+                if attempt == max_retries:
+                    logger.error("Failed to connect to database after retries", attempts=max_retries, error=str(e))
+                    raise
+                wait = 2 ** attempt
+                logger.warning("Database connection failed, retrying", attempt=attempt, wait=wait, error=str(e))
+                import time
+                time.sleep(wait)
 
     def close(self):
         self.conn.close()
@@ -258,6 +301,50 @@ class DB:
         self, name: str, external_id: str, short_name: str | None = None,
         region: str | None = None, tier: int = 1,
     ) -> int:
+        # 1. Check mapping table first
+        mapped_id = self.find_by_source_id("league", external_id)
+        if mapped_id is not None:
+            with self.conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE pro_leagues SET
+                        short_name = COALESCE(%s, short_name),
+                        region = COALESCE(%s, region),
+                        tier = %s,
+                        updated_at = NOW()
+                    WHERE league_id = %s
+                    """,
+                    (short_name, region, tier, mapped_id),
+                )
+            return mapped_id
+
+        # 2. Match by short_name (handles GRID vs Leaguepedia name differences)
+        if short_name:
+            with self.conn.cursor() as cur:
+                cur.execute(
+                    "SELECT league_id FROM pro_leagues WHERE short_name = %s LIMIT 1",
+                    (short_name,),
+                )
+                existing = cur.fetchone()
+            if existing:
+                league_id = existing[0]
+                with self.conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        UPDATE pro_leagues SET
+                            external_id = COALESCE(external_id, %s),
+                            region = COALESCE(%s, region),
+                            tier = %s,
+                            updated_at = NOW()
+                        WHERE league_id = %s
+                        """,
+                        (external_id, region, tier, league_id),
+                    )
+                source = "leaguepedia" if external_id.startswith("lp:") else "grid"
+                self.register_mapping("league", league_id, source, external_id)
+                return league_id
+
+        # 3. Standard upsert by name
         with self.conn.cursor() as cur:
             cur.execute(
                 """
@@ -273,47 +360,88 @@ class DB:
                 """,
                 (name, external_id, short_name, region, tier),
             )
-            return cur.fetchone()[0]
+            league_id = cur.fetchone()[0]
+
+        # 4. Register mapping
+        source = "leaguepedia" if external_id.startswith("lp:") else "grid"
+        self.register_mapping("league", league_id, source, external_id)
+        return league_id
 
     # --- Pro Teams ---
 
     def upsert_pro_team(self, external_id: str, name: str) -> int:
-        """Upsert a pro team, matching by name first to avoid duplicates across sources."""
+        """Upsert a pro team, using mapping table then name match to avoid duplicates."""
+        # 1. Check mapping table first
+        mapped_id = self.find_by_source_id("team", external_id)
+        if mapped_id is not None:
+            return mapped_id
+
         with self.conn.cursor() as cur:
-            # First, try to find an existing team by name (case-insensitive)
+            # 2. Try to find an existing team by name (case-insensitive)
             cur.execute(
                 "SELECT team_id FROM pro_teams WHERE LOWER(TRIM(name)) = LOWER(TRIM(%s)) LIMIT 1",
                 (name,),
             )
             row = cur.fetchone()
             if row:
-                return row[0]
+                team_id = row[0]
+                # Register mapping for future lookups
+                source = "leaguepedia" if external_id.startswith("lp:") else "grid"
+                self.register_mapping("team", team_id, source, external_id)
+            else:
+                # 3. No match — insert new team
+                cur.execute(
+                    """
+                    INSERT INTO pro_teams (external_id, name, updated_at)
+                    VALUES (%s, %s, NOW())
+                    ON CONFLICT (external_id) DO UPDATE SET
+                        name = EXCLUDED.name,
+                        updated_at = NOW()
+                    RETURNING team_id
+                    """,
+                    (external_id, name),
+                )
+                team_id = cur.fetchone()[0]
+                source = "leaguepedia" if external_id.startswith("lp:") else "grid"
+                self.register_mapping("team", team_id, source, external_id)
 
-            # No match by name - insert with lp: external_id
+            # Auto-lookup short_name from soloq teams table if still NULL
             cur.execute(
                 """
-                INSERT INTO pro_teams (external_id, name, updated_at)
-                VALUES (%s, %s, NOW())
-                ON CONFLICT (external_id) DO UPDATE SET
-                    name = EXCLUDED.name,
-                    updated_at = NOW()
-                RETURNING team_id
+                UPDATE pro_teams
+                SET short_name = t.short_name, updated_at = NOW()
+                FROM teams t
+                WHERE pro_teams.team_id = %s
+                  AND pro_teams.short_name IS NULL
+                  AND LOWER(TRIM(pro_teams.name)) = LOWER(TRIM(t.current_name))
+                  AND t.game_id = 1
                 """,
-                (external_id, name),
+                (team_id,),
             )
-            return cur.fetchone()[0]
+
+            return team_id
 
     def dedup_teams(self) -> int:
-        """Merge duplicate pro_teams entries (lp: vs GRID) by name.
+        """Legacy dedup: create proposals + auto-approve + apply. Returns merged count."""
+        proposed = self.create_dedup_proposals()
+        if proposed == 0:
+            return 0
+        # Auto-approve all pending proposals
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "UPDATE pro_mapping_proposals SET status = 'approved', reviewed_at = NOW() WHERE status = 'pending'"
+            )
+        self.conn.commit()
+        return self.apply_approved_proposals()
 
-        For each lp: team that has a GRID counterpart with the same name,
-        re-point all FK references to the GRID team_id and delete the lp: row.
+    def create_dedup_proposals(self) -> int:
+        """Create merge proposals for lp: teams that have a GRID counterpart.
 
         Returns:
-            Number of teams merged.
+            Number of proposals created.
         """
         with self.conn.cursor() as cur:
-            # Find lp: teams that have a GRID counterpart with the same name
+            # Exact name match: lp: team → GRID team
             cur.execute("""
                 SELECT lp.team_id  AS lp_id,
                        grid.team_id AS grid_id,
@@ -324,79 +452,252 @@ class DB:
                 JOIN pro_teams grid
                   ON LOWER(TRIM(lp.name)) = LOWER(TRIM(grid.name))
                  AND grid.team_id != lp.team_id
-                WHERE lp.external_id LIKE 'lp:%'
-                  AND grid.external_id NOT LIKE 'lp:%'
+                WHERE lp.external_id LIKE 'lp:%%'
+                  AND grid.external_id NOT LIKE 'lp:%%'
             """)
-            duplicates = cur.fetchall()
+            exact_matches = cur.fetchall()
 
-            if not duplicates:
-                logger.info("No duplicate teams to merge")
-                return 0
+            # Short name match: lp: team → GRID team (lower confidence)
+            cur.execute("""
+                SELECT lp.team_id  AS lp_id,
+                       grid.team_id AS grid_id,
+                       lp.name AS lp_name,
+                       grid.name AS grid_name,
+                       grid.short_name
+                FROM pro_teams lp
+                JOIN pro_teams grid
+                  ON grid.short_name IS NOT NULL
+                 AND LOWER(TRIM(lp.name)) = LOWER(TRIM(grid.short_name))
+                 AND grid.team_id != lp.team_id
+                WHERE lp.external_id LIKE 'lp:%%'
+                  AND grid.external_id NOT LIKE 'lp:%%'
+                  AND NOT EXISTS (
+                    SELECT 1 FROM pro_teams grid2
+                    WHERE LOWER(TRIM(lp.name)) = LOWER(TRIM(grid2.name))
+                      AND grid2.team_id != lp.team_id
+                      AND grid2.external_id NOT LIKE 'lp:%%'
+                  )
+            """)
+            short_name_matches = cur.fetchall()
 
-            logger.info(f"Found {len(duplicates)} duplicate teams to merge")
+        created = 0
 
-            merged = 0
-            for lp_id, grid_id, name, lp_ext, grid_ext in duplicates:
-                logger.info(
-                    "Merging team",
-                    name=name,
-                    lp_id=lp_id,
-                    grid_id=grid_id,
-                    lp_ext=lp_ext,
-                    grid_ext=grid_ext,
-                )
+        for lp_id, grid_id, name, lp_ext, grid_ext in exact_matches:
+            proposal_id = self.create_proposal(
+                entity_type="team",
+                source_entity_id=lp_id,
+                target_entity_id=grid_id,
+                confidence=1.0,
+                reason="exact_name",
+                notes=f"'{name}' (lp:{lp_ext}) → (grid:{grid_ext})",
+            )
+            if proposal_id:
+                created += 1
+                logger.info("Proposal created (exact_name)", name=name, lp_id=lp_id, grid_id=grid_id)
 
-                # Update all FK references from lp_id → grid_id
-                cur.execute(
-                    "UPDATE pro_games SET blue_team_id = %s WHERE blue_team_id = %s",
-                    (grid_id, lp_id),
-                )
-                cur.execute(
-                    "UPDATE pro_games SET red_team_id = %s WHERE red_team_id = %s",
-                    (grid_id, lp_id),
-                )
-                cur.execute(
-                    "UPDATE pro_games SET winner_team_id = %s WHERE winner_team_id = %s",
-                    (grid_id, lp_id),
-                )
-                cur.execute(
-                    "UPDATE pro_player_stats SET team_id = %s WHERE team_id = %s",
-                    (grid_id, lp_id),
-                )
-                cur.execute(
-                    "UPDATE pro_team_stats SET team_id = %s WHERE team_id = %s",
-                    (grid_id, lp_id),
-                )
-                cur.execute(
-                    "UPDATE pro_player_aggregated_stats SET team_id = %s WHERE team_id = %s",
-                    (grid_id, lp_id),
-                )
+        for lp_id, grid_id, lp_name, grid_name, short_name in short_name_matches:
+            proposal_id = self.create_proposal(
+                entity_type="team",
+                source_entity_id=lp_id,
+                target_entity_id=grid_id,
+                confidence=0.8,
+                reason="short_name",
+                notes=f"'{lp_name}' matches short_name '{short_name}' of '{grid_name}'",
+            )
+            if proposal_id:
+                created += 1
+                logger.info("Proposal created (short_name)", lp_name=lp_name, grid_name=grid_name)
 
-                # Delete the duplicate lp: team
-                cur.execute(
-                    "DELETE FROM pro_teams WHERE team_id = %s",
-                    (lp_id,),
-                )
+        self.conn.commit()
+        logger.info(f"Created {created} dedup proposals")
+        return created
 
-                merged += 1
+    def apply_approved_proposals(self) -> int:
+        """Apply approved mapping proposals: re-point FKs, register mappings, delete source entity.
 
+        Returns:
+            Number of proposals applied.
+        """
+        with self.conn.cursor() as cur:
+            cur.execute("""
+                SELECT id, entity_type, source_entity_id, target_entity_id
+                FROM pro_mapping_proposals
+                WHERE status = 'approved'
+                ORDER BY id
+            """)
+            proposals = cur.fetchall()
+
+        if not proposals:
+            logger.info("No approved proposals to apply")
+            return 0
+
+        applied = 0
+        for proposal_id, entity_type, source_id, target_id in proposals:
+            try:
+                if entity_type == "team":
+                    self._apply_team_merge(source_id, target_id)
+                elif entity_type == "tournament":
+                    self._apply_tournament_merge(source_id, target_id)
+                elif entity_type == "league":
+                    self._apply_league_merge(source_id, target_id)
+
+                # Mark proposal as applied
+                with self.conn.cursor() as cur:
+                    cur.execute(
+                        "UPDATE pro_mapping_proposals SET status = 'applied', applied_at = NOW() WHERE id = %s",
+                        (proposal_id,),
+                    )
+                self.conn.commit()
+                applied += 1
+                logger.info("Proposal applied", id=proposal_id, type=entity_type, source=source_id, target=target_id)
+            except Exception as e:
+                logger.error("Failed to apply proposal", id=proposal_id, error=str(e))
+                self.conn.rollback()
+
+        logger.info(f"Applied {applied}/{len(proposals)} proposals")
+        return applied
+
+    def _apply_team_merge(self, source_team_id: int, target_team_id: int) -> None:
+        """Re-point all FK references from source to target team, then delete source."""
+        with self.conn.cursor() as cur:
+            # Preserve source mappings by re-pointing to target
+            cur.execute(
+                "UPDATE pro_entity_mappings SET entity_id = %s WHERE entity_type = 'team' AND entity_id = %s",
+                (target_team_id, source_team_id),
+            )
+            # Re-point FK references
+            cur.execute("UPDATE pro_games SET blue_team_id = %s WHERE blue_team_id = %s", (target_team_id, source_team_id))
+            cur.execute("UPDATE pro_games SET red_team_id = %s WHERE red_team_id = %s", (target_team_id, source_team_id))
+            cur.execute("UPDATE pro_games SET winner_team_id = %s WHERE winner_team_id = %s", (target_team_id, source_team_id))
+            cur.execute("UPDATE pro_player_stats SET team_id = %s WHERE team_id = %s", (target_team_id, source_team_id))
+            cur.execute("UPDATE pro_team_stats SET team_id = %s WHERE team_id = %s", (target_team_id, source_team_id))
+            # Delete source team
+            cur.execute("DELETE FROM pro_teams WHERE team_id = %s", (source_team_id,))
+
+    def _apply_tournament_merge(self, source_id: int, target_id: int) -> None:
+        """Re-point FK references from source to target tournament, then delete source."""
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "UPDATE pro_entity_mappings SET entity_id = %s WHERE entity_type = 'tournament' AND entity_id = %s",
+                (target_id, source_id),
+            )
+            cur.execute("UPDATE pro_matches SET tournament_id = %s WHERE tournament_id = %s", (target_id, source_id))
+            cur.execute("UPDATE pro_team_stats SET tournament_id = %s WHERE tournament_id = %s", (target_id, source_id))
+            cur.execute("UPDATE pro_champion_stats SET tournament_id = %s WHERE tournament_id = %s", (target_id, source_id))
+            cur.execute("DELETE FROM pro_tournaments WHERE tournament_id = %s", (source_id,))
+
+    def _apply_league_merge(self, source_id: int, target_id: int) -> None:
+        """Re-point FK references from source to target league, then delete source."""
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "UPDATE pro_entity_mappings SET entity_id = %s WHERE entity_type = 'league' AND entity_id = %s",
+                (target_id, source_id),
+            )
+            cur.execute("UPDATE pro_tournaments SET pro_league_id = %s WHERE pro_league_id = %s", (target_id, source_id))
+            cur.execute("DELETE FROM pro_leagues WHERE league_id = %s", (source_id,))
+
+    def backfill_short_names(self) -> int:
+        """Backfill pro_teams.short_name from the soloq teams table by matching names.
+
+        Returns:
+            Number of teams updated.
+        """
+        with self.conn.cursor() as cur:
+            cur.execute("""
+                UPDATE pro_teams pt
+                SET short_name = t.short_name, updated_at = NOW()
+                FROM teams t
+                WHERE pt.short_name IS NULL
+                  AND LOWER(TRIM(pt.name)) = LOWER(TRIM(t.current_name))
+                  AND t.game_id = 1
+            """)
+            count = cur.rowcount
             self.conn.commit()
-            logger.info(f"Merged {merged} duplicate teams")
-            return merged
+            return count
 
-    # --- Players ---
+    # --- Entity Mappings ---
 
-    def upsert_player(self, slug: str, current_pseudo: str) -> int:
+    def find_by_source_id(self, entity_type: str, source_id: str) -> int | None:
+        """Lookup entity_id via pro_entity_mappings."""
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "SELECT entity_id FROM pro_entity_mappings WHERE entity_type = %s AND source_id = %s LIMIT 1",
+                (entity_type, source_id),
+            )
+            row = cur.fetchone()
+            return row[0] if row else None
+
+    def register_mapping(self, entity_type: str, entity_id: int, source: str, source_id: str) -> None:
+        """Register an entity mapping (ON CONFLICT DO NOTHING)."""
         with self.conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO players (slug, current_pseudo)
-                VALUES (%s, %s)
+                INSERT INTO pro_entity_mappings (entity_type, entity_id, source, source_id, created_at)
+                VALUES (%s, %s, %s, %s, NOW())
+                ON CONFLICT (entity_type, source, source_id) DO NOTHING
+                """,
+                (entity_type, entity_id, source, source_id),
+            )
+
+    def create_proposal(
+        self, entity_type: str, source_entity_id: int, target_entity_id: int,
+        confidence: float, reason: str, notes: str | None = None,
+    ) -> int | None:
+        """Create a mapping proposal for admin review. Returns proposal id or None if already exists."""
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO pro_mapping_proposals (
+                    entity_type, source_entity_id, target_entity_id,
+                    confidence, match_reason, notes, created_at
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, NOW())
+                ON CONFLICT (entity_type, source_entity_id, target_entity_id) DO NOTHING
+                RETURNING id
+                """,
+                (entity_type, source_entity_id, target_entity_id, confidence, reason, notes),
+            )
+            row = cur.fetchone()
+            return row[0] if row else None
+
+    # --- Players ---
+
+    def find_player_by_alias(self, alias: str) -> int | None:
+        """Check if alias exists in player_aliases, return player_id or None."""
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "SELECT player_id FROM player_aliases WHERE LOWER(alias) = LOWER(%s) LIMIT 1",
+                (alias,),
+            )
+            row = cur.fetchone()
+            return row[0] if row else None
+
+    def find_player_by_slug(self, slug: str) -> int | None:
+        """Check if slug exists in players, return player_id or None."""
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "SELECT player_id FROM players WHERE slug = %s LIMIT 1",
+                (slug,),
+            )
+            row = cur.fetchone()
+            return row[0] if row else None
+
+    def upsert_player(
+        self, slug: str, current_pseudo: str,
+        first_name: str | None = None, last_name: str | None = None,
+    ) -> int:
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO players (slug, current_pseudo, first_name, last_name)
+                VALUES (%s, %s, %s, %s)
                 ON CONFLICT (slug) DO UPDATE SET
-                    current_pseudo = EXCLUDED.current_pseudo
+                    current_pseudo = EXCLUDED.current_pseudo,
+                    first_name = COALESCE(EXCLUDED.first_name, players.first_name),
+                    last_name = COALESCE(EXCLUDED.last_name, players.last_name)
                 RETURNING player_id
                 """,
-                (slug, current_pseudo),
+                (slug, current_pseudo, first_name, last_name),
             )
             return cur.fetchone()[0]
 
@@ -413,7 +714,7 @@ class DB:
             )
 
     def backfill_aliases(self) -> int:
-        """Backfill player_aliases from existing pro_player_stats data.
+        """Backfill player_aliases from players table.
 
         Returns:
             Number of aliases inserted.
@@ -421,16 +722,77 @@ class DB:
         with self.conn.cursor() as cur:
             cur.execute("""
                 INSERT INTO player_aliases (player_id, alias, source)
-                SELECT DISTINCT ps.player_id, ps.player_name, 'leaguepedia'
-                FROM pro_player_stats ps
-                WHERE ps.player_id IS NOT NULL
-                  AND ps.player_name IS NOT NULL
-                  AND ps.player_name != ''
+                SELECT p.player_id, p.current_pseudo, 'leaguepedia'
+                FROM players p
+                WHERE p.current_pseudo IS NOT NULL
+                  AND p.current_pseudo != ''
                 ON CONFLICT (player_id, alias) DO NOTHING
             """)
             count = cur.rowcount
+
             self.conn.commit()
             return count
+
+    def reset_aliases(self) -> dict[str, int]:
+        """Full reset of player_aliases: truncate and re-backfill from all sources.
+
+        Re-inserts:
+        1. current_pseudo from players table
+        2. slug as alias (for slug-based lookup)
+        3. Existing Leaguepedia name variants (parenthesized forms)
+
+        Returns:
+            Dict with counts per step.
+        """
+        stats: dict[str, int] = {}
+
+        with self.conn.cursor() as cur:
+            # 1. Truncate
+            cur.execute("TRUNCATE player_aliases RESTART IDENTITY")
+            logger.info("Truncated player_aliases")
+
+            # 2. Insert current_pseudo
+            cur.execute("""
+                INSERT INTO player_aliases (player_id, alias, source)
+                SELECT p.player_id, p.current_pseudo, 'leaguepedia'
+                FROM players p
+                WHERE p.current_pseudo IS NOT NULL
+                  AND p.current_pseudo != ''
+                ON CONFLICT (player_id, alias) DO NOTHING
+            """)
+            stats["current_pseudo"] = cur.rowcount
+            logger.info("Inserted current_pseudo aliases", count=cur.rowcount)
+
+            # 3. Insert slug as alias (different from current_pseudo)
+            cur.execute("""
+                INSERT INTO player_aliases (player_id, alias, source)
+                SELECT p.player_id, p.slug, 'leaguepedia'
+                FROM players p
+                WHERE p.slug IS NOT NULL
+                  AND p.slug != ''
+                  AND p.slug != LOWER(p.current_pseudo)
+                ON CONFLICT (player_id, alias) DO NOTHING
+            """)
+            stats["slugs"] = cur.rowcount
+            logger.info("Inserted slug aliases", count=cur.rowcount)
+
+            # 4. Delete orphan players (no aliases, no contracts, no accounts)
+            cur.execute("""
+                DELETE FROM players
+                WHERE player_id NOT IN (
+                    SELECT DISTINCT player_id FROM player_aliases WHERE player_id IS NOT NULL
+                    UNION
+                    SELECT DISTINCT player_id FROM player_contracts WHERE player_id IS NOT NULL
+                    UNION
+                    SELECT DISTINCT player_id FROM lol_accounts WHERE player_id IS NOT NULL
+                )
+            """)
+            stats["orphans_deleted"] = cur.rowcount
+            if cur.rowcount:
+                logger.info("Deleted orphan players", count=cur.rowcount)
+
+        self.conn.commit()
+        return stats
 
     # --- Pro Tournaments ---
 
@@ -438,26 +800,84 @@ class DB:
         self, external_id: str, name: str, slug: str,
         pro_league_id: int, start_date: datetime | None,
         year: int | None,
+        split: str | None = None,
+        split_number: int | None = None,
+        tournament_level: str | None = None,
+        is_playoffs: bool = False,
+        is_qualifier: bool = False,
+        is_official: bool = True,
+        region: str | None = None,
+        end_date: datetime | None = None,
     ) -> int:
+        # 1. Check mapping table first
+        mapped_id = self.find_by_source_id("tournament", external_id)
+        if mapped_id is not None:
+            with self.conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE pro_tournaments SET
+                        name = %s, slug = %s,
+                        pro_league_id = COALESCE(%s, pro_league_id),
+                        start_date = COALESCE(%s, start_date),
+                        end_date = COALESCE(%s, end_date),
+                        year = COALESCE(%s, year),
+                        split = COALESCE(%s, split),
+                        split_number = COALESCE(%s, split_number),
+                        tournament_level = COALESCE(%s, tournament_level),
+                        is_playoffs = %s, is_qualifier = %s, is_official = %s,
+                        region = COALESCE(%s, region),
+                        updated_at = NOW()
+                    WHERE tournament_id = %s
+                    """,
+                    (
+                        name, slug, pro_league_id, start_date, end_date, year,
+                        split, split_number, tournament_level,
+                        is_playoffs, is_qualifier, is_official, region,
+                        mapped_id,
+                    ),
+                )
+            return mapped_id
+
+        # 2. Standard upsert by external_id
         with self.conn.cursor() as cur:
             cur.execute(
                 """
                 INSERT INTO pro_tournaments (
-                    external_id, name, slug, pro_league_id, start_date, year, updated_at
+                    external_id, name, slug, pro_league_id, start_date, end_date, year,
+                    split, split_number, tournament_level,
+                    is_playoffs, is_qualifier, is_official, region,
+                    updated_at
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, NOW())
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
                 ON CONFLICT (external_id) DO UPDATE SET
                     name = EXCLUDED.name,
                     slug = EXCLUDED.slug,
                     pro_league_id = COALESCE(EXCLUDED.pro_league_id, pro_tournaments.pro_league_id),
                     start_date = COALESCE(EXCLUDED.start_date, pro_tournaments.start_date),
+                    end_date = COALESCE(EXCLUDED.end_date, pro_tournaments.end_date),
                     year = COALESCE(EXCLUDED.year, pro_tournaments.year),
+                    split = COALESCE(EXCLUDED.split, pro_tournaments.split),
+                    split_number = COALESCE(EXCLUDED.split_number, pro_tournaments.split_number),
+                    tournament_level = COALESCE(EXCLUDED.tournament_level, pro_tournaments.tournament_level),
+                    is_playoffs = EXCLUDED.is_playoffs,
+                    is_qualifier = EXCLUDED.is_qualifier,
+                    is_official = EXCLUDED.is_official,
+                    region = COALESCE(EXCLUDED.region, pro_tournaments.region),
                     updated_at = NOW()
                 RETURNING tournament_id
                 """,
-                (external_id, name, slug, pro_league_id, start_date, year),
+                (
+                    external_id, name, slug, pro_league_id, start_date, end_date, year,
+                    split, split_number, tournament_level,
+                    is_playoffs, is_qualifier, is_official, region,
+                ),
             )
-            return cur.fetchone()[0]
+            tournament_id = cur.fetchone()[0]
+
+        # 3. Register mapping
+        source = "leaguepedia" if external_id.startswith("lp:") else "grid"
+        self.register_mapping("tournament", tournament_id, source, external_id)
+        return tournament_id
 
     def is_tournament_complete(self, external_id: str) -> bool | None:
         """Check if tournament is marked complete. Returns None if not found."""
@@ -475,6 +895,35 @@ class DB:
                 "UPDATE pro_tournaments SET is_complete = TRUE, updated_at = NOW() WHERE tournament_id = %s",
                 (tournament_id,),
             )
+
+    def cleanup_synthetic_parents(self) -> dict:
+        """Remove synthetic parent tournaments (lp:parent:*).
+
+        1. Nullifies parent_tournament_id on children linked to synthetic parents
+        2. Deletes entity mappings for synthetic parents
+        3. Deletes the synthetic parent tournaments themselves
+
+        Returns:
+            Dict with counts of unlinked children, deleted mappings, deleted parents.
+        """
+        stats = {"unlinked": 0, "mappings_deleted": 0, "parents_deleted": 0}
+        with self.conn.cursor() as cur:
+            cur.execute("""
+                UPDATE pro_tournaments SET parent_tournament_id = NULL
+                WHERE parent_tournament_id IN (
+                    SELECT tournament_id FROM pro_tournaments WHERE external_id LIKE 'lp:parent:%%'
+                )
+            """)
+            stats["unlinked"] = cur.rowcount
+
+            cur.execute("DELETE FROM pro_entity_mappings WHERE source_id LIKE 'lp:parent:%%'")
+            stats["mappings_deleted"] = cur.rowcount
+
+            cur.execute("DELETE FROM pro_tournaments WHERE external_id LIKE 'lp:parent:%%'")
+            stats["parents_deleted"] = cur.rowcount
+
+        self.conn.commit()
+        return stats
 
     # --- Pro Matches ---
 
@@ -574,25 +1023,23 @@ class DB:
                 cur,
                 """
                 INSERT INTO pro_player_stats (
-                    game_id, player_external_id, player_name, team_id, team_side, role,
-                    champion_id, champion_name,
+                    game_id, player_id, team_id, team_side, role,
+                    champion_id,
                     kills, deaths, assists, cs, gold_earned, damage_dealt, damage_taken,
                     first_blood_participant, first_blood_victim,
-                    vision, stats_at_15, max_diffs, multi_kills, solo_stats,
-                    items, runes, timing_data, proximity
+                    vision, max_diffs, multi_kills, solo_stats,
+                    items, runes, timing_data, proximity, plates
                 )
                 VALUES %s
                 """,
                 [
                     (
                         game_id,
-                        s.get("player_external_id"),
-                        s.get("player_name", ""),
+                        s.get("player_id"),
                         s.get("team_id"),
                         s.get("team_side"),
                         s.get("role"),
                         s.get("champion_id"),
-                        s.get("champion_name"),
                         s.get("kills", 0),
                         s.get("deaths", 0),
                         s.get("assists", 0),
@@ -600,17 +1047,17 @@ class DB:
                         s.get("gold_earned", 0),
                         s.get("damage_dealt", 0),
                         s.get("damage_taken", 0),
-                        False,  # first_blood_participant
-                        False,  # first_blood_victim
+                        s.get("first_blood_participant", False),
+                        s.get("first_blood_victim", False),
                         json.dumps(s.get("vision", {})),
-                        json.dumps({}),  # stats_at_15
                         json.dumps({}),  # max_diffs
-                        json.dumps({}),  # multi_kills
-                        json.dumps({}),  # solo_stats
-                        json.dumps([]),  # items
-                        json.dumps({}),  # runes
-                        json.dumps({}),  # timing_data
+                        json.dumps(s.get("multi_kills", {})),
+                        json.dumps(s.get("solo_stats", {})),
+                        json.dumps(s.get("items", [])),
+                        json.dumps(s.get("runes", {})),
+                        json.dumps(s.get("timing_data", {})),
                         json.dumps({}),  # proximity
+                        json.dumps(s.get("plates", {})),
                     )
                     for s in stats
                 ],
@@ -647,122 +1094,64 @@ class DB:
                 ],
             )
 
-    # --- Aggregated Stats ---
-
-    def upsert_player_aggregated_stats(
-        self, player_id: int, tournament_id: int, team_id: int | None,
-        role: str | None, stats: dict,
+    def upsert_team_game_stats(
+        self,
+        game_id: int,
+        match_id: int,
+        tournament_id: int,
+        blue_team_id: int | None,
+        red_team_id: int | None,
+        winner_team_id: int | None,
+        duration: int | None,
+        blue_kills: int = 0,
+        red_kills: int = 0,
+        first_blood_team: str | None = None,
     ) -> None:
-        with self.conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO pro_player_aggregated_stats (
-                    player_id, tournament_id, team_id, role,
-                    games_played, games_won, win_rate,
-                    total_kills, total_deaths, total_assists, total_cs, total_gold, total_damage,
-                    total_vision_score,
-                    avg_kills, avg_deaths, avg_assists, avg_kda,
-                    avg_cs_per_min, avg_gold_per_min, avg_damage_per_min, avg_vision_score,
-                    avg_kill_participation,
-                    unique_champions_played,
-                    created_at, updated_at
-                )
-                VALUES (
-                    %s, %s, %s, %s,
-                    %s, %s, %s,
-                    %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s,
-                    %s, %s, %s, %s,
-                    %s, %s,
-                    NOW(), NOW()
-                )
-                ON CONFLICT (player_id, tournament_id) DO UPDATE SET
-                    team_id = EXCLUDED.team_id,
-                    role = EXCLUDED.role,
-                    games_played = EXCLUDED.games_played,
-                    games_won = EXCLUDED.games_won,
-                    win_rate = EXCLUDED.win_rate,
-                    total_kills = EXCLUDED.total_kills,
-                    total_deaths = EXCLUDED.total_deaths,
-                    total_assists = EXCLUDED.total_assists,
-                    total_cs = EXCLUDED.total_cs,
-                    total_gold = EXCLUDED.total_gold,
-                    total_damage = EXCLUDED.total_damage,
-                    total_vision_score = EXCLUDED.total_vision_score,
-                    avg_kills = EXCLUDED.avg_kills,
-                    avg_deaths = EXCLUDED.avg_deaths,
-                    avg_assists = EXCLUDED.avg_assists,
-                    avg_kda = EXCLUDED.avg_kda,
-                    avg_cs_per_min = EXCLUDED.avg_cs_per_min,
-                    avg_gold_per_min = EXCLUDED.avg_gold_per_min,
-                    avg_damage_per_min = EXCLUDED.avg_damage_per_min,
-                    avg_vision_score = EXCLUDED.avg_vision_score,
-                    avg_kill_participation = EXCLUDED.avg_kill_participation,
-                    unique_champions_played = EXCLUDED.unique_champions_played,
-                    updated_at = NOW()
-                """,
-                (
-                    player_id, tournament_id, team_id, role,
-                    stats["games_played"], stats["games_won"], stats["win_rate"],
-                    stats["total_kills"], stats["total_deaths"], stats["total_assists"],
-                    stats["total_cs"], stats["total_gold"], stats["total_damage"],
-                    stats["total_vision_score"],
-                    stats["avg_kills"], stats["avg_deaths"], stats["avg_assists"],
-                    stats["avg_kda"],
-                    stats["avg_cs_per_min"], stats["avg_gold_per_min"],
-                    stats["avg_damage_per_min"], stats["avg_vision_score"],
-                    stats["avg_kill_participation"],
-                    stats["unique_champions"],
-                ),
-            )
+        """Insert 2 rows per game into pro_team_stats (one per team side).
 
-    def upsert_team_stats(
-        self, team_id: int, tournament_id: int, stats: dict,
-    ) -> None:
-        with self.conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO pro_team_stats (
-                    team_id, tournament_id,
-                    matches_played, matches_won, games_played, games_won,
-                    match_win_rate, game_win_rate,
-                    avg_game_duration, avg_kills,
-                    blue_side_games, blue_side_wins, red_side_games, red_side_wins,
-                    created_at, updated_at
+        For Leaguepedia data, only kills (from player stats), duration, and
+        first_blood are typically available. Objective columns default to 0.
+        """
+        rows = [
+            ("blue", blue_team_id, blue_kills, red_kills),
+            ("red", red_team_id, red_kills, blue_kills),
+        ]
+
+        for side, team_id, kills, deaths in rows:
+            if not team_id:
+                continue
+
+            win = winner_team_id == team_id if winner_team_id else False
+            fb = first_blood_team == side if first_blood_team else False
+
+            with self.conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO pro_team_stats (
+                        game_id, match_id, tournament_id, team_id,
+                        side, win, duration,
+                        kills, deaths,
+                        first_blood,
+                        created_at
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                    ON CONFLICT (game_id, team_id) DO UPDATE SET
+                        match_id = EXCLUDED.match_id,
+                        tournament_id = EXCLUDED.tournament_id,
+                        side = EXCLUDED.side,
+                        win = EXCLUDED.win,
+                        duration = EXCLUDED.duration,
+                        kills = EXCLUDED.kills,
+                        deaths = EXCLUDED.deaths,
+                        first_blood = EXCLUDED.first_blood
+                    """,
+                    (
+                        game_id, match_id, tournament_id, team_id,
+                        side, win, duration,
+                        kills or 0, deaths or 0,
+                        fb,
+                    ),
                 )
-                VALUES (
-                    %s, %s,
-                    %s, %s, %s, %s,
-                    %s, %s,
-                    %s, %s,
-                    %s, %s, %s, %s,
-                    NOW(), NOW()
-                )
-                ON CONFLICT (team_id, tournament_id) DO UPDATE SET
-                    matches_played = EXCLUDED.matches_played,
-                    matches_won = EXCLUDED.matches_won,
-                    games_played = EXCLUDED.games_played,
-                    games_won = EXCLUDED.games_won,
-                    match_win_rate = EXCLUDED.match_win_rate,
-                    game_win_rate = EXCLUDED.game_win_rate,
-                    avg_game_duration = EXCLUDED.avg_game_duration,
-                    avg_kills = EXCLUDED.avg_kills,
-                    blue_side_games = EXCLUDED.blue_side_games,
-                    blue_side_wins = EXCLUDED.blue_side_wins,
-                    red_side_games = EXCLUDED.red_side_games,
-                    red_side_wins = EXCLUDED.red_side_wins,
-                    updated_at = NOW()
-                """,
-                (
-                    team_id, tournament_id,
-                    stats["matches_played"], stats["matches_won"],
-                    stats["games_played"], stats["games_won"],
-                    stats["match_win_rate"], stats["game_win_rate"],
-                    stats["avg_game_duration"], stats["avg_kills"],
-                    stats["blue_side_games"], stats["blue_side_wins"],
-                    stats["red_side_games"], stats["red_side_wins"],
-                ),
-            )
 
     def upsert_champion_stats(
         self, champion_id: int, tournament_id: int, stats: dict,
@@ -872,6 +1261,22 @@ def process_tournament(
         if mid:
             match_map[mid] = mr
 
+    # 3b. Pre-compute match scores by counting game wins per team
+    # match_scores[match_id] = {team_name: wins_count, ...}
+    match_scores: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    for game_id, players in games_data.items():
+        if len(players) != 10:
+            continue
+        mid = players[0].get("MatchId", "")
+        if not mid:
+            continue
+        for p in players:
+            if p.get("PlayerWin") == "Yes":
+                winner_team = p.get("Team", "").strip()
+                if winner_team:
+                    match_scores[mid][winner_team] += 1
+                break
+
     # 4. Process each game
     for game_id, players in games_data.items():
         if len(players) != 10:
@@ -937,15 +1342,66 @@ def process_tournament(
         if red_team_name in team_cache:
             red_team_id = team_cache[red_team_name]
 
+        # --- Riot match data (v5/v4) via Leaguepedia ---
+        rpgid = (first_row.get("RiotPlatformGameId") or "").strip()
+        # Key by (champion_id, side) to avoid Riot/LP name mismatches (MonkeyKing vs Wukong)
+        riot_player_map: dict[tuple[int, str], dict] = {}
+
+        if rpgid:
+            riot_stats, riot_timeline, riot_version = lp.get_riot_game_data(rpgid)
+            if riot_stats:
+                logger.info(
+                    "Riot data loaded",
+                    version=riot_version,
+                    game_id=game_id,
+                    rpgid=rpgid,
+                )
+
+                # Use Riot game duration if available (more precise, in seconds)
+                riot_duration = riot_stats.get("game_duration")
+                if riot_duration and riot_duration > 0:
+                    duration_seconds = int(riot_duration)
+
+                # Build player map by (champion_id, side) for reliable matching
+                for rp in riot_stats["players"]:
+                    rp_side = "blue" if rp["team_id"] == 100 else "red"
+                    champ_name = rp.get("champion_name") or ""
+                    cid = get_champion_id(champ_name)
+                    if cid:
+                        riot_player_map[(cid, rp_side)] = rp
+
+                # Attach timeline + event-based stats to players
+                if riot_timeline:
+                    players_with_tl = LeaguepediaClient.attach_timeline_to_players(
+                        riot_stats, riot_timeline
+                    )
+                    for pwt in players_with_tl:
+                        pwt_side = "blue" if pwt["team_id"] == 100 else "red"
+                        pwt_cid = get_champion_id(pwt.get("champion_name") or "")
+                        if pwt_cid and (pwt_cid, pwt_side) in riot_player_map:
+                            riot_player_map[(pwt_cid, pwt_side)]["timeline"] = pwt.get("timeline", {})
+                            riot_player_map[(pwt_cid, pwt_side)]["stats_at_15"] = pwt.get("stats_at_15", {})
+                            riot_player_map[(pwt_cid, pwt_side)]["solo_kills"] = pwt.get("solo_kills", 0)
+                            riot_player_map[(pwt_cid, pwt_side)]["solo_deaths"] = pwt.get("solo_deaths", 0)
+                            riot_player_map[(pwt_cid, pwt_side)]["plates_timeline"] = pwt.get("plates_timeline", {})
+                            riot_player_map[(pwt_cid, pwt_side)]["first_blood_victim"] = pwt.get("first_blood_victim", False)
+            else:
+                logger.debug("No Riot data available, using scoreboard", game_id=game_id, rpgid=rpgid)
+        else:
+            logger.debug("No RiotPlatformId, using scoreboard only", game_id=game_id)
+
         # Upsert match
         match_meta = match_map.get(match_id_str, {})
         best_of = to_int(match_meta.get("BestOf"), 1)
         format_str = f"bo{best_of}" if best_of > 0 else "bo1"
 
-        # Calculate match scores from match_meta
-        match_winner = match_meta.get("Winner", "")
         t1_ext = f"lp:{team1_name}" if team1_name else None
         t2_ext = f"lp:{team2_name}" if team2_name else None
+
+        # Get match scores from pre-computed data
+        scores = match_scores.get(match_id_str, {})
+        team1_score = scores.get(team1_name, 0)
+        team2_score = scores.get(team2_name, 0)
 
         # We use the Leaguepedia match ID or generate one
         lp_match_ext = f"lp:{match_id_str}" if match_id_str else f"lp:{game_id}_match"
@@ -954,6 +1410,8 @@ def process_tournament(
             tournament_id=tournament_id,
             team1_external_id=t1_ext,
             team2_external_id=t2_ext,
+            team1_score=team1_score,
+            team2_score=team2_score,
             format_str=format_str,
             status="completed",
             started_at=game_datetime,
@@ -977,21 +1435,65 @@ def process_tournament(
         player_stats = []
         for p in players:
             link = (p.get("Link") or p.get("Name") or "").strip()
-            name = (p.get("Name") or link).strip()
             if not link:
                 continue
 
-            # Upsert player (use name as display pseudo, not link)
-            slug = link.lower().replace(" ", "-")
+            # Parse parenthesized names: "Cabo (Oscar Munoz)" → pseudo="Cabo", slug keeps disambiguation
+            clean_pseudo, slug, first_name, last_name = parse_player_name(link)
+
             if slug not in player_cache:
-                player_cache[slug] = db.upsert_player(slug, name)
+                # 1. Check aliases (try both raw link and clean pseudo)
+                player_id = db.find_player_by_alias(link)
+                if not player_id and clean_pseudo != link:
+                    player_id = db.find_player_by_alias(clean_pseudo)
+
+                # 2. Check players table by slug
+                if not player_id:
+                    player_id = db.find_player_by_slug(slug)
+
+                # 3. Query Leaguepedia PlayerRedirects
+                canonical = None
+                if not player_id:
+                    canonical = lp.resolve_player_redirect(link)
+                    if canonical:
+                        c_pseudo, c_slug, c_first, c_last = parse_player_name(canonical)
+                        player_id = db.find_player_by_slug(c_slug)
+                        if not player_id:
+                            # Also try clean pseudo as slug (may exist without disambiguation)
+                            player_id = db.find_player_by_slug(c_pseudo.lower().replace(" ", "-"))
+                        if player_id:
+                            db.upsert_player_alias(player_id, link)
+                            if clean_pseudo != link:
+                                db.upsert_player_alias(player_id, clean_pseudo)
+                        # Merge canonical name data if available
+                        if not first_name and c_first:
+                            first_name = c_first
+                        if not last_name and c_last:
+                            last_name = c_last
+                        if not player_id:
+                            # Use canonical slug for new player
+                            slug = c_slug
+                            clean_pseudo = c_pseudo
+
+                # 4. Truly new player — create with clean pseudo and names
+                if not player_id:
+                    player_id = db.upsert_player(slug, clean_pseudo, first_name, last_name)
+                    db.upsert_player_alias(player_id, link)
+                    if clean_pseudo != link:
+                        db.upsert_player_alias(player_id, clean_pseudo)
+                else:
+                    # Update existing player with name data if we have it
+                    if first_name or last_name:
+                        db.upsert_player(slug, clean_pseudo, first_name, last_name)
+
+                player_cache[slug] = player_id
 
             player_id = player_cache[slug]
 
-            # Record aliases for search
-            db.upsert_player_alias(player_id, name)
-            if link.lower() != name.lower():
-                db.upsert_player_alias(player_id, link)
+            # Record link and clean pseudo as aliases
+            db.upsert_player_alias(player_id, link)
+            if clean_pseudo != link:
+                db.upsert_player_alias(player_id, clean_pseudo)
 
             team_name = (p.get("Team") or "").strip()
             p_team_id = team_cache.get(team_name)
@@ -1003,28 +1505,121 @@ def process_tournament(
             champion_name = (p.get("Champion") or "").strip()
             champion_id = get_champion_id(champion_name)
 
-            vision_score = to_int(p.get("VisionScore"))
-            vision_data = {"score": vision_score} if vision_score else {}
+            # Check for Riot data override (match by champion_id + side)
+            riot_key = (champion_id, team_side) if champion_id and team_side else None
+            rp = riot_player_map.get(riot_key) if riot_key else None
+
+            if rp:
+                # Override with Riot stats (more precise)
+                kills = rp.get("kills", 0)
+                deaths = rp.get("deaths", 0)
+                assists = rp.get("assists", 0)
+                cs = rp.get("cs", 0)
+                gold_earned = rp.get("gold_earned", 0)
+                damage_dealt = rp.get("damage_to_champions", 0)
+                damage_taken = rp.get("damage_taken", 0)
+                vision_score = rp.get("vision_score", 0)
+
+                vision_data = {
+                    "score": vision_score,
+                    "wards_placed": rp.get("wards_placed", 0),
+                    "wards_destroyed": rp.get("wards_killed", 0),
+                    "control_wards": rp.get("control_wards_placed", 0),
+                }
+
+                first_blood_participant = rp.get("first_blood_kill", False) or rp.get("first_blood_assist", False)
+                first_blood_victim = rp.get("first_blood_victim", False)
+
+                items_data = [i for i in rp.get("items", []) if i > 0]
+                runes_data = rp.get("runes", {})
+                multi_kills_data = rp.get("multi_kills", {})
+
+                solo_stats_data = {
+                    "solo_kills": rp.get("solo_kills", 0),
+                    "solo_deaths": rp.get("solo_deaths", 0),
+                }
+
+                # Plates: aligned with GRID structure + before_15
+                plates_data = rp.get("plates_timeline", {})
+
+                # Timeline: stats_at_15 with diffs, full per-minute timing_data
+                stats_at_15 = rp.get("stats_at_15", {})
+                tl = rp.get("timeline", {})
+                timing_data = {str(k): v for k, v in tl.items()} if tl else {}
+            else:
+                # Fallback: scoreboard stats
+                kills = to_int(p.get("Kills"))
+                deaths = to_int(p.get("Deaths"))
+                assists = to_int(p.get("Assists"))
+                cs = to_int(p.get("CS"))
+                gold_earned = to_int(p.get("Gold"))
+                damage_dealt = to_int(p.get("DamageToChampions"))
+                damage_taken = 0
+                vision_score = to_int(p.get("VisionScore"))
+                vision_data = {"score": vision_score} if vision_score else {}
+                first_blood_participant = False
+                first_blood_victim = False
+                items_data = []
+                runes_data = {}
+                multi_kills_data = {}
+                solo_stats_data = {}
+                plates_data = {}
+                stats_at_15 = {}
+                timing_data = {}
 
             player_stats.append({
-                "player_external_id": link,
-                "player_name": name,
+                "player_id": player_id,
                 "team_id": p_team_id,
                 "team_side": team_side,
                 "role": role,
                 "champion_id": champion_id,
-                "champion_name": champion_name or None,
-                "kills": to_int(p.get("Kills")),
-                "deaths": to_int(p.get("Deaths")),
-                "assists": to_int(p.get("Assists")),
-                "cs": to_int(p.get("CS")),
-                "gold_earned": to_int(p.get("Gold")),
-                "damage_dealt": to_int(p.get("DamageToChampions")),
-                "damage_taken": 0,
+                "kills": kills,
+                "deaths": deaths,
+                "assists": assists,
+                "cs": cs,
+                "gold_earned": gold_earned,
+                "damage_dealt": damage_dealt,
+                "damage_taken": damage_taken,
+                "first_blood_participant": first_blood_participant,
+                "first_blood_victim": first_blood_victim,
                 "vision": vision_data,
+                "items": items_data,
+                "runes": runes_data,
+                "multi_kills": multi_kills_data,
+                "solo_stats": solo_stats_data,
+                "plates": plates_data,
+                "timing_data": timing_data,
             })
 
         db.insert_player_stats_batch(game_db_id, player_stats)
+
+        # Insert team game stats (2 rows per game)
+        blue_kills_total = sum(
+            ps.get("kills", 0) or 0 for ps in player_stats if ps.get("team_side") == "blue"
+        )
+        red_kills_total = sum(
+            ps.get("kills", 0) or 0 for ps in player_stats if ps.get("team_side") == "red"
+        )
+        # Detect first blood from player data
+        fb_team = None
+        for ps in player_stats:
+            if ps.get("first_blood_participant"):
+                fb_team = ps.get("team_side")
+                break
+
+        db.upsert_team_game_stats(
+            game_id=game_db_id,
+            match_id=match_db_id,
+            tournament_id=tournament_id,
+            blue_team_id=blue_team_id,
+            red_team_id=red_team_id,
+            winner_team_id=winner_team_id,
+            duration=duration_seconds,
+            blue_kills=blue_kills_total,
+            red_kills=red_kills_total,
+            first_blood_team=fb_team,
+        )
+
         stats["games"] += 1
 
     db.commit()
@@ -1096,7 +1691,7 @@ def process_tournament(
 
     # 6. Compute aggregated stats
     logger.info("Computing aggregated stats", tournament=tournament_name)
-    compute_aggregated_stats(db, tournament_id, team_cache, player_cache)
+    compute_aggregated_stats(db, tournament_id)
     db.commit()
 
     return stats
@@ -1111,228 +1706,10 @@ def _f(val, default=0):
 
 def compute_aggregated_stats(
     db: DB, tournament_id: int,
-    team_cache: dict[str, int], player_cache: dict[str, int],
 ) -> None:
-    """Compute and upsert aggregated stats tables for a tournament."""
+    """Compute and upsert aggregated champion stats for a tournament."""
 
     with db.conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
-        # --- Player Aggregated Stats ---
-        cur.execute(
-            """
-            SELECT
-                ps.player_external_id,
-                ps.player_name,
-                ps.team_id,
-                ps.role,
-                COUNT(*) as games_played,
-                SUM(CASE WHEN g.winner_team_id = ps.team_id THEN 1 ELSE 0 END) as games_won,
-                SUM(ps.kills) as total_kills,
-                SUM(ps.deaths) as total_deaths,
-                SUM(ps.assists) as total_assists,
-                SUM(ps.cs) as total_cs,
-                SUM(ps.gold_earned) as total_gold,
-                SUM(ps.damage_dealt) as total_damage,
-                SUM(COALESCE((ps.vision->>'score')::int, 0)) as total_vision_score,
-                SUM(g.duration) as total_duration,
-                COUNT(DISTINCT ps.champion_name) as unique_champions,
-                -- Per-game kill participation averaged
-                AVG(
-                    CASE WHEN team_kills.total_team_kills > 0
-                    THEN (ps.kills + ps.assists)::float / team_kills.total_team_kills * 100.0
-                    ELSE 0 END
-                ) as avg_kill_participation
-            FROM pro_player_stats ps
-            JOIN pro_games g ON ps.game_id = g.game_id
-            JOIN pro_matches m ON g.match_id = m.match_id
-            LEFT JOIN LATERAL (
-                SELECT SUM(ps2.kills) as total_team_kills
-                FROM pro_player_stats ps2
-                WHERE ps2.game_id = ps.game_id AND ps2.team_id = ps.team_id
-            ) team_kills ON true
-            WHERE m.tournament_id = %s
-              AND g.status IN ('completed', 'processed')
-            GROUP BY ps.player_external_id, ps.player_name, ps.team_id, ps.role
-            """,
-            (tournament_id,),
-        )
-
-        for row in cur.fetchall():
-            player_ext = row["player_external_id"]
-            if not player_ext:
-                continue
-
-            slug = player_ext.lower().replace(" ", "-")
-            player_id = player_cache.get(slug)
-            if not player_id:
-                continue
-
-            gp = _f(row["games_played"], 1)
-            total_dur = _f(row["total_duration"], 1)
-            total_deaths = _f(row["total_deaths"])
-            total_kills = _f(row["total_kills"])
-            total_assists = _f(row["total_assists"])
-
-            avg_kda = round(
-                (total_kills + total_assists) / max(total_deaths, 1.0), 2
-            )
-            avg_kp = round(_f(row["avg_kill_participation"]), 1)
-
-            stats = {
-                "games_played": int(gp),
-                "games_won": int(_f(row["games_won"])),
-                "win_rate": round(_f(row["games_won"]) * 100.0 / max(gp, 1.0), 1),
-                "total_kills": int(total_kills),
-                "total_deaths": int(total_deaths),
-                "total_assists": int(total_assists),
-                "total_cs": int(_f(row["total_cs"])),
-                "total_gold": int(_f(row["total_gold"])),
-                "total_damage": int(_f(row["total_damage"])),
-                "total_vision_score": int(_f(row["total_vision_score"])),
-                "avg_kills": round(total_kills / max(gp, 1.0), 2),
-                "avg_deaths": round(total_deaths / max(gp, 1.0), 2),
-                "avg_assists": round(total_assists / max(gp, 1.0), 2),
-                "avg_kda": avg_kda,
-                "avg_cs_per_min": round(
-                    _f(row["total_cs"]) * 60.0 / max(total_dur, 1.0), 2
-                ),
-                "avg_gold_per_min": round(
-                    _f(row["total_gold"]) * 60.0 / max(total_dur, 1.0), 2
-                ),
-                "avg_damage_per_min": round(
-                    _f(row["total_damage"]) * 60.0 / max(total_dur, 1.0), 2
-                ),
-                "avg_vision_score": round(
-                    _f(row["total_vision_score"]) / max(gp, 1.0), 2
-                ),
-                "avg_kill_participation": avg_kp,
-                "unique_champions": int(_f(row["unique_champions"])),
-            }
-
-            db.upsert_player_aggregated_stats(
-                player_id=player_id,
-                tournament_id=tournament_id,
-                team_id=row["team_id"],
-                role=row["role"],
-                stats=stats,
-            )
-
-        # --- Team Stats ---
-        cur.execute(
-            """
-            WITH game_teams AS (
-                SELECT
-                    g.game_id, g.duration, g.winner_team_id,
-                    g.blue_team_id, g.red_team_id,
-                    m.match_id, m.external_id as match_ext,
-                    m.team1_external_id, m.team2_external_id,
-                    -- Blue side kills
-                    (SELECT COALESCE(SUM(ps.kills), 0)
-                     FROM pro_player_stats ps
-                     WHERE ps.game_id = g.game_id AND ps.team_id = g.blue_team_id) as blue_kills,
-                    -- Red side kills
-                    (SELECT COALESCE(SUM(ps.kills), 0)
-                     FROM pro_player_stats ps
-                     WHERE ps.game_id = g.game_id AND ps.team_id = g.red_team_id) as red_kills
-                FROM pro_games g
-                JOIN pro_matches m ON g.match_id = m.match_id
-                WHERE m.tournament_id = %s
-                  AND g.status IN ('completed', 'processed')
-            ),
-            team_games AS (
-                SELECT
-                    team_id,
-                    COUNT(*) as games_played,
-                    SUM(CASE WHEN is_winner THEN 1 ELSE 0 END) as games_won,
-                    AVG(duration) as avg_duration,
-                    AVG(team_kills) as avg_kills,
-                    SUM(CASE WHEN side = 'blue' THEN 1 ELSE 0 END) as blue_games,
-                    SUM(CASE WHEN side = 'blue' AND is_winner THEN 1 ELSE 0 END) as blue_wins,
-                    SUM(CASE WHEN side = 'red' THEN 1 ELSE 0 END) as red_games,
-                    SUM(CASE WHEN side = 'red' AND is_winner THEN 1 ELSE 0 END) as red_wins
-                FROM (
-                    SELECT blue_team_id as team_id, 'blue' as side,
-                           winner_team_id = blue_team_id as is_winner,
-                           duration, blue_kills as team_kills, match_ext
-                    FROM game_teams
-                    WHERE blue_team_id IS NOT NULL
-                    UNION ALL
-                    SELECT red_team_id as team_id, 'red' as side,
-                           winner_team_id = red_team_id as is_winner,
-                           duration, red_kills as team_kills, match_ext
-                    FROM game_teams
-                    WHERE red_team_id IS NOT NULL
-                ) sub
-                GROUP BY team_id
-            ),
-            match_results AS (
-                SELECT
-                    team_id,
-                    COUNT(DISTINCT match_ext) as matches_played,
-                    COUNT(DISTINCT match_ext) FILTER (WHERE is_match_winner) as matches_won
-                FROM (
-                    SELECT
-                        blue_team_id as team_id, match_ext,
-                        (SELECT COUNT(*) FROM game_teams g2
-                         WHERE g2.match_ext = gt.match_ext AND g2.winner_team_id = gt.blue_team_id)
-                        >
-                        (SELECT COUNT(*) FROM game_teams g2
-                         WHERE g2.match_ext = gt.match_ext AND g2.winner_team_id = gt.red_team_id) as is_match_winner
-                    FROM game_teams gt WHERE blue_team_id IS NOT NULL
-                    UNION ALL
-                    SELECT
-                        red_team_id as team_id, match_ext,
-                        (SELECT COUNT(*) FROM game_teams g2
-                         WHERE g2.match_ext = gt.match_ext AND g2.winner_team_id = gt.red_team_id)
-                        >
-                        (SELECT COUNT(*) FROM game_teams g2
-                         WHERE g2.match_ext = gt.match_ext AND g2.winner_team_id = gt.blue_team_id) as is_match_winner
-                    FROM game_teams gt WHERE red_team_id IS NOT NULL
-                ) sub2
-                GROUP BY team_id
-            )
-            SELECT
-                tg.team_id,
-                tg.games_played, tg.games_won,
-                COALESCE(mr.matches_played, 0) as matches_played,
-                COALESCE(mr.matches_won, 0) as matches_won,
-                tg.avg_duration, tg.avg_kills,
-                tg.blue_games, tg.blue_wins,
-                tg.red_games, tg.red_wins
-            FROM team_games tg
-            LEFT JOIN match_results mr ON tg.team_id = mr.team_id
-            """,
-            (tournament_id,),
-        )
-
-        for row in cur.fetchall():
-            gp = _f(row["games_played"], 1)
-            mp = _f(row["matches_played"], 1)
-
-            stats = {
-                "matches_played": int(_f(row["matches_played"])),
-                "matches_won": int(_f(row["matches_won"])),
-                "games_played": int(_f(row["games_played"])),
-                "games_won": int(_f(row["games_won"])),
-                "match_win_rate": round(
-                    _f(row["matches_won"]) * 100.0 / max(mp, 1.0), 1
-                ),
-                "game_win_rate": round(
-                    _f(row["games_won"]) * 100.0 / max(gp, 1.0), 1
-                ),
-                "avg_game_duration": round(_f(row["avg_duration"]), 0),
-                "avg_kills": round(_f(row["avg_kills"]), 1),
-                "blue_side_games": int(_f(row["blue_games"])),
-                "blue_side_wins": int(_f(row["blue_wins"])),
-                "red_side_games": int(_f(row["red_games"])),
-                "red_side_wins": int(_f(row["red_wins"])),
-            }
-
-            db.upsert_team_stats(
-                team_id=row["team_id"],
-                tournament_id=tournament_id,
-                stats=stats,
-            )
-
         # --- Champion Stats ---
         # Count total games in tournament for presence rate
         cur.execute(
@@ -1350,7 +1727,6 @@ def compute_aggregated_stats(
         cur.execute(
             """
             SELECT
-                ps.champion_name,
                 ps.champion_id,
                 COUNT(*) as picks,
                 SUM(CASE WHEN g.winner_team_id = ps.team_id THEN 1 ELSE 0 END) as wins,
@@ -1375,16 +1751,15 @@ def compute_aggregated_stats(
             JOIN pro_matches m ON g.match_id = m.match_id
             WHERE m.tournament_id = %s
               AND g.status IN ('completed', 'processed')
-              AND ps.champion_name IS NOT NULL AND ps.champion_name != ''
-            GROUP BY ps.champion_name, ps.champion_id
+              AND ps.champion_id IS NOT NULL
+            GROUP BY ps.champion_id
             """,
             (tournament_id,),
         )
 
         champ_pick_data = {}
         for row in cur.fetchall():
-            champ_name = row["champion_name"]
-            c_id = row["champion_id"] or get_champion_id(champ_name)
+            c_id = row["champion_id"]
             if not c_id:
                 continue
 
@@ -1546,6 +1921,16 @@ def sync_league(lp: LeaguepediaClient, db: DB, league_name: str) -> dict:
 
         logger.info("Syncing tournament", tournament=name, overview=overview)
 
+        # Extract Leaguepedia metadata
+        split = t.get("Split") or None
+        split_number = to_int(t.get("SplitNumber")) or None
+        tournament_level = t.get("TournamentLevel") or None
+        is_playoffs = t.get("IsPlayoffs") == "1"
+        is_qualifier = t.get("IsQualifier") == "1"
+        is_official = t.get("IsOfficial", "1") == "1"
+        t_region = t.get("Region") or None
+        end_date = parse_datetime(t.get("Date"))
+
         # Upsert tournament
         start_dt = parse_datetime(date_start)
         tournament_id = db.upsert_pro_tournament(
@@ -1555,6 +1940,14 @@ def sync_league(lp: LeaguepediaClient, db: DB, league_name: str) -> dict:
             pro_league_id=league_id,
             start_date=start_dt,
             year=year,
+            split=split,
+            split_number=split_number,
+            tournament_level=tournament_level,
+            is_playoffs=is_playoffs,
+            is_qualifier=is_qualifier,
+            is_official=is_official,
+            region=t_region,
+            end_date=end_date,
         )
         db.commit()
 
@@ -1612,12 +2005,42 @@ def main():
     parser.add_argument(
         "--dedup",
         action="store_true",
-        help="Only run team deduplication (merge lp: teams into GRID teams by name)",
+        help="Legacy: create proposals + auto-approve + apply (backward compat)",
+    )
+    parser.add_argument(
+        "--propose-dedup",
+        action="store_true",
+        help="Create dedup proposals for admin review (does not apply them)",
+    )
+    parser.add_argument(
+        "--apply-proposals",
+        action="store_true",
+        help="Apply approved mapping proposals (merges entities)",
     )
     parser.add_argument(
         "--backfill-aliases",
         action="store_true",
         help="Backfill player_aliases from existing pro_player_stats data",
+    )
+    parser.add_argument(
+        "--reset-aliases",
+        action="store_true",
+        help="Full reset of player_aliases: truncate and re-backfill from all sources",
+    )
+    parser.add_argument(
+        "--backfill-short-names",
+        action="store_true",
+        help="Backfill pro_teams.short_name from soloq teams table",
+    )
+    parser.add_argument(
+        "--cleanup-parents",
+        action="store_true",
+        help="Remove synthetic parent tournaments (lp:parent:*) and unlink children",
+    )
+    parser.add_argument(
+        "--reset",
+        action="store_true",
+        help="Reset completion flags and re-sync all tournaments",
     )
     args = parser.parse_args()
 
@@ -1625,13 +2048,46 @@ def main():
     if args.max_year:
         LEAGUEPEDIA_MAX_YEAR = args.max_year
 
-    # Dedup-only mode
+    # Dedup-only mode (legacy: propose + auto-approve + apply)
     if args.dedup:
-        logger.info("Running team deduplication only")
+        logger.info("Running team deduplication (legacy mode)")
         db = DB(DATABASE_URL)
         try:
             merged = db.dedup_teams()
             logger.info(f"Deduplication complete: {merged} teams merged")
+        finally:
+            db.close()
+        return
+
+    # Create dedup proposals only
+    if args.propose_dedup:
+        logger.info("Creating dedup proposals for admin review")
+        db = DB(DATABASE_URL)
+        try:
+            count = db.create_dedup_proposals()
+            logger.info(f"Created {count} dedup proposals")
+        finally:
+            db.close()
+        return
+
+    # Apply approved proposals
+    if args.apply_proposals:
+        logger.info("Applying approved mapping proposals")
+        db = DB(DATABASE_URL)
+        try:
+            count = db.apply_approved_proposals()
+            logger.info(f"Applied {count} proposals")
+        finally:
+            db.close()
+        return
+
+    # Reset aliases (full truncate + re-backfill)
+    if args.reset_aliases:
+        logger.info("Resetting player_aliases (full truncate + re-backfill)")
+        db = DB(DATABASE_URL)
+        try:
+            stats = db.reset_aliases()
+            logger.info("Reset complete", **stats)
         finally:
             db.close()
         return
@@ -1643,6 +2099,28 @@ def main():
         try:
             count = db.backfill_aliases()
             logger.info(f"Backfill complete: {count} aliases inserted")
+        finally:
+            db.close()
+        return
+
+    # Backfill short names from soloq teams table
+    if args.backfill_short_names:
+        logger.info("Backfilling pro_teams.short_name from soloq teams table")
+        db = DB(DATABASE_URL)
+        try:
+            count = db.backfill_short_names()
+            logger.info(f"Backfill complete: {count} teams updated")
+        finally:
+            db.close()
+        return
+
+    # Cleanup synthetic parent tournaments
+    if args.cleanup_parents:
+        logger.info("Cleaning up synthetic parent tournaments (lp:parent:*)")
+        db = DB(DATABASE_URL)
+        try:
+            stats = db.cleanup_synthetic_parents()
+            logger.info("Cleanup complete", **stats)
         finally:
             db.close()
         return
@@ -1663,6 +2141,83 @@ def main():
     lp = LeaguepediaClient()
     db = DB(DATABASE_URL)
 
+    # Handle --reset: purge ALL leaguepedia data before re-sync
+    if args.reset:
+        logger.info("Resetting all Leaguepedia data...")
+        with db.conn.cursor() as cur:
+            # 1. Delete player stats & draft actions for lp: games
+            cur.execute("""
+                DELETE FROM pro_player_stats
+                WHERE game_id IN (SELECT game_id FROM pro_games WHERE external_id LIKE 'lp:%%')
+            """)
+            logger.info("Deleted pro_player_stats", count=cur.rowcount)
+
+            cur.execute("""
+                DELETE FROM pro_draft_actions
+                WHERE game_id IN (SELECT game_id FROM pro_games WHERE external_id LIKE 'lp:%%')
+            """)
+            logger.info("Deleted pro_draft_actions", count=cur.rowcount)
+
+            # 2. Delete games & matches
+            cur.execute("DELETE FROM pro_games WHERE external_id LIKE 'lp:%%'")
+            logger.info("Deleted pro_games", count=cur.rowcount)
+
+            cur.execute("DELETE FROM pro_matches WHERE external_id LIKE 'lp:%%'")
+            logger.info("Deleted pro_matches", count=cur.rowcount)
+
+            # 3. Delete aggregated stats for lp: tournaments
+            cur.execute("""
+                DELETE FROM pro_team_stats
+                WHERE tournament_id IN (SELECT tournament_id FROM pro_tournaments WHERE external_id LIKE 'lp:%%')
+            """)
+            logger.info("Deleted pro_team_stats", count=cur.rowcount)
+
+            cur.execute("""
+                DELETE FROM pro_champion_stats
+                WHERE tournament_id IN (SELECT tournament_id FROM pro_tournaments WHERE external_id LIKE 'lp:%%')
+            """)
+            logger.info("Deleted pro_champion_stats", count=cur.rowcount)
+
+            # 4. Delete tournaments & leagues
+            cur.execute("DELETE FROM pro_tournaments WHERE external_id LIKE 'lp:%%'")
+            logger.info("Deleted pro_tournaments", count=cur.rowcount)
+
+            cur.execute("DELETE FROM pro_leagues WHERE external_id LIKE 'lp:%%'")
+            logger.info("Deleted pro_leagues", count=cur.rowcount)
+
+            # 5. Delete lp:-only teams (no references from non-lp data)
+            cur.execute("""
+                DELETE FROM pro_teams
+                WHERE external_id LIKE 'lp:%%'
+                  AND team_id NOT IN (
+                    SELECT DISTINCT blue_team_id FROM pro_games WHERE blue_team_id IS NOT NULL
+                    UNION
+                    SELECT DISTINCT red_team_id FROM pro_games WHERE red_team_id IS NOT NULL
+                    UNION
+                    SELECT DISTINCT team_id FROM pro_player_stats WHERE team_id IS NOT NULL
+                  )
+            """)
+            logger.info("Deleted orphan lp: teams", count=cur.rowcount)
+
+            # 6. Delete aliases & orphan players
+            cur.execute("DELETE FROM player_aliases WHERE source = 'leaguepedia'")
+            logger.info("Deleted player_aliases", count=cur.rowcount)
+
+            cur.execute("""
+                DELETE FROM players
+                WHERE player_id NOT IN (
+                    SELECT DISTINCT player_id FROM player_aliases WHERE player_id IS NOT NULL
+                    UNION
+                    SELECT DISTINCT player_id FROM player_contracts WHERE player_id IS NOT NULL
+                    UNION
+                    SELECT DISTINCT player_id FROM lol_accounts WHERE player_id IS NOT NULL
+                )
+            """)
+            logger.info("Deleted orphan players", count=cur.rowcount)
+
+        db.commit()
+        logger.info("Reset complete — all Leaguepedia data purged")
+
     try:
         for league_name in leagues_to_sync:
             logger.info("=" * 60)
@@ -1682,6 +2237,11 @@ def main():
                     league=league_name,
                     error=str(e),
                 )
+
+        # Backfill short names from soloq teams table
+        count = db.backfill_short_names()
+        if count:
+            logger.info(f"Backfilled short_name for {count} pro teams")
 
         logger.info("Leaguepedia sync finished")
 

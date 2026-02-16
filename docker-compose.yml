@@ -13,10 +13,11 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
       POSTGRES_DB: ${DB_DATABASE:-esports_tracker}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./scripts/init-umami-db.sh:/docker-entrypoint-initdb.d/00-init-umami.sh:ro
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
@@ -50,7 +51,7 @@ services:
     container_name: esports-redis
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
     command: redis-server --appendonly yes
@@ -142,6 +143,26 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+    networks:
+      - esports-network
+
+# ============================================
+  # UMAMI (Analytics)
+  # ============================================
+  umami:
+    image: ghcr.io/umami-software/umami:postgresql-latest
+    container_name: esports-umami
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@postgres:5432/umami
+      DATABASE_TYPE: postgresql
+      APP_SECRET: ${UMAMI_APP_SECRET:?UMAMI_APP_SECRET is required}
+      DISABLE_TELEMETRY: 1
+    ports:
+      - "3001:3000"
+    depends_on:
+      postgres:
         condition: service_healthy
     networks:
       - esports-network

@@ -202,6 +202,7 @@ export function useLolDashboardData({
           }
         })
       } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') return
         if (error instanceof Error && error.name === 'AbortError') return
         // Ignore errors from stale requests
         if (currentRequestId !== teamsRequestIdRef.current) return
@@ -225,7 +226,7 @@ export function useLolDashboardData({
       abortController.abort()
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isHydrated, isUrlInitialized, startDate, endDate, selectedLeagues, minGames, sortBy, currentPage, itemsPerPage])
+  }, [isHydrated, isUrlInitialized, startDate, endDate, period, refDate, selectedLeagues, minGames, sortBy, currentPage, itemsPerPage, updateSelectedTeamData])
 
   // Fetch batch data (grinders, gainers, losers)
   useEffect(() => {
@@ -271,6 +272,7 @@ export function useLolDashboardData({
           topLpLosers: batchRes.losers?.data || [],
         }))
       } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') return
         if (error instanceof Error && error.name === 'AbortError') return
         // Ignore errors from stale requests
         if (currentRequestId !== batchRequestIdRef.current) return
@@ -288,7 +290,7 @@ export function useLolDashboardData({
     return () => {
       abortController.abort()
     }
-  }, [isHydrated, isUrlInitialized, startDate, endDate, selectedLeagues, selectedRoles, minGames, leaderboardView, addToast])
+  }, [isHydrated, isUrlInitialized, startDate, endDate, period, refDate, selectedLeagues, selectedRoles, minGames, leaderboardView, addToast])
 
   // Fetch players data when in players view
   useEffect(() => {
@@ -325,6 +327,7 @@ export function useLolDashboardData({
         setPlayers(res.data || [])
         setPlayersMeta(res.meta || { total: 0, perPage: 10, currentPage: 1, lastPage: 1 })
       } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') return
         if (error instanceof Error && error.name === 'AbortError') return
         // Ignore errors from stale requests
         if (currentRequestId !== playersRequestIdRef.current) return
@@ -348,7 +351,7 @@ export function useLolDashboardData({
       abortController.abort()
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isHydrated, isUrlInitialized, leaderboardView, startDate, endDate, selectedLeagues, selectedRoles, minGames, sortBy, currentPage, itemsPerPage])
+  }, [isHydrated, isUrlInitialized, leaderboardView, startDate, endDate, period, refDate, selectedLeagues, selectedRoles, minGames, sortBy, currentPage, itemsPerPage])
 
   // Fetch team history for selected teams
   useEffect(() => {
@@ -402,6 +405,7 @@ export function useLolDashboardData({
           })),
         })))
       } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') return
         if (error instanceof Error && error.name === 'AbortError') return
         // Ignore errors from stale requests
         if (currentRequestId !== teamHistoryRequestIdRef.current) return
@@ -480,6 +484,7 @@ export function useLolDashboardData({
           })),
         })))
       } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') return
         if (error instanceof Error && error.name === 'AbortError') return
         // Ignore errors from stale requests
         if (currentRequestId !== playerHistoryRequestIdRef.current) return

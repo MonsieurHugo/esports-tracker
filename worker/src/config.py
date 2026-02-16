@@ -57,14 +57,6 @@ class Settings(BaseSettings):
     riot_api_base_url: str = "https://euw1.api.riotgames.com"
     riot_api_rate_limit: int = 100  # requests per 2 minutes
 
-    # GRID Esports API (Pro Stats)
-    grid_api_key: str = ""
-    grid_rate_limit: int = 10  # requests per second
-
-    # Pro Stats Polling Intervals (in seconds)
-    pro_fetch_interval_live: int = 30  # During live matches
-    pro_fetch_interval_idle: int = 900  # 15 minutes when no live matches
-
     # Application
     debug: bool = False
     log_level: str = "INFO"
@@ -93,6 +85,25 @@ class Settings(BaseSettings):
     # Batch size per region per cycle
     priority_batch_size: int = 10
 
+    # GRID API Configuration
+    grid_api_key: str = ""
+    grid_api_rate_limit: int = 10  # requests per second
+    grid_central_graphql_url: str = "https://api.grid.gg/central-data/graphql"
+    grid_live_data_graphql_url: str = "https://api.grid.gg/live-data-feed/series-state/graphql"
+    grid_file_download_url: str = "https://api.grid.gg/file-download"
+    grid_use_graphql: bool = True  # Use GraphQL API (recommended)
+
+    # Pro Worker Settings
+    pro_tournament_year: int = 2026
+    pro_max_concurrent_games: int = 5
+    pro_sync_interval_minutes: int = 5  # Sync tournaments every 5 minutes
+    pro_api_port: int = 8000  # HTTP API port for pro worker
+    pro_api_host: str = "0.0.0.0"  # HTTP API host
+    # Leaguepedia sync settings
+    leaguepedia_username: str = ""
+    leaguepedia_password: str = ""
+    leaguepedia_max_year: int = 2025
+
     @model_validator(mode='after')
     def validate_required_secrets(self) -> 'Settings':
         """Validate that required secrets are provided."""
@@ -101,91 +112,67 @@ class Settings(BaseSettings):
                 "DATABASE_URL environment variable is required. "
                 "Example: postgresql://user:password@localhost:5432/dbname"
             )
-        if not self.riot_api_key:
-            raise ValueError(
-                "RIOT_API_KEY environment variable is required. "
-                "Get your API key from https://developer.riotgames.com/"
-            )
         return self
 
+    def has_riot_api(self) -> bool:
+        """Check if Riot API key is configured."""
+        return bool(self.riot_api_key)
+
+    def has_grid_api(self) -> bool:
+        """Check if GRID API key is configured."""
+        return bool(self.grid_api_key)
+
+    def get_redacted_grid_api_key(self) -> str:
+        """Get GRID API key redacted for safe logging."""
+        return redact_api_key(self.grid_api_key)
+
     @model_validator(mode='after')
-    def validate_priority_tiers(self) -> 'Settings':
-        """Ensure tier thresholds are valid and in strictly descending order."""
+    def validate_priority_config(self) -> 'Settings':
+        """Validate all priority queue tier thresholds and intervals."""
+        # Validate tier thresholds: must be 0 < moderate < active < very_active <= 100
         tiers = [
             ('very_active', self.priority_tier_very_active),
             ('active', self.priority_tier_active),
             ('moderate', self.priority_tier_moderate),
         ]
-
-        # First check: all tiers must be <= 100
         for name, val in tiers:
             if val > 100:
-                raise ValueError(
-                    f"priority_tier_{name} ({val}) cannot exceed 100"
-                )
-
-        # Second check: moderate tier must be > 0
+                raise ValueError(f"priority_tier_{name} ({val}) cannot exceed 100")
         if self.priority_tier_moderate <= 0:
-            raise ValueError(
-                f"priority_tier_moderate ({self.priority_tier_moderate}) must be greater than 0"
-            )
-
-        # Third check: verify descending order
+            raise ValueError(f"priority_tier_moderate ({self.priority_tier_moderate}) must be greater than 0")
         for i in range(len(tiers) - 1):
-            current_name, current_val = tiers[i]
-            next_name, next_val = tiers[i + 1]
-
-            if current_val <= next_val:
+            cur_name, cur_val = tiers[i]
+            nxt_name, nxt_val = tiers[i + 1]
+            if cur_val <= nxt_val:
                 raise ValueError(
-                    f"Priority tier threshold error: "
-                    f"'{current_name}' ({current_val}) must be greater than "
-                    f"'{next_name}' ({next_val}). "
-                    f"Expected descending order: very_active > active > moderate > 0"
+                    f"Priority tier '{cur_name}' ({cur_val}) must be greater than '{nxt_name}' ({nxt_val})"
                 )
 
-        return self
-
-    @model_validator(mode='after')
-    def validate_priority_intervals(self) -> 'Settings':
-        """Ensure base intervals don't exceed max intervals."""
+        # Validate intervals: base must be positive and <= max
         interval_pairs = [
             ('very_active', self.priority_interval_very_active, self.priority_max_interval_very_active),
             ('active', self.priority_interval_active, self.priority_max_interval_active),
             ('moderate', self.priority_interval_moderate, self.priority_max_interval_moderate),
             ('inactive', self.priority_interval_inactive, self.priority_max_interval_inactive),
         ]
-
         for tier_name, base, max_val in interval_pairs:
+            if base <= 0:
+                raise ValueError(f"priority_interval_{tier_name} must be positive, got {base}")
             if base > max_val:
                 raise ValueError(
                     f"priority_interval_{tier_name} ({base} min) cannot exceed "
                     f"priority_max_interval_{tier_name} ({max_val} min)"
                 )
-            if base <= 0:
-                raise ValueError(
-                    f"priority_interval_{tier_name} must be positive, got {base}"
-                )
 
-        return self
-
-    @model_validator(mode='after')
-    def validate_interval_ordering(self) -> 'Settings':
-        """Ensure intervals increase as activity decreases (optional but recommended)."""
-        intervals = [
-            self.priority_interval_very_active,
-            self.priority_interval_active,
-            self.priority_interval_moderate,
-            self.priority_interval_inactive,
-        ]
-
+        # Warn if intervals are not in ascending order (unusual but allowed)
+        intervals = [self.priority_interval_very_active, self.priority_interval_active,
+                     self.priority_interval_moderate, self.priority_interval_inactive]
         for i in range(len(intervals) - 1):
             if intervals[i] > intervals[i + 1]:
-                # Warning only, not an error (advanced config possible)
                 warnings.warn(
                     "Priority intervals are not in ascending order. "
                     "This is unusual but allowed for advanced configurations.",
-                    UserWarning,
-                    stacklevel=2,
+                    UserWarning, stacklevel=2,
                 )
                 break
 
@@ -203,14 +190,6 @@ class Settings(BaseSettings):
         """Get Riot API key redacted for safe logging."""
         return redact_api_key(self.riot_api_key)
 
-    def get_redacted_grid_api_key(self) -> str:
-        """Get GRID API key redacted for safe logging."""
-        return redact_api_key(self.grid_api_key)
-
-    def has_grid_api(self) -> bool:
-        """Check if GRID API key is configured."""
-        return bool(self.grid_api_key)
-
     def __repr__(self) -> str:
         """Return a safe string representation that does not expose secrets."""
         return (
@@ -218,7 +197,6 @@ class Settings(BaseSettings):
             f"database_url={self.get_redacted_database_url()!r}, "
             f"redis_url={self.get_redacted_redis_url()!r}, "
             f"riot_api_key={self.get_redacted_api_key()!r}, "
-            f"grid_api_key={self.get_redacted_grid_api_key()!r}, "
             f"debug={self.debug}, "
             f"log_level={self.log_level!r}, "
             f"use_priority_queue={self.use_priority_queue}"

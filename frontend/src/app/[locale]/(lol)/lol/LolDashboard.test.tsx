@@ -1,10 +1,10 @@
 import { render, screen, waitFor, fireEvent, within } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest'
 import LolDashboard from './LolDashboard'
-import { mockTeam, mockPlayer, mockTopGrinders } from '@/tests/mocks'
+import { mockTeam, mockPlayer, mockGrinderEntries } from '@/tests/mocks'
 import type { TeamLeaderboardEntry, PlayerLeaderboardEntry, GrinderEntry, LpChangeEntry } from '@/lib/types'
 
-// Mock the API module - the component makes direct API calls
+// Mock the API module - the component makes direct API calls for leagues
 vi.mock('@/lib/api', () => ({
   default: {
     get: vi.fn(),
@@ -21,36 +21,67 @@ vi.mock('next/navigation', () => ({
   usePathname: vi.fn(() => '/lol'),
 }))
 
-// Mock all hooks (these are mocked but the component doesn't use most of them)
-vi.mock('@/hooks/useDashboardData', () => ({
-  useDashboardData: vi.fn(),
-  usePlayersData: vi.fn(),
+// Mock next-intl
+vi.mock('next-intl', () => ({
+  useTranslations: vi.fn(() => {
+    const t = (key: string) => {
+      const translations: Record<string, string> = {
+        'dashboard.title': 'Dashboard',
+        'common.reset': 'Réinitialiser les filtres',
+        'common.expand': 'Agrandir',
+        'common.supportDev': 'Soutenir le dev',
+        'errors.loadLeagues': 'Erreur lors du chargement des ligues',
+      }
+      return translations[key] || key
+    }
+    return t
+  }),
 }))
 
-vi.mock('@/hooks/useHistoryData', () => ({
-  useTeamHistory: vi.fn(),
-  usePlayerHistory: vi.fn(),
+// Mock the data fetching hook
+vi.mock('@/hooks/useLolDashboardData', () => ({
+  useLolDashboardData: vi.fn(),
 }))
 
-vi.mock('@/hooks/useLeagues', () => ({
-  useLeagues: vi.fn(),
+// Mock the URL sync hook
+vi.mock('@/hooks/useLolDashboardUrl', () => ({
+  useLolDashboardUrl: vi.fn(() => ({ isUrlInitialized: true })),
 }))
 
-vi.mock('@/hooks/useUrlSync', () => ({
-  useUrlSync: vi.fn(),
-}))
-
+// Mock stores hydration
 vi.mock('@/hooks/useStoresHydrated', () => ({
   useStoresHydrated: vi.fn(() => true),
 }))
 
-// Mock the store
+// Mock the dashboard store
 vi.mock('@/stores/dashboardStore', () => ({
   useDashboardStore: vi.fn(),
   usePeriodStore: vi.fn(),
   useFilterStore: vi.fn(),
   useSelectionStore: vi.fn(),
   useUIStore: vi.fn(),
+}))
+
+// Mock toast store
+vi.mock('@/stores/toastStore', () => ({
+  useToastStore: vi.fn((selector: (state: { addToast: () => void }) => unknown) =>
+    selector({ addToast: vi.fn() })
+  ),
+}))
+
+// Mock period store constant
+vi.mock('@/stores/periodStore', () => ({
+  MIN_DATA_DATE: '2024-01-01',
+}))
+
+// Mock logger
+vi.mock('@/lib/logger', () => ({
+  logError: vi.fn(),
+}))
+
+// Mock date utils
+vi.mock('@/lib/dateUtils', () => ({
+  generateCompleteDateRange: vi.fn(() => []),
 }))
 
 // Mock child components that are complex
@@ -136,14 +167,86 @@ vi.mock('@/components/dashboard/PeriodSelector', () => ({
   ),
 }))
 
-vi.mock('@/components/dashboard/StatCard', () => ({
-  default: ({ label, value, change }: { label: string; value?: string | number; change?: number }) => (
-    <div data-testid={`stat-card-${label.toLowerCase()}`}>
-      <span data-testid="stat-label">{label}</span>
-      <span data-testid="stat-value">{value ?? '-'}</span>
-      {change !== undefined && <span data-testid="stat-change">{change}</span>}
-    </div>
-  ),
+vi.mock('@/components/dashboard/StatsCards', () => ({
+  default: ({ viewMode, selectedTeams, selectedPlayers }: {
+    viewMode: 'teams' | 'players'
+    selectedTeams: TeamLeaderboardEntry[]
+    selectedPlayers: PlayerLeaderboardEntry[]
+  }) => {
+    if (viewMode === 'teams') {
+      if (selectedTeams.length >= 1) {
+        const team = selectedTeams[0]
+        return (
+          <>
+            <div data-testid="stat-card-games">
+              <span data-testid="stat-label">Games</span>
+              <span data-testid="stat-value">{team.games}</span>
+            </div>
+            <div data-testid="stat-card-winrate">
+              <span data-testid="stat-label">Winrate</span>
+              <span data-testid="stat-value">{team.winrate.toFixed(1)}%</span>
+            </div>
+            <div data-testid="stat-card-lp">
+              <span data-testid="stat-label">LP</span>
+              <span data-testid="stat-value">{team.totalLp}</span>
+            </div>
+          </>
+        )
+      }
+      return (
+        <>
+          <div data-testid="stat-card-games">
+            <span data-testid="stat-label">Games</span>
+            <span data-testid="stat-value">-</span>
+          </div>
+          <div data-testid="stat-card-winrate">
+            <span data-testid="stat-label">Winrate</span>
+            <span data-testid="stat-value">-</span>
+          </div>
+          <div data-testid="stat-card-lp">
+            <span data-testid="stat-label">LP</span>
+            <span data-testid="stat-value">-</span>
+          </div>
+        </>
+      )
+    }
+    // Players view
+    if (selectedPlayers.length >= 1) {
+      const player = selectedPlayers[0]
+      return (
+        <>
+          <div data-testid="stat-card-games">
+            <span data-testid="stat-label">Games</span>
+            <span data-testid="stat-value">{player.games}</span>
+          </div>
+          <div data-testid="stat-card-winrate">
+            <span data-testid="stat-label">Winrate</span>
+            <span data-testid="stat-value">{player.winrate.toFixed(1)}%</span>
+          </div>
+          <div data-testid="stat-card-lp">
+            <span data-testid="stat-label">LP</span>
+            <span data-testid="stat-value">{player.totalLp}</span>
+          </div>
+        </>
+      )
+    }
+    return (
+      <>
+        <div data-testid="stat-card-games">
+          <span data-testid="stat-label">Games</span>
+          <span data-testid="stat-value">-</span>
+        </div>
+        <div data-testid="stat-card-winrate">
+          <span data-testid="stat-label">Winrate</span>
+          <span data-testid="stat-value">-</span>
+        </div>
+        <div data-testid="stat-card-lp">
+          <span data-testid="stat-label">LP</span>
+          <span data-testid="stat-value">-</span>
+        </div>
+      </>
+    )
+  },
 }))
 
 vi.mock('@/components/dashboard/GamesChart', () => ({
@@ -182,7 +285,7 @@ vi.mock('@/components/dashboard/TopGrinders', () => ({
   default: ({ entries, isLoading }: { entries: GrinderEntry[]; isLoading: boolean }) => (
     <div data-testid="top-grinders">
       {isLoading ? 'Loading...' : entries.map((e, i) => (
-        <div key={i} data-testid={`grinder-${i}`}>{e.player.pseudo}</div>
+        <div key={i} data-testid={`grinder-${i}`}>{e.entity.name}</div>
       ))}
     </div>
   ),
@@ -236,21 +339,38 @@ vi.mock('@/components/ThemeSelector', () => ({
   default: () => <div data-testid="theme-selector">Theme</div>,
 }))
 
+vi.mock('@/components/layout/LanguageSwitcher', () => ({
+  LanguageSwitcher: () => <div data-testid="language-switcher">Language</div>,
+}))
+
+vi.mock('@/components/dashboard/MobileControlBar', () => ({
+  default: () => <div data-testid="mobile-control-bar">Mobile Controls</div>,
+}))
+
+vi.mock('@/components/dashboard/MobileFiltersSheet', () => ({
+  default: () => <div data-testid="mobile-filters-sheet">Mobile Filters</div>,
+}))
+
+vi.mock('@/components/dashboard/ChartsModal', () => ({
+  default: () => <div data-testid="charts-modal">Charts Modal</div>,
+}))
+
+vi.mock('@/components/ui/ErrorBoundary', () => ({
+  ErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}))
+
+vi.mock('@/components/ui/ChartErrorFallback', () => ({
+  ChartErrorFallback: () => <div data-testid="chart-error">Chart Error</div>,
+}))
+
 // Import mocked modules
-import { useDashboardData, usePlayersData } from '@/hooks/useDashboardData'
-import { useTeamHistory, usePlayerHistory } from '@/hooks/useHistoryData'
-import { useLeagues } from '@/hooks/useLeagues'
-import { useDashboardStore, useUIStore, useFilterStore } from '@/stores/dashboardStore'
+import { useLolDashboardData } from '@/hooks/useLolDashboardData'
+import { useDashboardStore, useUIStore } from '@/stores/dashboardStore'
 import api from '@/lib/api'
 
-const mockUseDashboardData = useDashboardData as Mock
-const mockUsePlayersData = usePlayersData as Mock
-const mockUseTeamHistory = useTeamHistory as Mock
-const mockUsePlayerHistory = usePlayerHistory as Mock
-const mockUseLeagues = useLeagues as Mock
+const mockUseLolDashboardData = useLolDashboardData as Mock
 const mockUseDashboardStore = useDashboardStore as Mock
 const mockUseUIStore = useUIStore as Mock
-const mockUseFilterStore = useFilterStore as Mock
 const mockApiGet = vi.mocked(api.get)
 
 // Default mock store values
@@ -301,56 +421,26 @@ const createMockUIStore = (overrides = {}) => ({
   ...overrides,
 })
 
-// Mock filter store values
-const createMockFilterStore = (overrides = {}) => ({
-  teamsSelectedLeagues: [],
-  playersSelectedLeagues: [],
-  teamsMinGames: 0,
-  playersMinGames: 0,
-  selectedRoles: [],
-  toggleLeague: vi.fn(),
-  selectAllLeagues: vi.fn(),
-  setMinGames: vi.fn(),
-  toggleRole: vi.fn(),
-  selectAllRoles: vi.fn(),
-  resetFilters: vi.fn(),
-  getSelectedLeagues: vi.fn(() => []),
-  getMinGames: vi.fn(() => 0),
-  ...overrides,
-})
-
-// Default dashboard data
-const createMockDashboardData = (overrides = {}) => ({
+// Default hook return value for useLolDashboardData
+const createMockDashboardDataResult = (overrides = {}) => ({
   data: {
     teams: [mockTeam],
     teamsMeta: { total: 1, perPage: 20, currentPage: 1, lastPage: 1 },
-    topGrinders: mockTopGrinders,
+    topGrinders: mockGrinderEntries,
     topLpGainers: [],
     topLpLosers: [],
   },
   isLoading: false,
-  error: null,
-  retry: vi.fn(),
-  newTeams: [mockTeam],
-  isPeriodChange: false,
-  ...overrides,
-})
-
-// Default players data
-const createMockPlayersData = (overrides = {}) => ({
   players: [mockPlayer],
   playersMeta: { total: 1, perPage: 20, currentPage: 1, lastPage: 1 },
-  isLoading: false,
-  error: null,
-  retry: vi.fn(),
-  ...overrides,
-})
-
-// Default history data
-const createMockHistoryData = (overrides = {}) => ({
-  gamesData: [],
-  lpData: [],
-  isLoading: false,
+  isPlayersLoading: false,
+  teamsLpData: [],
+  teamsGamesData: [],
+  playersLpData: [],
+  playersGamesData: [],
+  isHistoryLoading: false,
+  getTeamLpStats: vi.fn((team: TeamLeaderboardEntry) => ({ totalLp: team.totalLp, lpChange: team.totalLpChange })),
+  getPlayerLpStats: vi.fn((player: PlayerLeaderboardEntry) => ({ totalLp: player.totalLp, lpChange: player.totalLpChange })),
   ...overrides,
 })
 
@@ -358,49 +448,20 @@ describe('LolDashboard', () => {
   beforeEach(() => {
     vi.clearAllMocks()
 
-    // Setup API mock responses - the component makes direct API calls
+    // Setup API mock for leagues fetch (the only direct API call in the component)
     mockApiGet.mockImplementation((endpoint: string) => {
       if (endpoint === '/lol/dashboard/leagues') {
-        return Promise.resolve({ data: [{ id: 'LEC', name: 'LEC' }, { id: 'LFL', name: 'LFL' }] })
+        return Promise.resolve({ data: [{ leagueId: 1, shortName: 'LEC', name: 'LEC', region: 'EMEA' }, { leagueId: 2, shortName: 'LFL', name: 'LFL', region: 'FR' }] })
       }
-      if (endpoint === '/lol/dashboard/batch') {
-        return Promise.resolve({
-          grinders: { data: mockTopGrinders },
-          gainers: { data: [] },
-          losers: { data: [] },
-        })
-      }
-      if (endpoint === '/lol/dashboard/teams') {
-        return Promise.resolve({
-          data: [mockTeam],
-          meta: { total: 1, perPage: 20, currentPage: 1, lastPage: 1 },
-        })
-      }
-      if (endpoint === '/lol/dashboard/players') {
-        return Promise.resolve({
-          data: [mockPlayer],
-          meta: { total: 1, perPage: 20, currentPage: 1, lastPage: 1 },
-        })
-      }
-      if (endpoint.includes('/lol/dashboard/team-history')) {
-        return Promise.resolve({ data: [] })
-      }
-      if (endpoint.includes('/lol/dashboard/player-history')) {
-        return Promise.resolve({ data: [] })
-      }
-      // Default response for any other endpoint
       return Promise.resolve({ data: [] })
     })
 
-    // Setup store and hook mocks (these may or may not be used depending on component implementation)
+    // Setup store mocks
     mockUseDashboardStore.mockReturnValue(createMockStore())
     mockUseUIStore.mockReturnValue(createMockUIStore())
-    mockUseFilterStore.mockReturnValue(createMockFilterStore())
-    mockUseDashboardData.mockReturnValue(createMockDashboardData())
-    mockUsePlayersData.mockReturnValue(createMockPlayersData())
-    mockUseTeamHistory.mockReturnValue(createMockHistoryData())
-    mockUsePlayerHistory.mockReturnValue(createMockHistoryData())
-    mockUseLeagues.mockReturnValue({ leagues: ['LEC', 'LFL', 'LCK'] })
+
+    // Setup hook mock
+    mockUseLolDashboardData.mockReturnValue(createMockDashboardDataResult())
   })
 
   describe('initial render', () => {
@@ -416,7 +477,7 @@ describe('LolDashboard', () => {
 
     it('renders stat cards', () => {
       render(<LolDashboard />)
-      // StatCards are rendered in multiple places (xl sidebar + smaller screen areas)
+      // StatsCards are rendered in multiple places (xl sidebar + smaller screen areas)
       expect(screen.getAllByTestId('stat-card-games').length).toBeGreaterThan(0)
       expect(screen.getAllByTestId('stat-card-winrate').length).toBeGreaterThan(0)
       expect(screen.getAllByTestId('stat-card-lp').length).toBeGreaterThan(0)
@@ -425,27 +486,32 @@ describe('LolDashboard', () => {
 
   describe('loading state', () => {
     it('shows loading state in team leaderboard when data is loading', () => {
-      mockUseDashboardData.mockReturnValue(createMockDashboardData({ isLoading: true }))
+      mockUseLolDashboardData.mockReturnValue(createMockDashboardDataResult({
+        isLoading: true,
+        data: {
+          teams: [],
+          teamsMeta: { total: 0, perPage: 20, currentPage: 1, lastPage: 1 },
+          topGrinders: mockGrinderEntries,
+          topLpGainers: [],
+          topLpLosers: [],
+        },
+      }))
 
       render(<LolDashboard />)
       expect(screen.getByTestId('team-leaderboard-loading')).toBeInTheDocument()
     })
 
     it('shows charts initially without loading state (mocked components)', async () => {
-      // Since components are mocked, they show "Games Chart" etc. by default
-      // The actual loading state would be managed by the real components
       render(<LolDashboard />)
 
-      // Mocked chart components render their default content
       expect(screen.getByTestId('games-chart')).toHaveTextContent('Games Chart')
       expect(screen.getByTestId('lp-chart')).toHaveTextContent('LP Chart')
     })
 
     it('shows loading state in top grinders when loading', () => {
-      mockUseDashboardData.mockReturnValue(createMockDashboardData({ isLoading: true }))
+      mockUseLolDashboardData.mockReturnValue(createMockDashboardDataResult({ isLoading: true }))
 
       render(<LolDashboard />)
-      // TopGrinders is rendered twice (xl and smaller screens), check one instance
       const grinders = screen.getAllByTestId('top-grinders')
       expect(grinders[0]).toHaveTextContent('Loading...')
     })
@@ -455,23 +521,17 @@ describe('LolDashboard', () => {
     it('displays team data in leaderboard after loading', async () => {
       render(<LolDashboard />)
 
-      await waitFor(() => {
-        expect(screen.getByTestId(`team-row-${mockTeam.team.teamId}`)).toBeInTheDocument()
-      })
-      expect(screen.getByText(mockTeam.team.currentName)).toBeInTheDocument()
+      const teamRow = screen.getByTestId(`team-row-${mockTeam.team.teamId}`)
+      expect(teamRow).toBeInTheDocument()
+      expect(teamRow).toHaveTextContent(mockTeam.team.currentName)
     })
 
     it('displays grinders after loading', async () => {
       render(<LolDashboard />)
 
-      // Wait for API data to load and grinders to be displayed
-      await waitFor(() => {
-        // TopGrinders is rendered twice (responsive layout), check any instance
-        const grinders = screen.getAllByTestId('top-grinders')
-        // At least one should have loaded and show grinder data (not "Loading...")
-        const hasLoadedGrinders = grinders.some(grinder => !grinder.textContent?.includes('Loading'))
-        expect(hasLoadedGrinders).toBe(true)
-      })
+      const grinders = screen.getAllByTestId('top-grinders')
+      const hasLoadedGrinders = grinders.some(grinder => !grinder.textContent?.includes('Loading'))
+      expect(hasLoadedGrinders).toBe(true)
     })
 
     it('displays charts after loading', () => {
@@ -533,11 +593,6 @@ describe('LolDashboard', () => {
 
       render(<LolDashboard />)
 
-      // Wait for team row to be rendered from API data
-      await waitFor(() => {
-        expect(screen.getByTestId(`team-row-${mockTeam.team.teamId}`)).toBeInTheDocument()
-      })
-
       fireEvent.click(screen.getByTestId(`team-row-${mockTeam.team.teamId}`))
       expect(selectTeam).toHaveBeenCalledWith(mockTeam)
     })
@@ -549,9 +604,7 @@ describe('LolDashboard', () => {
 
       render(<LolDashboard />)
 
-      // Stat cards have multiple instances due to responsive layout
       const gamesCards = screen.getAllByTestId('stat-card-games')
-      // At least one of them should show the team's games count
       const hasTeamGames = gamesCards.some(card =>
         within(card).getByTestId('stat-value').textContent === String(mockTeam.games)
       )
@@ -565,9 +618,7 @@ describe('LolDashboard', () => {
 
       render(<LolDashboard />)
 
-      // Stat cards have multiple instances due to responsive layout
       const gamesCards = screen.getAllByTestId('stat-card-games')
-      // At least one of them should show '-' when no team is selected
       const hasDash = gamesCards.some(card =>
         within(card).getByTestId('stat-value').textContent === '-'
       )
@@ -633,9 +684,7 @@ describe('LolDashboard', () => {
     it('displays player data in leaderboard', async () => {
       render(<LolDashboard />)
 
-      await waitFor(() => {
-        expect(screen.getByTestId(`player-row-${mockPlayer.player.playerId}`)).toBeInTheDocument()
-      })
+      expect(screen.getByTestId(`player-row-${mockPlayer.player.playerId}`)).toBeInTheDocument()
       expect(screen.getByText(mockPlayer.player.pseudo)).toBeInTheDocument()
     })
 
@@ -647,11 +696,6 @@ describe('LolDashboard', () => {
       }))
 
       render(<LolDashboard />)
-
-      // Wait for player row to be rendered from API data
-      await waitFor(() => {
-        expect(screen.getByTestId(`player-row-${mockPlayer.player.playerId}`)).toBeInTheDocument()
-      })
 
       fireEvent.click(screen.getByTestId(`player-row-${mockPlayer.player.playerId}`))
       expect(selectPlayer).toHaveBeenCalledWith(mockPlayer)
@@ -665,9 +709,7 @@ describe('LolDashboard', () => {
 
       render(<LolDashboard />)
 
-      // Stat cards have multiple instances due to responsive layout
       const gamesCards = screen.getAllByTestId('stat-card-games')
-      // At least one of them should show the player's games count
       const hasPlayerGames = gamesCards.some(card =>
         within(card).getByTestId('stat-value').textContent === String(mockPlayer.games)
       )
@@ -675,29 +717,22 @@ describe('LolDashboard', () => {
     })
   })
 
-  // Error handling tests - component manages errors internally via API calls
-  // Note: The component silently fails on API errors (no error UI shown) based on current implementation
   describe('error handling', () => {
     it('handles API errors gracefully without crashing', async () => {
-      // Make all API calls fail
+      // Make leagues fetch fail
       mockApiGet.mockRejectedValue(new Error('Network error'))
 
-      // Should not throw - component handles errors gracefully
       expect(() => render(<LolDashboard />)).not.toThrow()
 
-      // Component should still render basic structure
       expect(screen.getByText('Dashboard')).toBeInTheDocument()
     })
 
-    it('continues to render loading state during API failure', async () => {
+    it('continues to render leaderboard during API failure', async () => {
       mockApiGet.mockRejectedValue(new Error('Network error'))
 
       render(<LolDashboard />)
 
-      // The team leaderboard should show loading state since data never arrives
-      await waitFor(() => {
-        expect(screen.getByTestId('team-leaderboard')).toBeInTheDocument()
-      })
+      expect(screen.getByTestId('team-leaderboard')).toBeInTheDocument()
     })
 
     it('does not display error message when API succeeds', async () => {
@@ -708,19 +743,16 @@ describe('LolDashboard', () => {
       })
     })
 
-    it('shows data after successful API call', async () => {
+    it('shows data from hook after loading', async () => {
       render(<LolDashboard />)
 
-      // Wait for team data to load and render
-      await waitFor(() => {
-        expect(screen.getByTestId(`team-row-${mockTeam.team.teamId}`)).toBeInTheDocument()
-      })
+      expect(screen.getByTestId(`team-row-${mockTeam.team.teamId}`)).toBeInTheDocument()
     })
   })
 
   describe('empty state', () => {
     it('renders correctly with empty teams list', () => {
-      mockUseDashboardData.mockReturnValue(createMockDashboardData({
+      mockUseLolDashboardData.mockReturnValue(createMockDashboardDataResult({
         data: {
           teams: [],
           teamsMeta: { total: 0, perPage: 20, currentPage: 1, lastPage: 1 },
@@ -732,7 +764,6 @@ describe('LolDashboard', () => {
 
       render(<LolDashboard />)
 
-      // Should still render the leaderboard container
       expect(screen.getByTestId('team-leaderboard')).toBeInTheDocument()
     })
 
@@ -744,13 +775,10 @@ describe('LolDashboard', () => {
 
       render(<LolDashboard />)
 
-      // Stat cards have multiple instances due to responsive layout
-      // Verify at least one instance of each shows dash for no selection
       const gamesCards = screen.getAllByTestId('stat-card-games')
       const winrateCards = screen.getAllByTestId('stat-card-winrate')
       const lpCards = screen.getAllByTestId('stat-card-lp')
 
-      // At least one of each card type should show '-'
       const gamesHasDash = gamesCards.some(card =>
         within(card).getByTestId('stat-value').textContent === '-'
       )
@@ -774,7 +802,6 @@ describe('LolDashboard', () => {
 
       render(<LolDashboard />)
 
-      // Find and click the reset button (the one with the refresh icon)
       const resetButton = screen.getByTitle('Réinitialiser les filtres')
       fireEvent.click(resetButton)
 
@@ -782,93 +809,12 @@ describe('LolDashboard', () => {
     })
   })
 
-  // Tests for API call integration - verifies the component makes correct API calls
   describe('API integration', () => {
-    it('calls /lol/dashboard/teams with correct filter params', async () => {
-      mockUseDashboardStore.mockReturnValue(createMockStore({
-        selectedLeagues: ['LEC'],
-        minGames: 5,
-        sortBy: 'games',
-        currentPage: 2,
-        itemsPerPage: 10,
-      }))
-
+    it('fetches leagues on mount', async () => {
       render(<LolDashboard />)
 
       await waitFor(() => {
-        expect(mockApiGet).toHaveBeenCalledWith(
-          '/lol/dashboard/teams',
-          expect.objectContaining({
-            params: expect.objectContaining({
-              leagues: ['LEC'],
-              minGames: 5,
-              sort: 'games',
-              page: 2,
-              perPage: 10,
-            }),
-          })
-        )
-      })
-    })
-
-    it('calls /lol/dashboard/players when in players view', async () => {
-      mockUseDashboardStore.mockReturnValue(createMockStore({
-        leaderboardView: 'players',
-        selectedLeagues: ['LCK'],
-        selectedRoles: ['ADC'],
-        minGames: 10,
-        sortBy: 'winrate',
-        currentPage: 3,
-        itemsPerPage: 50,
-      }))
-
-      render(<LolDashboard />)
-
-      await waitFor(() => {
-        expect(mockApiGet).toHaveBeenCalledWith(
-          '/lol/dashboard/players',
-          expect.objectContaining({
-            params: expect.objectContaining({
-              leagues: ['LCK'],
-              roles: ['ADC'],
-              minGames: 10,
-              sort: 'winrate',
-              page: 3,
-              perPage: 50,
-            }),
-          })
-        )
-      })
-    })
-
-    it('calls /lol/dashboard/team-history with selected team', async () => {
-      mockUseDashboardStore.mockReturnValue(createMockStore({
-        selectedTeams: [mockTeam],
-      }))
-
-      render(<LolDashboard />)
-
-      await waitFor(() => {
-        expect(mockApiGet).toHaveBeenCalledWith(
-          expect.stringContaining('/lol/dashboard/team-history'),
-          expect.any(Object)
-        )
-      })
-    })
-
-    it('calls /lol/dashboard/player-history with selected player in players view', async () => {
-      mockUseDashboardStore.mockReturnValue(createMockStore({
-        leaderboardView: 'players',
-        selectedPlayers: [mockPlayer],
-      }))
-
-      render(<LolDashboard />)
-
-      await waitFor(() => {
-        expect(mockApiGet).toHaveBeenCalledWith(
-          expect.stringContaining('/lol/dashboard/player-history'),
-          expect.any(Object)
-        )
+        expect(mockApiGet).toHaveBeenCalledWith('/lol/dashboard/leagues')
       })
     })
   })
@@ -889,38 +835,8 @@ describe('LolDashboard', () => {
 
       render(<LolDashboard />)
 
-      // With 2 teams selected, StatCard receives teams prop instead of value/change
-      // StatCards are rendered in multiple places (responsive layout)
       const gamesCards = screen.getAllByTestId('stat-card-games')
       expect(gamesCards.length).toBeGreaterThan(0)
-    })
-  })
-
-  describe('period date range', () => {
-    it('passes computed date range to API calls', async () => {
-      // Store computes date range from period (e.g., 30d = 30 days sliding window)
-      const startDate = '2024-01-01'
-      const endDate = '2024-01-30'
-
-      mockUseDashboardStore.mockReturnValue(createMockStore({
-        period: '30d',
-        getDateRange: vi.fn(() => ({ startDate, endDate })),
-      }))
-
-      render(<LolDashboard />)
-
-      // Verify API is called with computed date range params
-      await waitFor(() => {
-        expect(mockApiGet).toHaveBeenCalledWith(
-          '/lol/dashboard/teams',
-          expect.objectContaining({
-            params: expect.objectContaining({
-              startDate,
-              endDate,
-            }),
-          })
-        )
-      })
     })
   })
 

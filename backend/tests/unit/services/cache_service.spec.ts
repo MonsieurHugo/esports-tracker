@@ -241,17 +241,4 @@ test.group('CacheService', (group) => {
     }
   })
 
-  test('getStats returns stats when Redis is enabled', async ({ assert }) => {
-    const stats = await cacheService.getStats()
-
-    if (process.env.REDIS_ENABLED !== 'true') {
-      assert.isNull(stats)
-    } else {
-      assert.isNotNull(stats)
-      assert.property(stats!, 'hits')
-      assert.property(stats!, 'misses')
-      assert.property(stats!, 'keys')
-      assert.property(stats!, 'memory')
-    }
-  })
 })

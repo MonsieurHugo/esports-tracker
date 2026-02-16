@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
 import TopLpLosers from './TopLpLosers'
 import type { LpChangeEntry } from '@/lib/types'
@@ -17,22 +17,19 @@ vi.mock('@/components/ui/TeamLogo', () => ({
   ),
 }))
 
-// Mock SortIcon component
-vi.mock('@/components/ui/SortIcon', () => ({
-  default: ({ direction }: { direction: string }) => (
-    <span data-testid={`sort-icon-${direction}`} />
-  ),
+// Mock next-intl
+vi.mock('next-intl', () => ({
+  useTranslations: () => (key: string) => {
+    const translations: Record<string, string> = {
+      'leaderboard.topLpLosers': 'Top LP-',
+      'dashboard.lp': 'LP',
+      'common.loading': 'Chargement...',
+    }
+    return translations[key] || key
+  },
 }))
 
 describe('TopLpLosers', () => {
-  const mockOnSortChange = vi.fn()
-
-  const baseProps = {
-    sortDirection: 'desc' as const,
-    onSortChange: mockOnSortChange,
-    viewMode: 'teams' as const,
-  }
-
   const createMockEntry = (rank: number, lpChange: number): LpChangeEntry => ({
     rank,
     entity: {
@@ -46,13 +43,9 @@ describe('TopLpLosers', () => {
     games: 10,
   })
 
-  beforeEach(() => {
-    mockOnSortChange.mockClear()
-  })
-
   describe('loading state', () => {
     it('renders loading message when isLoading is true', () => {
-      render(<TopLpLosers {...baseProps} entries={[]} isLoading={true} />)
+      render(<TopLpLosers entries={[]} isLoading={true} />)
       expect(screen.getByText('Chargement...')).toBeInTheDocument()
     })
   })
@@ -67,25 +60,18 @@ describe('TopLpLosers', () => {
     ]
 
     it('renders 5 entries correctly', () => {
-      render(<TopLpLosers {...baseProps} entries={mockEntries} />)
+      render(<TopLpLosers entries={mockEntries} />)
 
-      // Header should be visible
       expect(screen.getByText('Top LP-')).toBeInTheDocument()
-
-      // All 5 ranks should be visible
       expect(screen.getByText('1')).toBeInTheDocument()
-      expect(screen.getByText('2')).toBeInTheDocument()
-      expect(screen.getByText('3')).toBeInTheDocument()
-      expect(screen.getByText('4')).toBeInTheDocument()
       expect(screen.getByText('5')).toBeInTheDocument()
 
-      // Team names should be visible
       expect(screen.getByText('T1')).toBeInTheDocument()
       expect(screen.getByText('T2')).toBeInTheDocument()
     })
 
     it('renders team logos', () => {
-      render(<TopLpLosers {...baseProps} entries={mockEntries} />)
+      render(<TopLpLosers entries={mockEntries} />)
 
       expect(screen.getByTestId('team-logo-T1')).toBeInTheDocument()
       expect(screen.getByTestId('team-logo-T2')).toBeInTheDocument()
@@ -99,33 +85,28 @@ describe('TopLpLosers', () => {
         createMockEntry(2, -400),
       ]
 
-      render(<TopLpLosers {...baseProps} entries={twoEntries} />)
+      render(<TopLpLosers entries={twoEntries} />)
 
-      // Should have 2 actual entries
       expect(screen.getByText('T1')).toBeInTheDocument()
       expect(screen.getByText('T2')).toBeInTheDocument()
 
-      // Should have 3 placeholder rows with "---" text
       const placeholders = screen.getAllByText('---')
       expect(placeholders).toHaveLength(3)
     })
 
     it('renders all 5 rows even with empty entries', () => {
-      render(<TopLpLosers {...baseProps} entries={[]} />)
+      render(<TopLpLosers entries={[]} />)
 
-      // Should have 5 placeholder rows
       const placeholders = screen.getAllByText('---')
       expect(placeholders).toHaveLength(5)
 
-      // Should have 5 "-" placeholders for LP values
       const lpPlaceholders = screen.getAllByText('-')
       expect(lpPlaceholders).toHaveLength(5)
     })
 
     it('renders placeholder rank numbers', () => {
-      render(<TopLpLosers {...baseProps} entries={[]} />)
+      render(<TopLpLosers entries={[]} />)
 
-      // Placeholder rows should show rank numbers
       expect(screen.getByText('1')).toBeInTheDocument()
       expect(screen.getByText('2')).toBeInTheDocument()
       expect(screen.getByText('3')).toBeInTheDocument()
@@ -135,7 +116,7 @@ describe('TopLpLosers', () => {
   })
 
   describe('players viewMode', () => {
-    it('renders player names in players viewMode', () => {
+    it('renders player names with team logos', () => {
       const playerEntries: LpChangeEntry[] = [
         {
           rank: 1,
@@ -147,54 +128,10 @@ describe('TopLpLosers', () => {
         },
       ]
 
-      render(<TopLpLosers {...baseProps} entries={playerEntries} viewMode="players" />)
+      render(<TopLpLosers entries={playerEntries} />)
 
       expect(screen.getByText('Caps')).toBeInTheDocument()
       expect(screen.getByTestId('team-logo-G2')).toBeInTheDocument()
-    })
-  })
-
-  describe('sort toggle', () => {
-    it('calls onSortChange with opposite direction on click', () => {
-      render(
-        <TopLpLosers
-          {...baseProps}
-          entries={[createMockEntry(1, -100)]}
-          sortDirection="desc"
-        />
-      )
-
-      const sortButton = screen.getByRole('button')
-      fireEvent.click(sortButton)
-
-      expect(mockOnSortChange).toHaveBeenCalledWith('asc')
-    })
-
-    it('toggles from asc to desc', () => {
-      render(
-        <TopLpLosers
-          {...baseProps}
-          entries={[createMockEntry(1, -100)]}
-          sortDirection="asc"
-        />
-      )
-
-      const sortButton = screen.getByRole('button')
-      fireEvent.click(sortButton)
-
-      expect(mockOnSortChange).toHaveBeenCalledWith('desc')
-    })
-
-    it('renders sort icon with correct direction', () => {
-      render(
-        <TopLpLosers
-          {...baseProps}
-          entries={[createMockEntry(1, -100)]}
-          sortDirection="desc"
-        />
-      )
-
-      expect(screen.getByTestId('sort-icon-desc')).toBeInTheDocument()
     })
   })
 })

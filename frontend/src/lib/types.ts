@@ -118,15 +118,6 @@ export interface LolStreak {
   worstLossStreakEnd?: string
 }
 
-export interface LolRecord {
-  id: number
-  puuid: string
-  matchId?: string
-  recordType: string
-  value: number
-  achievedAt: string
-}
-
 export interface LolChampionStat {
   puuid: string
   championId: number
@@ -348,16 +339,6 @@ export interface LpChangeEntry {
   games: number
 }
 
-// Split and league types
-export interface Split {
-  split_id: number
-  season: number
-  split_number: number
-  name: string
-  start_date: string
-  end_date: string
-}
-
 // Worker Monitoring Types
 
 export interface WorkerRegionStats {
@@ -448,7 +429,6 @@ export interface WorkerMetricsTotals {
   api_requests: number
 }
 
-export type WorkerLogFilter = 'all' | 'lol' | 'valorant' | 'error'
 export type WorkerMetricsPeriod = 'day' | 'week' | 'month'
 
 export interface WorkerAccountInfo {
@@ -466,15 +446,6 @@ export interface WorkerAccountStats {
   oldest: WorkerAccountInfo[]
   total: number
   by_region: { region: string; count: number }[]
-}
-
-export interface PlayerSearchResult {
-  player_id: number
-  pseudo: string
-  slug: string
-  team_name: string | null
-  team_region: string | null
-  accounts: WorkerAccountInfo[]
 }
 
 // Player Profile Types
@@ -642,12 +613,17 @@ export interface AdminPlayer {
     startDate: string | null
     endDate: string | null
   } | null
-  accounts: {
-    puuid: string
-    gameName: string | null
-    tagLine: string | null
-    region: string
-  }[]
+  accounts: AdminLolAccount[]
+}
+
+export interface AdminLolAccount {
+  accountId: number
+  puuid: string | null
+  playerId?: number
+  gameName: string | null
+  tagLine: string | null
+  region: string
+  isPrimary: boolean
 }
 
 export interface AdminTeam {
@@ -685,6 +661,47 @@ export interface AdminPlayersResponse {
     currentPage: number
     lastPage: number
   }
+}
+
+export interface CreateFullPlayerPayload {
+  player: {
+    currentPseudo: string
+    slug?: string
+    firstName?: string
+    lastName?: string
+    nationality?: string
+  }
+  contract?: {
+    teamId: number
+    role?: string
+    isStarter?: boolean
+  }
+  accounts?: {
+    gameName: string
+    tagLine: string
+    region?: string
+  }[]
+}
+
+export interface AdminOrganization {
+  orgId: number
+  slug: string
+  currentName: string
+  currentShortName: string | null
+  logoUrl: string | null
+  country: string | null
+}
+
+export interface AdminTeamFull {
+  teamId: number
+  slug: string
+  currentName: string
+  shortName: string
+  orgId: number | null
+  orgName: string | null
+  region: string | null
+  league: string | null
+  isActive: boolean
 }
 
 // Enhanced Worker Monitoring Types
@@ -761,4 +778,230 @@ export interface PriorityStatsData {
     unscored: number
   }
   generated_at: string
+}
+
+// Unified Worker Monitoring Types
+
+export interface ProMonitoringStats {
+  tournaments: number
+  matches: number
+  games: number
+  players: number
+  lastSyncAt: string | null
+}
+
+export interface WorkerSummary {
+  id: string
+  name: string
+  status: 'online' | 'offline' | 'unknown'
+  keyMetric: string
+  lastActivity: string | null
+}
+
+// Pro Stats All-Time Types
+
+export interface ProPlayerRecord {
+  playerName: string
+  championId: number | null
+  championName: string | null
+  value: number
+  teamName: string | null
+  opponentName: string | null
+  role: string | null
+  tournamentName: string
+  gameDate: string | null
+  kills?: number
+  deaths?: number
+  assists?: number
+  duration?: number
+  win?: boolean | null
+}
+
+export interface ProTeamRecord {
+  value: number
+  winnerName: string | null
+  loserName: string | null
+  tournamentName: string
+  gameDate: string | null
+}
+
+export interface ProBoRecord {
+  value: number
+  format: string
+  team1Name: string | null
+  team2Name: string | null
+  winnerName: string | null
+  tournamentName: string
+  gameDate: string | null
+  gamesPlayed: number
+}
+
+export interface ProStreakRecord {
+  teamName: string
+  value: number
+  streakStart: string | null
+  streakEnd: string | null
+}
+
+export interface ProTournamentKillsRecord {
+  tournamentName: string
+  totalGames: number
+  avgKillsPerGame: number
+}
+
+export interface ProRecords {
+  playerRecords: {
+    mostKills: ProPlayerRecord[]
+    mostAssists: ProPlayerRecord[]
+    bestKda: ProPlayerRecord[]
+    highestCsPerMin: ProPlayerRecord[]
+    highestDpm: ProPlayerRecord[]
+    mostDamage: ProPlayerRecord[]
+    mostPentaKills: ProPlayerRecord[]
+    fastestQuest: ProPlayerRecord[]
+    slowestQuest: ProPlayerRecord[]
+  }
+  teamRecords: {
+    fastestWin: ProTeamRecord[]
+    longestGame: ProTeamRecord[]
+    fastestBo3: ProBoRecord[]
+    slowestBo3: ProBoRecord[]
+    fastestBo5: ProBoRecord[]
+    slowestBo5: ProBoRecord[]
+  }
+  streakRecords: {
+    longestGameWinStreak: ProStreakRecord[]
+    longestGameLossStreak: ProStreakRecord[]
+    longestMatchWinStreak: ProStreakRecord[]
+    longestMatchLossStreak: ProStreakRecord[]
+  }
+  tournamentRecords: {
+    avgKillsPerGame: ProTournamentKillsRecord[]
+  }
+}
+
+export interface ProPlayerLeaderboardEntry {
+  playerId: number
+  playerName: string | null
+  role: string | null
+  teamName: string | null
+  teamShortName: string | null
+  gamesPlayed: number
+  gamesWon: number
+  winRate: number
+  avgKills: number
+  avgDeaths: number
+  avgAssists: number
+  avgKda: number
+  avgCsPerMin: number
+  avgGoldPerMin: number
+  avgDamagePerMin: number
+  avgKillParticipation: number
+  avgGoldDiffAt15: number
+  totalKills: number
+  totalDeaths: number
+  totalAssists: number
+  pentaKills: number
+  avgVisionScore: number
+  avgGoldShare: number
+  avgDamageShare: number
+  avgCsDiffAt15: number
+  avgXpDiffAt15: number
+  firstBloodParticipations: number
+  firstBloodVictims: number
+  doubleKills: number
+  tripleKills: number
+  quadraKills: number
+  uniqueChampionsPlayed: number
+  avgProximityTop: number
+  avgProximityJungle: number
+  avgProximityMid: number
+  avgProximityAdc: number
+  avgProximitySupport: number
+  avgIsolation: number
+  total2v2Kills: number
+  total2v2Deaths: number
+  avgGoldAt15: number
+  avgXpAt15: number
+  avgCsAt15: number
+  avgKillsAt15: number
+  avgDeathsAt15: number
+  avgKpAt15: number
+  avgTeamKillsAt15: number
+  avgSoloKills: number
+  avgVspm: number
+  avgPlates: number
+}
+
+export interface ProTournament {
+  tournamentId: number
+  name: string
+  year: number | null
+  leagueId: number | null
+  leagueShortName: string | null
+  startDate: string | null
+  isPlayoffs: boolean
+  split: string | null
+}
+
+export interface FilterMapResponse {
+  years: number[]
+  tiers: number[]
+  leagues: { leagueId: number; name: string; shortName: string | null; tier: number }[]
+  teams: { teamId: number; name: string; shortName: string }[]
+  players: { playerId: number; name: string }[]
+  tournaments: { tournamentId: number; name: string }[]
+}
+
+export interface ProTeamLeaderboardEntry {
+  teamId: number
+  teamName: string | null
+  shortName: string | null
+  gamesPlayed: number
+  gamesWon: number
+  gameWinRate: number
+  matchesPlayed: number
+  matchesWon: number
+  avgDuration: number
+  avgKills: number
+  avgDeaths: number
+  avgTowers: number
+  avgDragons: number
+  avgBarons: number
+  firstBloodRate: number
+  firstTowerRate: number
+  firstDragonRate: number
+  firstHeraldRate: number
+  firstGrubsRate: number
+  firstBaronRate: number
+  avgGoldAt15: number
+  avgGoldDiffAt15: number
+  blueGames: number
+  blueWins: number
+  redGames: number
+  redWins: number
+  avgFirstBloodTime: number | null
+  avgFirstTowerTime: number | null
+  avgFirstDragonTime: number | null
+  avgFirstHeraldTime: number | null
+  avgFirstBaronTime: number | null
+  avgFirstGrubsTime: number | null
+  avgFireDragons: number
+  avgOceanDragons: number
+  avgMountainDragons: number
+  avgAirDragons: number
+  avgHextechDragons: number
+  avgChemtechDragons: number
+  avgElderDragons: number
+  dragonSoulRate: number
+  avgHeralds: number
+  avgGrubs: number
+  avgPlates: number
+  avgDragonsAt15: number
+  avgTowersAt15: number
+  avgTotalGold: number
+  avgVisionScore: number
+  avgWardsPlaced: number
+  avgWardsDestroyed: number
+  avgControlWards: number
 }

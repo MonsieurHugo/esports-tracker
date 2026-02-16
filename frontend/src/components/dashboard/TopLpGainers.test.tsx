@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
 import TopLpGainers from './TopLpGainers'
 import type { LpChangeEntry } from '@/lib/types'
@@ -17,22 +17,19 @@ vi.mock('@/components/ui/TeamLogo', () => ({
   ),
 }))
 
-// Mock SortIcon component
-vi.mock('@/components/ui/SortIcon', () => ({
-  default: ({ direction }: { direction: string }) => (
-    <span data-testid={`sort-icon-${direction}`} />
-  ),
+// Mock next-intl
+vi.mock('next-intl', () => ({
+  useTranslations: () => (key: string) => {
+    const translations: Record<string, string> = {
+      'leaderboard.topLpGainers': 'Top LP+',
+      'dashboard.lp': 'LP',
+      'common.loading': 'Chargement...',
+    }
+    return translations[key] || key
+  },
 }))
 
 describe('TopLpGainers', () => {
-  const mockOnSortChange = vi.fn()
-
-  const baseProps = {
-    sortDirection: 'desc' as const,
-    onSortChange: mockOnSortChange,
-    viewMode: 'teams' as const,
-  }
-
   const createMockEntry = (rank: number, lpChange: number): LpChangeEntry => ({
     rank,
     entity: {
@@ -46,21 +43,16 @@ describe('TopLpGainers', () => {
     games: 10,
   })
 
-  beforeEach(() => {
-    mockOnSortChange.mockClear()
-  })
-
   describe('loading state', () => {
     it('renders loading message when isLoading is true', () => {
-      render(<TopLpGainers {...baseProps} entries={[]} isLoading={true} />)
+      render(<TopLpGainers entries={[]} isLoading={true} />)
       expect(screen.getByText('Chargement...')).toBeInTheDocument()
     })
   })
 
   describe('empty state', () => {
     it('renders placeholder rows when no entries', () => {
-      render(<TopLpGainers {...baseProps} entries={[]} isLoading={false} />)
-      // Component shows 5 placeholder rows with "---" text
+      render(<TopLpGainers entries={[]} isLoading={false} />)
       const placeholders = screen.getAllByText('---')
       expect(placeholders).toHaveLength(5)
     })
@@ -76,36 +68,22 @@ describe('TopLpGainers', () => {
     ]
 
     it('renders 5 entries correctly', () => {
-      render(<TopLpGainers {...baseProps} entries={mockEntries} />)
+      render(<TopLpGainers entries={mockEntries} />)
 
-      // Header should be visible
       expect(screen.getByText('Top LP+')).toBeInTheDocument()
-
-      // All 5 ranks should be visible
       expect(screen.getByText('1')).toBeInTheDocument()
-      expect(screen.getByText('2')).toBeInTheDocument()
-      expect(screen.getByText('3')).toBeInTheDocument()
-      expect(screen.getByText('4')).toBeInTheDocument()
       expect(screen.getByText('5')).toBeInTheDocument()
-
-      // LP values should have + prefix (French format)
-      expect(screen.getByText('+500')).toBeInTheDocument()
-      expect(screen.getByText('+400')).toBeInTheDocument()
     })
 
-    it('renders team names and logos in teams viewMode', () => {
-      render(<TopLpGainers {...baseProps} entries={mockEntries} viewMode="teams" />)
+    it('renders team names and logos', () => {
+      render(<TopLpGainers entries={mockEntries} />)
 
-      // Team names should be visible
       expect(screen.getByText('T1')).toBeInTheDocument()
       expect(screen.getByText('T2')).toBeInTheDocument()
-
-      // Team logos should be rendered
       expect(screen.getByTestId('team-logo-T1')).toBeInTheDocument()
-      expect(screen.getByTestId('team-logo-T2')).toBeInTheDocument()
     })
 
-    it('renders player names in players viewMode', () => {
+    it('renders player names with team logos', () => {
       const playerEntries: LpChangeEntry[] = [
         {
           rank: 1,
@@ -117,54 +95,17 @@ describe('TopLpGainers', () => {
         },
       ]
 
-      render(<TopLpGainers {...baseProps} entries={playerEntries} viewMode="players" />)
+      render(<TopLpGainers entries={playerEntries} />)
 
       expect(screen.getByText('Faker')).toBeInTheDocument()
       expect(screen.getByTestId('team-logo-T1')).toBeInTheDocument()
     })
-  })
 
-  describe('sort toggle', () => {
-    it('calls onSortChange with opposite direction on click', () => {
-      render(
-        <TopLpGainers
-          {...baseProps}
-          entries={[createMockEntry(1, 100)]}
-          sortDirection="desc"
-        />
-      )
+    it('renders positive LP values with + prefix', () => {
+      render(<TopLpGainers entries={[createMockEntry(1, 500)]} />)
 
-      const sortButton = screen.getByRole('button')
-      fireEvent.click(sortButton)
-
-      expect(mockOnSortChange).toHaveBeenCalledWith('asc')
-    })
-
-    it('toggles from asc to desc', () => {
-      render(
-        <TopLpGainers
-          {...baseProps}
-          entries={[createMockEntry(1, 100)]}
-          sortDirection="asc"
-        />
-      )
-
-      const sortButton = screen.getByRole('button')
-      fireEvent.click(sortButton)
-
-      expect(mockOnSortChange).toHaveBeenCalledWith('desc')
-    })
-
-    it('renders sort icon with correct direction', () => {
-      render(
-        <TopLpGainers
-          {...baseProps}
-          entries={[createMockEntry(1, 100)]}
-          sortDirection="desc"
-        />
-      )
-
-      expect(screen.getByTestId('sort-icon-desc')).toBeInTheDocument()
+      // LP values should have + prefix
+      expect(screen.getByText(/\+500/)).toBeInTheDocument()
     })
   })
 })

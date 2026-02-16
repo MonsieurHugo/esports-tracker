@@ -19,6 +19,7 @@
     "#controllers/*": "./app/controllers/*.ts",
     "#models/*": "./app/models/*.ts",
     "#services/*": "./app/services/*.ts",
+    "#types/*": "./app/types/*.ts",
     "#validators/*": "./app/validators/*.ts",
     "#exceptions/*": "./app/exceptions/*.ts",
     "#middleware/*": "./app/middleware/*.ts",

@@ -35,19 +35,6 @@ export function calculateWinrate(wins: number, total: number): number {
   return (wins / total) * 100
 }
 
-export function getRelativeTime(date: Date | string): string {
-  const now = new Date()
-  const past = new Date(date)
-  const diffInSeconds = Math.floor((now.getTime() - past.getTime()) / 1000)
-
-  if (diffInSeconds < 60) return 'A l\'instant'
-  if (diffInSeconds < 3600) return `Il y a ${Math.floor(diffInSeconds / 60)} min`
-  if (diffInSeconds < 86400) return `Il y a ${Math.floor(diffInSeconds / 3600)} h`
-  if (diffInSeconds < 604800) return `Il y a ${Math.floor(diffInSeconds / 86400)} j`
-
-  return past.toLocaleDateString('fr-FR')
-}
-
 export function slugify(text: string): string {
   return text
     .toLowerCase()
@@ -70,22 +57,6 @@ export function getRankTextClass(rank: number): string {
       return 'text-(--rank-bronze)'
     default:
       return 'text-(--text-muted)'
-  }
-}
-
-/**
- * Retourne la classe CSS pour un badge de rang avec gradient (1er, 2ème, 3ème, etc.)
- */
-export function getRankBadgeClass(rank: number): string {
-  switch (rank) {
-    case 1:
-      return 'bg-linear-to-br from-(--rank-gold) to-(--rank-bronze) text-(--bg-primary)'
-    case 2:
-      return 'bg-linear-to-br from-(--rank-silver) to-(--text-muted) text-(--bg-primary)'
-    case 3:
-      return 'bg-linear-to-br from-(--rank-bronze) to-(--rank-bronze)/70 text-(--text-primary)'
-    default:
-      return 'bg-(--bg-secondary) text-(--text-muted)'
   }
 }
 

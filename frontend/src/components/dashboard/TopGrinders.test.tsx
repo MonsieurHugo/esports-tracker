@@ -1,7 +1,33 @@
 import { render, screen } from '@testing-library/react'
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import TopGrinders from './TopGrinders'
 import { mockGrinderEntries } from '@/tests/mocks'
+
+// Mock next/link
+vi.mock('next/link', () => ({
+  default: ({ children, href }: { children: React.ReactNode; href: string }) => (
+    <a href={href}>{children}</a>
+  ),
+}))
+
+// Mock TeamLogo component
+vi.mock('@/components/ui/TeamLogo', () => ({
+  default: ({ shortName }: { shortName: string }) => (
+    <div data-testid={`team-logo-${shortName}`} />
+  ),
+}))
+
+// Mock next-intl
+vi.mock('next-intl', () => ({
+  useTranslations: () => (key: string) => {
+    const translations: Record<string, string> = {
+      'leaderboard.topGrinders': 'Top Grinders',
+      'dashboard.games': 'Games',
+      'common.loading': 'Chargement...',
+    }
+    return translations[key] || key
+  },
+}))
 
 describe('TopGrinders', () => {
   describe('loading state', () => {
@@ -15,11 +41,9 @@ describe('TopGrinders', () => {
     it('renders placeholder rows when no entries', () => {
       render(<TopGrinders entries={[]} isLoading={false} />)
 
-      // Header should be visible
       expect(screen.getByText('Top Grinders')).toBeInTheDocument()
       expect(screen.getByText('Games')).toBeInTheDocument()
 
-      // Should show 5 placeholder rows
       const placeholderTexts = screen.getAllByText('---')
       expect(placeholderTexts.length).toBe(5)
     })
@@ -36,7 +60,6 @@ describe('TopGrinders', () => {
     it('renders team entries with links', () => {
       render(<TopGrinders entries={mockGrinderEntries} isLoading={false} />)
 
-      // Team entry should have a link
       const teamLink = screen.getByRole('link', { name: 'KC' })
       expect(teamLink).toHaveAttribute('href', '/lol/team/karmine-corp')
     })
@@ -44,14 +67,12 @@ describe('TopGrinders', () => {
     it('renders player entries without links', () => {
       render(<TopGrinders entries={mockGrinderEntries} isLoading={false} />)
 
-      // Player entry should show name but not be a link
       expect(screen.getByText('TopGrinder')).toBeInTheDocument()
     })
 
     it('renders rankings correctly', () => {
       render(<TopGrinders entries={mockGrinderEntries} isLoading={false} />)
 
-      // Check ranks are displayed
       expect(screen.getByText('1')).toBeInTheDocument()
       expect(screen.getByText('2')).toBeInTheDocument()
       expect(screen.getByText('3')).toBeInTheDocument()
@@ -60,22 +81,18 @@ describe('TopGrinders', () => {
     it('renders games count correctly', () => {
       render(<TopGrinders entries={mockGrinderEntries} isLoading={false} />)
 
-      // Check games are displayed
       expect(screen.getByText('85')).toBeInTheDocument()
       expect(screen.getByText('78')).toBeInTheDocument()
       expect(screen.getByText('72')).toBeInTheDocument()
     })
 
     it('renders partial list with placeholder rows', () => {
-      // Only 2 entries - should have 3 placeholders
       const partialEntries = mockGrinderEntries.slice(0, 2)
       render(<TopGrinders entries={partialEntries} isLoading={false} />)
 
-      // Check that both entries are rendered
       expect(screen.getByText('KC')).toBeInTheDocument()
       expect(screen.getByText('TopGrinder')).toBeInTheDocument()
 
-      // Should have 3 placeholder rows
       const placeholderTexts = screen.getAllByText('---')
       expect(placeholderTexts.length).toBe(3)
     })

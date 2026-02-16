@@ -36,6 +36,9 @@ export const CACHE_TTL = {
   PLAYER_PROFILE: 600, // 10 minutes
   TEAM_PROFILE: 600, // 10 minutes
   PLAYER_HISTORY: 180, // 3 minutes
+  SHORT: 60, // 1 minute - for frequently changing data
+  MEDIUM: 300, // 5 minutes - general purpose medium TTL
+  LONG: 3600, // 1 hour - for stable data
 } as const
 
 /**
@@ -404,56 +407,6 @@ class CacheService {
     ])
   }
 
-  /**
-   * Get cache statistics (requires Redis INFO command)
-   *
-   * @returns Basic cache statistics or null if unavailable
-   */
-  async getStats(): Promise<{
-    hits: number
-    misses: number
-    keys: number
-    memory: string
-  } | null> {
-    const redis = await this.getRedis()
-    if (!redis) {
-      return null
-    }
-
-    try {
-      const connection = redis.connection()
-      const info = await connection.info('stats')
-      const dbInfo = await connection.info('keyspace')
-
-      // Parse info string (format: "key:value\r\n")
-      const stats = info.split('\r\n').reduce(
-        (acc, line) => {
-          const [key, value] = line.split(':')
-          if (key && value) acc[key] = value
-          return acc
-        },
-        {} as Record<string, string>
-      )
-
-      // Parse keyspace info to get key count
-      const keyspaceMatch = dbInfo.match(/db0:keys=(\d+)/)
-      const keyCount = keyspaceMatch ? parseInt(keyspaceMatch[1], 10) : 0
-
-      return {
-        hits: parseInt(stats['keyspace_hits'] || '0', 10),
-        misses: parseInt(stats['keyspace_misses'] || '0', 10),
-        keys: keyCount,
-        memory: stats['used_memory_human'] || '0B',
-      }
-    } catch (error) {
-      if (this.isConnectionError(error)) {
-        this.handleConnectionFailure()
-      } else {
-        logger.warn({ err: error }, 'Failed to get cache statistics')
-      }
-      return null
-    }
-  }
 }
 
 // Export singleton instance

@@ -103,10 +103,10 @@ const PlayerRow = memo(function PlayerRow({ entry, sortBy, selectionIndex, isExp
         className={`
           flex items-center px-2 sm:px-3 py-1.5 border-b border-(--border) cursor-pointer transition-colors duration-150
           ${selectionIndex === 0 ? 'bg-(--accent)/10 border-l-2 border-l-(--accent)' : ''}
-          ${selectionIndex === 1 ? 'bg-(--lol)/10 border-l-2 border-l-(--lol)' : ''}
+          ${selectionIndex === 1 ? 'bg-(--chart-compare)/10 border-l-2 border-l-(--chart-compare)' : ''}
           ${selectionIndex === null ? 'hover:bg-(--bg-hover)' : ''}
           ${isPinned && selectionIndex === 0 ? 'bg-(--accent)/15 border-b-2 border-b-(--accent)/30' : ''}
-          ${isPinned && selectionIndex === 1 ? 'bg-(--lol)/15 border-b-2 border-b-(--lol)/30' : ''}
+          ${isPinned && selectionIndex === 1 ? 'bg-(--chart-compare)/15 border-b-2 border-b-(--chart-compare)/30' : ''}
         `}
       >
         {/* Rank */}
@@ -245,6 +245,10 @@ const PlayerRow = memo(function PlayerRow({ entry, sortBy, selectionIndex, isExp
   )
 }, (prevProps, nextProps) => {
   // Return true if props are equal (no re-render needed)
+  // Deep compare accounts array to avoid unnecessary re-renders
+  const accountsEqual = prevProps.entry.accounts.length === nextProps.entry.accounts.length &&
+    (prevProps.entry.accounts.length === 0 || prevProps.entry.accounts[0] === nextProps.entry.accounts[0])
+
   return (
     prevProps.entry.player.playerId === nextProps.entry.player.playerId &&
     prevProps.entry.rank === nextProps.entry.rank &&
@@ -252,7 +256,7 @@ const PlayerRow = memo(function PlayerRow({ entry, sortBy, selectionIndex, isExp
     prevProps.entry.games === nextProps.entry.games &&
     prevProps.entry.winrate === nextProps.entry.winrate &&
     prevProps.entry.tier === nextProps.entry.tier &&
-    prevProps.entry.accounts === nextProps.entry.accounts &&
+    accountsEqual &&
     prevProps.sortBy === nextProps.sortBy &&
     prevProps.selectionIndex === nextProps.selectionIndex &&
     prevProps.isExpanded === nextProps.isExpanded &&

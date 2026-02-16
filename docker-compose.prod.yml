@@ -72,7 +72,7 @@ services:
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli -a \"${REDIS_PASSWORD}\" --no-auth-warning ping || redis-cli ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -99,7 +99,6 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
-      RIOT_API_KEY: ${RIOT_API_KEY}
     depends_on:
       postgres:
         condition: service_healthy

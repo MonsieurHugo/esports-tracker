@@ -681,7 +681,7 @@ backend/
 │   ├── middleware/
 │   │   ├── rate_limit_middleware.ts
 │   │   ├── request_logger_middleware.ts
-│   │   └── worker_auth_middleware.ts
+│   │   └── pro_admin_auth_middleware.ts  # API key auth for pro monitoring
 │   └── exceptions/handler.ts            # Global error handler
 ├── database/migrations/                  # 39+ migrations
 ├── start/routes.ts
@@ -723,10 +723,35 @@ cd frontend && pnpm dev
 
 # Backend uniquement
 cd backend && node ace serve --watch
-
-# Worker uniquement
-cd worker && python -m src.main
 ```
+
+### Workers
+
+The project has two separate Python workers that can run independently:
+
+```bash
+# SoloQ Worker (Riot API) - Fetches player match data
+# Requires: RIOT_API_KEY
+cd worker && python -m src.main
+
+# Pro Worker (GRID API) - Fetches pro esports data
+# Requires: GRID_API_KEY, PRO_WORKER_API_KEY
+cd worker && python -m src.main_pro
+```
+
+**Running both workers simultaneously:**
+```bash
+# Terminal 1: SoloQ Worker
+cd worker && python -m src.main
+
+# Terminal 2: Pro Worker
+cd worker && python -m src.main_pro
+```
+
+| Worker | Entry Point | API | Purpose |
+|--------|------------|-----|---------|
+| SoloQ | `src.main` | Riot API | Player accounts, matches, ranks |
+| Pro | `src.main_pro` | GRID API | Pro tournaments, matches, stats |
 
 ### Database
 
@@ -801,8 +826,8 @@ DB_DATABASE=esports_tracker
 # Auth
 APP_DEV_TOKENS=true              # Return verification tokens in dev
 
-# Worker Authentication
-WORKER_AUTH_SECRET=your-secret   # Shared secret for worker → backend auth
+# Pro Monitoring Admin API Key
+PRO_ADMIN_API_KEY=your-api-key   # Required for pro monitoring write endpoints
 ```
 
 ### Worker (.env)
@@ -841,4 +866,10 @@ PRIORITY_MAX_INTERVAL_INACTIVE=360
 
 # Batch size per region per cycle
 PRIORITY_BATCH_SIZE=10
+
+# GRID API (Pro Stats)
+GRID_API_KEY=your-grid-api-key   # Required for pro worker
+
+# Pro Worker API Authentication
+PRO_WORKER_API_KEY=your-api-key  # Required for pro worker HTTP API
 ```

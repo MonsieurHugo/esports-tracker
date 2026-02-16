@@ -25,7 +25,7 @@ Toutes les routes utilisent le paramètre dynamique `[locale]` (i18n avec next-i
 
 ## 2. Base de Données (PostgreSQL 16)
 
-**83 migrations** au total. Voici toutes les tables :
+**101 migrations** au total. Voici toutes les tables :
 
 ### Tables Core
 
@@ -76,7 +76,7 @@ Aucun model Lucid - toutes requêtées en raw SQL dans `pro_monitoring_controlle
 | `pro_sync_requests` | oui | File d'attente de synchronisation |
 | `pro_game_events` | **minimal** | Comptée dans monitoring seulement |
 | `pro_team_stats` | **non** | Créée mais jamais populée/requêtée |
-| `pro_player_aggregated_stats` | **non** | Créée mais jamais populée/requêtée |
+| `pro_player_aggregated_stats` | **supprimée** | Dropped (migration 101) - remplacée par agrégation live |
 | `pro_champion_stats` | **non** | Comptée dans monitoring seulement |
 | `pro_player_timing_stats` | **non** | Créée (migration 63) mais pas utilisée |
 | `pro_champion_daily_stats` | oui | Agrégation champion stats quotidiennes |
@@ -91,6 +91,7 @@ Aucun model Lucid - toutes requêtées en raw SQL dans `pro_monitoring_controlle
 | `oauth_accounts` | #40 | Auth supprimée |
 | `auth_audit_logs` | #40 | Auth supprimée |
 | `lol_current_ranks` | #41 | Remplacée par tracking dans `lol_daily_stats` |
+| `pro_player_aggregated_stats` | #101 | Remplacée par agrégation live depuis `pro_player_stats` |
 
 ---
 
@@ -233,5 +234,5 @@ Tiers :
 - `lol_streaks` - Model existe mais jamais lue par le frontend
 - `lol_player_synergy` - Écrite par le worker mais pas lue
 - `pro_team_stats` - Créée mais jamais populée
-- `pro_player_aggregated_stats` - Créée mais jamais populée
+- `pro_player_aggregated_stats` - Dropped (migration 101)
 - `pro_player_timing_stats` - Créée mais pas utilisée

@@ -63,4 +63,32 @@ export default await Env.create(new URL('../', import.meta.url), {
   |----------------------------------------------------------
   */
   TRUSTED_PROXY_IPS: Env.schema.string.optional(),
+
+  /*
+  |----------------------------------------------------------
+  | GRID Esports API (Pro Stats)
+  |----------------------------------------------------------
+  */
+  GRID_API_KEY: Env.schema.string.optional(),
+
+  /*
+  |----------------------------------------------------------
+  | Pro Admin API Authentication
+  |----------------------------------------------------------
+  */
+  PRO_ADMIN_API_KEY: Env.schema.string.optional(),
+
+  /*
+  |----------------------------------------------------------
+  | Pro Stats Page Password
+  |----------------------------------------------------------
+  */
+  PRO_STATS_PASSWORD: Env.schema.string.optional(),
+
+  /*
+  |----------------------------------------------------------
+  | SoloQ Admin Page Password
+  |----------------------------------------------------------
+  */
+  SOLOQ_ADMIN_PASSWORD: Env.schema.string.optional(),
 })

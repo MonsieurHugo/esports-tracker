@@ -291,7 +291,7 @@ export default function SearchDropdown<T extends SearchDropdownItem>({
                     {index > 0 && <span className="text-(--text-muted) text-[10px] font-medium">vs</span>}
                     <div
                       className="w-2.5 h-2.5 rounded-full shrink-0"
-                      style={{ backgroundColor: index === 0 ? 'var(--accent)' : 'var(--lol)' }}
+                      style={{ backgroundColor: index === 0 ? 'var(--accent)' : 'var(--chart-compare)' }}
                     />
                     <span className="text-[11px] font-medium truncate">
                       {item.name}
@@ -371,6 +371,7 @@ export default function SearchDropdown<T extends SearchDropdownItem>({
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder={placeholderText}
+                maxLength={100}
                 className="flex-1 bg-transparent text-[11px] outline-hidden placeholder:text-(--text-muted)"
               />
               {search && (
@@ -429,7 +430,7 @@ export default function SearchDropdown<T extends SearchDropdownItem>({
                       flex items-center gap-2 px-3 py-2 transition-colors
                       ${isBlocked ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}
                       ${selectionIndex === 0 ? 'bg-(--accent)/10 border-l-2 border-l-(--accent)' : ''}
-                      ${selectionIndex === 1 ? 'bg-(--lol)/10 border-l-2 border-l-(--lol)' : ''}
+                      ${selectionIndex === 1 ? 'bg-(--chart-compare)/10 border-l-2 border-l-(--chart-compare)' : ''}
                       ${!isSelected && !isBlocked ? 'hover:bg-(--bg-hover)' : ''}
                     `}
                   >
@@ -470,7 +471,7 @@ export default function SearchDropdown<T extends SearchDropdownItem>({
                     {isSelected && (
                       <div
                         className="w-2 h-2 rounded-full"
-                        style={{ backgroundColor: selectionIndex === 0 ? 'var(--accent)' : 'var(--lol)' }}
+                        style={{ backgroundColor: selectionIndex === 0 ? 'var(--accent)' : 'var(--chart-compare)' }}
                       />
                     )}
                   </div>
