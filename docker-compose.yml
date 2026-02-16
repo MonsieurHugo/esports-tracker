@@ -124,7 +124,7 @@ services:
       - esports-network
 
   # ============================================
-  # WORKER (Python)
+  # WORKER (Python - SoloQ)
   # ============================================
   worker:
     build:
@@ -137,6 +137,31 @@ services:
       DATABASE_URL: postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@postgres:5432/${DB_DATABASE:-esports_tracker}
       REDIS_URL: redis://redis:6379
       RIOT_API_KEY: ${RIOT_API_KEY}
+    volumes:
+      - ./worker:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - esports-network
+
+  # ============================================
+  # WORKER PRO (Python - GRID API)
+  # ============================================
+  worker-pro:
+    build:
+      context: ./worker
+      dockerfile: Dockerfile
+    container_name: esports-worker-pro
+    restart: unless-stopped
+    command: python -m src.main_pro
+    environment:
+      PYTHONUNBUFFERED: 1
+      DATABASE_URL: postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@postgres:5432/${DB_DATABASE:-esports_tracker}
+      REDIS_URL: redis://redis:6379
+      GRID_API_KEY: ${GRID_API_KEY}
     volumes:
       - ./worker:/app
     depends_on:
