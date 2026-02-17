@@ -1858,3 +1858,278 @@ class EventsParser:
                         td2["cs_diff"] = -(cs1 - cs2)
                         td2["gold_diff"] = -(gold1 - gold2)
                         td2["xp_diff"] = -(xp1 - xp2)
+
+
+class SummaryParser:
+    """Fallback parser using summary + details when events JSONL is unavailable (e.g. chronobreaks)."""
+
+    BLUE_TEAM_ID = 100
+    RED_TEAM_ID = 200
+
+    ROLE_MAP = {
+        "TOP": "Top",
+        "JUNGLE": "Jungle",
+        "MIDDLE": "Mid",
+        "BOTTOM": "ADC",
+        "UTILITY": "Support",
+    }
+
+    DRAGON_SUBTYPE_MAP = EventsParser.DRAGON_SUBTYPE_MAP
+    DETAILS_LANE_MAP = EventsParser.DETAILS_LANE_MAP
+    TOWER_TIER_MAP = EventsParser.TOWER_TIER_MAP
+
+    def __init__(self, summary: dict, details: dict | None = None):
+        self._summary = summary
+        self._details = details
+
+    def parse(self) -> ParsedGameData:
+        game_info = self._parse_game_info()
+        player_stats, participant_names_by_side = self._parse_participants()
+        self._parse_details(game_info, player_stats)
+        return ParsedGameData(
+            game=game_info,
+            player_stats=player_stats,
+            draft_actions=[],
+            game_events=[],
+            participant_names_by_side=participant_names_by_side,
+        )
+
+    def _parse_game_info(self) -> ProGameInfo:
+        """Extract game-level info from summary."""
+        info = ProGameInfo(game_number=1)
+        info.duration = self._summary.get("gameDuration")
+        info.patch = self._summary.get("gameVersion")
+
+        start_ts = self._summary.get("gameStartTimestamp")
+        end_ts = self._summary.get("gameEndTimestamp")
+        if start_ts:
+            info.started_at = datetime.fromtimestamp(start_ts / 1000, tz=timezone.utc).isoformat()
+        if end_ts:
+            info.ended_at = datetime.fromtimestamp(end_ts / 1000, tz=timezone.utc).isoformat()
+
+        # Winner and team objectives from teams array
+        for team in self._summary.get("teams", []):
+            team_id = team.get("teamId")
+            side = "blue" if team_id == self.BLUE_TEAM_ID else "red"
+            objectives = team.get("objectives", {})
+
+            if team.get("win"):
+                info.winner_team_side = side
+
+            towers = objectives.get("tower", {}).get("kills", 0)
+            dragons = objectives.get("dragon", {}).get("kills", 0)
+            barons = objectives.get("baron", {}).get("kills", 0)
+            heralds = objectives.get("riftHerald", {}).get("kills", 0)
+            grubs = objectives.get("horde", {}).get("kills", 0)
+            inhibs = objectives.get("inhibitor", {}).get("kills", 0)
+            kills = objectives.get("champion", {}).get("kills", 0)
+
+            if side == "blue":
+                info.blue_towers = towers
+                info.blue_dragons = dragons
+                info.blue_barons = barons
+                info.blue_heralds = heralds
+                info.blue_grubs = grubs
+                info.blue_inhibs = inhibs
+                info.blue_kills = kills
+            else:
+                info.red_towers = towers
+                info.red_dragons = dragons
+                info.red_barons = barons
+                info.red_heralds = heralds
+                info.red_grubs = grubs
+                info.red_inhibs = inhibs
+                info.red_kills = kills
+
+            # First objectives
+            if objectives.get("champion", {}).get("first"):
+                info.first_blood_team = side
+            if objectives.get("tower", {}).get("first"):
+                info.first_tower_team = side
+            if objectives.get("dragon", {}).get("first"):
+                info.first_dragon_team = side
+            if objectives.get("baron", {}).get("first"):
+                info.first_baron_team = side
+            if objectives.get("riftHerald", {}).get("first"):
+                info.first_herald_team = side
+            if objectives.get("horde", {}).get("first"):
+                info.first_grubs_team = side
+
+        return info
+
+    def _parse_participants(self) -> tuple[list[ProPlayerStats], dict[str, list[str]]]:
+        """Extract player stats from summary participants."""
+        player_stats: list[ProPlayerStats] = []
+        names_by_side: dict[str, list[str]] = {"blue": [], "red": []}
+
+        for p in self._summary.get("participants", []):
+            team_id = p.get("teamId")
+            team_side = "blue" if team_id == self.BLUE_TEAM_ID else "red"
+
+            raw_name = p.get("riotIdGameName", "") or p.get("summonerName", "")
+            names_by_side[team_side].append(raw_name)
+
+            # Strip team tag prefix
+            parts = raw_name.split(" ", 1)
+            player_name = parts[1] if len(parts) > 1 else raw_name
+
+            position = p.get("teamPosition", "")
+            role = self.ROLE_MAP.get(position)
+
+            # Items (item0 through item6, filter out 0)
+            items = []
+            for i in range(7):
+                item_id = p.get(f"item{i}", 0)
+                if item_id and item_id > 0:
+                    items.append(item_id)
+
+            stats = ProPlayerStats(
+                player_name=player_name,
+                team_side=team_side,
+                role=role,
+                champion_id=p.get("championId", 0),
+                champion_name=p.get("championName"),
+                kills=int(p.get("kills", 0)),
+                deaths=int(p.get("deaths", 0)),
+                assists=int(p.get("assists", 0)),
+                cs=int(p.get("totalMinionsKilled", 0)) + int(p.get("neutralMinionsKilled", 0)),
+                gold_earned=int(p.get("goldEarned", 0)),
+                damage_dealt=int(p.get("totalDamageDealtToChampions", 0)),
+                damage_taken=int(p.get("totalDamageTaken", 0)),
+                vision={
+                    "score": int(p.get("visionScore", 0)),
+                    "wards_placed": int(p.get("wardsPlaced", 0)),
+                    "wards_destroyed": int(p.get("wardsKilled", 0)),
+                    "control_wards": int(p.get("detectorWardsPlaced", 0)),
+                },
+                multi_kills={
+                    "double": int(p.get("doubleKills", 0)),
+                    "triple": int(p.get("tripleKills", 0)),
+                    "quadra": int(p.get("quadraKills", 0)),
+                    "penta": int(p.get("pentaKills", 0)),
+                },
+                items=items,
+            )
+            player_stats.append(stats)
+
+        return player_stats, names_by_side
+
+    def _parse_details(self, game_info: ProGameInfo, player_stats: list[ProPlayerStats]) -> None:
+        """Parse details file for objectives timeline and first blood info."""
+        if not self._details:
+            return
+
+        dragons: list[dict] = []
+        elder_dragons: list[dict] = []
+        barons: list[dict] = []
+        heralds: list[dict] = []
+        grubs_raw: list[dict] = []
+        towers: list[dict] = []
+        dragon_soul: dict | None = None
+        first_tower_entry: dict | None = None
+
+        # Build pid -> player stats lookup for first blood victim
+        pid_to_stats: dict[int, ProPlayerStats] = {}
+        for i, p in enumerate(self._summary.get("participants", [])):
+            pid = p.get("participantId")
+            if pid is not None and i < len(player_stats):
+                pid_to_stats[pid] = player_stats[i]
+
+        for frame in self._details.get("frames", []):
+            for event in frame.get("events", []):
+                event_type = event.get("type")
+
+                # First blood victim from first CHAMPION_KILL
+                if event_type == "CHAMPION_KILL" and game_info.first_blood_time is None:
+                    timestamp_ms = event.get("timestamp", 0)
+                    fb_time = timestamp_ms // 1000 if timestamp_ms else None
+                    game_info.first_blood_time = fb_time
+
+                    victim_pid = event.get("victimId")
+                    if victim_pid is not None and victim_pid in pid_to_stats:
+                        pid_to_stats[victim_pid].first_blood = {
+                            "participant": False, "victim": True, "assist": False, "time": fb_time,
+                        }
+
+                elif event_type == "ELITE_MONSTER_KILL":
+                    monster_type = event.get("monsterType", "")
+                    monster_sub_type = event.get("monsterSubType", "")
+                    killer_team_id = event.get("killerTeamId", 0)
+                    timestamp = event.get("timestamp", 0)
+                    time_s = timestamp // 1000
+
+                    if killer_team_id not in (self.BLUE_TEAM_ID, self.RED_TEAM_ID):
+                        continue
+
+                    team = "blue" if killer_team_id == self.BLUE_TEAM_ID else "red"
+
+                    if monster_type == "DRAGON":
+                        if monster_sub_type == "ELDER_DRAGON":
+                            elder_dragons.append({"team": team, "time_s": time_s})
+                        else:
+                            dragon_type = self.DRAGON_SUBTYPE_MAP.get(
+                                monster_sub_type, monster_sub_type.lower()
+                            )
+                            dragons.append({"type": dragon_type, "team": team, "time_s": time_s})
+                    elif monster_type == "BARON_NASHOR":
+                        barons.append({"team": team, "time_s": time_s})
+                    elif monster_type == "RIFTHERALD":
+                        heralds.append({"team": team, "time_s": time_s})
+                    elif monster_type == "HORDE":
+                        grubs_raw.append({"team": team, "time_s": time_s})
+
+                elif event_type == "DRAGON_SOUL_GIVEN":
+                    soul_name = event.get("name", "")
+                    soul_team_id = event.get("teamId", 0)
+
+                    if soul_team_id in (self.BLUE_TEAM_ID, self.RED_TEAM_ID):
+                        soul_team = "blue" if soul_team_id == self.BLUE_TEAM_ID else "red"
+                    else:
+                        blue_count = sum(1 for d in dragons if d["team"] == "blue")
+                        red_count = sum(1 for d in dragons if d["team"] == "red")
+                        if blue_count >= 4:
+                            soul_team = "blue"
+                        elif red_count >= 4:
+                            soul_team = "red"
+                        else:
+                            soul_team = None
+
+                    if soul_team:
+                        dragon_soul = {"team": soul_team, "type": soul_name.lower()}
+
+                elif event_type == "BUILDING_KILL":
+                    building_type = event.get("buildingType", "")
+                    if building_type != "TOWER_BUILDING":
+                        continue
+
+                    team_id_lost = event.get("teamId", 0)
+                    if team_id_lost not in (self.BLUE_TEAM_ID, self.RED_TEAM_ID):
+                        continue
+
+                    lane_type = event.get("laneType", "")
+                    tower_type = event.get("towerType", "")
+                    timestamp = event.get("timestamp", 0)
+                    time_s = timestamp // 1000
+
+                    destroyer_team = "red" if team_id_lost == self.BLUE_TEAM_ID else "blue"
+                    lane = self.DETAILS_LANE_MAP.get(lane_type, lane_type.lower())
+                    tier = self.TOWER_TIER_MAP.get(tower_type, tower_type.lower())
+
+                    tower_entry = {"team": destroyer_team, "lane": lane, "tier": tier, "time_s": time_s}
+                    towers.append(tower_entry)
+
+                    if first_tower_entry is None:
+                        first_tower_entry = {"team": destroyer_team, "lane": lane, "time_s": time_s}
+
+        grubs = EventsParser._group_grubs(grubs_raw)
+
+        game_info.objectives_timeline = {
+            "dragons": dragons,
+            "elder_dragons": elder_dragons,
+            "barons": barons,
+            "heralds": heralds,
+            "grubs": grubs,
+            "towers": towers,
+            "dragon_soul": dragon_soul,
+            "first_tower": first_tower_entry,
+        }

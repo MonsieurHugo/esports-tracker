@@ -11,7 +11,7 @@ from typing import Any
 import structlog
 
 from src.config import settings
-from src.parsers.events_parser import EventsParser, ParsedGameData
+from src.parsers.events_parser import EventsParser, ParsedGameData, SummaryParser
 from src.services.database import DatabaseService
 from src.services.grid_client import GridClient, GridClientError
 from src.services.grid_files import GridFiles
@@ -37,6 +37,7 @@ class SyncProDataJob:
         self._games_processed = 0
         self._games_skipped = 0
         self._errors = 0
+        self._duplicates_replaced = 0
 
     @staticmethod
     def _sort_parents_first(tournaments: list[Tournament]) -> list[Tournament]:
@@ -121,6 +122,7 @@ class SyncProDataJob:
         self._games_processed = 0
         self._games_skipped = 0
         self._errors = 0
+        self._duplicates_replaced = 0
 
         try:
             if tournament_ids:
@@ -155,6 +157,7 @@ class SyncProDataJob:
                 series_skipped=self._series_skipped,
                 games=self._games_processed,
                 games_skipped=self._games_skipped,
+                duplicates_replaced=self._duplicates_replaced,
                 errors=self._errors,
             )
 
@@ -169,6 +172,7 @@ class SyncProDataJob:
             "series_skipped": self._series_skipped,
             "games_processed": self._games_processed,
             "games_skipped": self._games_skipped,
+            "duplicates_replaced": self._duplicates_replaced,
             "errors": self._errors,
         }
 
@@ -348,6 +352,108 @@ class SyncProDataJob:
             # Calculate status from SeriesState
             status = self._calculate_match_status(state)
 
+            # Duplicate detection: check if another series already covers this match
+            series_started_at = state.started_at or series.start_time
+            series_format = state.format or series.format or "bo3"
+            duplicate = await self.db.find_duplicate_pro_match(
+                external_id=series.id,
+                tournament_id=tournament_db_id,
+                team1_external_id=team1_external_id,
+                team2_external_id=team2_external_id,
+                started_at=series_started_at,
+                format=series_format,
+            )
+            if duplicate:
+                primary_match_id = duplicate["match_id"]
+                primary_external_id = duplicate["external_id"]
+
+                logger.warning(
+                    "Duplicate GRID series detected — merging",
+                    new_series_id=series.id,
+                    existing_series_id=primary_external_id,
+                    existing_match_id=primary_match_id,
+                    existing_status=duplicate["status"],
+                )
+
+                # Upsert the new series as a temporary match to process its games
+                secondary_match_id = await self.db.upsert_pro_match(
+                    external_id=series.id,
+                    tournament_id=tournament_db_id,
+                    team1_external_id=team1_external_id,
+                    team2_external_id=team2_external_id,
+                    team1_score=team1_score,
+                    team2_score=team2_score,
+                    format=series_format,
+                    status=status,
+                    started_at=series_started_at,
+                )
+
+                # Process games for the secondary match (so they get inserted into DB)
+                finished_games = [g for g in state.games if g.finished]
+                if finished_games:
+                    semaphore = asyncio.Semaphore(self.max_concurrent_games)
+                    team1_state = state.teams[0] if len(state.teams) >= 1 else None
+                    team2_state = state.teams[1] if len(state.teams) >= 2 else None
+
+                    async def process_with_semaphore(game_state):
+                        async with semaphore:
+                            return await self._process_game(
+                                series_id=series.id,
+                                game_state=game_state,
+                                match_id=secondary_match_id,
+                                tournament_db_id=tournament_db_id,
+                                team1_db_id=team1_db_id,
+                                team2_db_id=team2_db_id,
+                                team1_state=team1_state,
+                                team2_state=team2_state,
+                            )
+
+                    results = await asyncio.gather(
+                        *[process_with_semaphore(g) for g in finished_games],
+                        return_exceptions=True,
+                    )
+                    for r in results:
+                        if isinstance(r, Exception):
+                            logger.error("Game processing failed during merge", error=str(r))
+                            self._errors += 1
+
+                # Merge: move games from secondary into primary
+                games_moved = await self.db.merge_duplicate_pro_match(
+                    primary_match_id=primary_match_id,
+                    primary_external_id=primary_external_id,
+                    secondary_match_id=secondary_match_id,
+                    secondary_external_id=series.id,
+                )
+
+                # Update primary match scores and status after merge
+                if state.valid and state.finished:
+                    # Secondary is the authoritative (valid) series — use its scores
+                    primary_team1 = duplicate["team1_external_id"]
+                    if primary_team1 and primary_team1 == team2_external_id:
+                        # Teams are swapped between primary and secondary — flip scores
+                        final_score_1, final_score_2 = team2_score, team1_score
+                    else:
+                        final_score_1, final_score_2 = team1_score, team2_score
+                    await self.db.execute(
+                        "UPDATE pro_matches SET team1_score = $1, team2_score = $2, status = 'processed', updated_at = NOW() WHERE match_id = $3",
+                        final_score_1, final_score_2, primary_match_id,
+                    )
+                else:
+                    # Secondary is cancelled/invalid — primary already has correct scores, just mark processed
+                    await self.db.execute(
+                        "UPDATE pro_matches SET status = 'processed', updated_at = NOW() WHERE match_id = $1",
+                        primary_match_id,
+                    )
+
+                logger.info(
+                    "Merged duplicate series",
+                    primary_match_id=primary_match_id,
+                    games_moved=games_moved,
+                )
+                self._duplicates_replaced += 1
+                self._series_processed += 1
+                return  # Skip normal processing below
+
             # Upsert match (series)
             match_id = await self.db.upsert_pro_match(
                 external_id=series.id,
@@ -477,22 +583,32 @@ class SyncProDataJob:
             events = await self.files.get_events(series_id, game_number)
 
             if not events:
-                logger.error(
-                    "No events found for game - SKIPPING",
-                    series_id=series_id,
-                    game_number=game_number,
-                    game_id=game_external_id,
-                )
-                # Raise exception so it's counted as error
-                raise GridClientError(f"No events for game {game_number}")
-
-            # Also get summary and details for more complete data
-            summary = await self.files.get_summary(series_id, game_number)
-            details = await self.files.get_details(series_id, game_number)
-
-            # Parse events
-            parser = EventsParser(events, summary, details)
-            parsed = parser.parse()
+                # Fallback: try summary-only parsing (e.g. chronobreaks with no events)
+                summary = await self.files.get_summary(series_id, game_number)
+                if summary and summary.get("participants"):
+                    logger.warning(
+                        "No events — falling back to summary-only parsing",
+                        series_id=series_id,
+                        game_number=game_number,
+                        game_id=game_external_id,
+                    )
+                    details = await self.files.get_details(series_id, game_number)
+                    parser = SummaryParser(summary, details)
+                    parsed = parser.parse()
+                else:
+                    logger.error(
+                        "No events AND no summary for game - SKIPPING",
+                        series_id=series_id,
+                        game_number=game_number,
+                        game_id=game_external_id,
+                    )
+                    raise GridClientError(f"No events for game {game_number}")
+            else:
+                # Normal flow with events
+                summary = await self.files.get_summary(series_id, game_number)
+                details = await self.files.get_details(series_id, game_number)
+                parser = EventsParser(events, summary, details)
+                parsed = parser.parse()
 
             # Insert data in a transaction
             async with self.db.transaction() as conn:
