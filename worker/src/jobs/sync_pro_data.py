@@ -19,6 +19,21 @@ from src.services.grid_graphql import GridGraphQL, Series, SeriesState, SeriesTe
 
 logger = structlog.get_logger(__name__)
 
+# Map GRID format names to short DB format
+_FORMAT_MAP = {
+    "best-of-1": "bo1",
+    "best-of-2": "bo2",
+    "best-of-3": "bo3",
+    "best-of-5": "bo5",
+}
+
+
+def _normalize_format(raw: str | None) -> str:
+    """Normalize GRID format (e.g. 'best-of-3') to DB format ('bo3')."""
+    if not raw:
+        return "bo3"
+    return _FORMAT_MAP.get(raw.lower(), raw.lower())
+
 
 class SyncProDataJob:
     """Job for synchronizing pro esports data from GRID."""
@@ -354,7 +369,7 @@ class SyncProDataJob:
 
             # Duplicate detection: check if another series already covers this match
             series_started_at = state.started_at or series.start_time
-            series_format = state.format or series.format or "bo3"
+            series_format = _normalize_format(state.format or series.format)
             duplicate = await self.db.find_duplicate_pro_match(
                 external_id=series.id,
                 tournament_id=tournament_db_id,
@@ -462,7 +477,7 @@ class SyncProDataJob:
                 team2_external_id=team2_external_id,
                 team1_score=team1_score,
                 team2_score=team2_score,
-                format=state.format or series.format or "bo3",
+                format=_normalize_format(state.format or series.format),
                 status=status,
                 started_at=state.started_at or series.start_time,
             )
