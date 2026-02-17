@@ -102,14 +102,14 @@ export default class ProDataController {
     let query = db
       .from('pro_matches as m')
       .leftJoin('pro_tournaments as t', 'm.tournament_id', 't.tournament_id')
-      .leftJoin('pro_teams as t1', 'm.team1_external_id', 't1.external_id')
-      .leftJoin('pro_teams as t2', 'm.team2_external_id', 't2.external_id')
+      .leftJoin('teams as t1', 'm.team1_external_id', 't1.external_id')
+      .leftJoin('teams as t2', 'm.team2_external_id', 't2.external_id')
       .leftJoin('pro_games as g', 'm.match_id', 'g.match_id')
       .select(
         'm.match_id',
         'm.external_id',
-        't1.name as team1_name',
-        't2.name as team2_name',
+        't1.current_name as team1_name',
+        't2.current_name as team2_name',
         'm.team1_score',
         'm.team2_score',
         'm.status',
@@ -120,8 +120,8 @@ export default class ProDataController {
       .groupBy(
         'm.match_id',
         'm.external_id',
-        't1.name',
-        't2.name',
+        't1.current_name',
+        't2.current_name',
         'm.team1_score',
         'm.team2_score',
         'm.status',
@@ -144,8 +144,8 @@ export default class ProDataController {
     if (teamSearch && typeof teamSearch === 'string' && teamSearch.trim().length >= 2) {
       const sanitizedSearch = sanitizeLikeInput(teamSearch, 100)
       query = query.where((qb) => {
-        qb.whereILike('t1.name', `%${sanitizedSearch}%`).orWhereILike(
-          't2.name',
+        qb.whereILike('t1.current_name', `%${sanitizedSearch}%`).orWhereILike(
+          't2.current_name',
           `%${sanitizedSearch}%`
         )
       })
@@ -162,8 +162,8 @@ export default class ProDataController {
     let countQuery = db
       .from('pro_matches as m')
       .leftJoin('pro_tournaments as t', 'm.tournament_id', 't.tournament_id')
-      .leftJoin('pro_teams as t1', 'm.team1_external_id', 't1.external_id')
-      .leftJoin('pro_teams as t2', 'm.team2_external_id', 't2.external_id')
+      .leftJoin('teams as t1', 'm.team1_external_id', 't1.external_id')
+      .leftJoin('teams as t2', 'm.team2_external_id', 't2.external_id')
 
     if (status && status !== 'all') {
       countQuery = countQuery.where('m.status', status)
@@ -177,8 +177,8 @@ export default class ProDataController {
     if (teamSearch && typeof teamSearch === 'string' && teamSearch.trim().length >= 2) {
       const sanitizedCountSearch = sanitizeLikeInput(teamSearch, 100)
       countQuery = countQuery.where((qb) => {
-        qb.whereILike('t1.name', `%${sanitizedCountSearch}%`).orWhereILike(
-          't2.name',
+        qb.whereILike('t1.current_name', `%${sanitizedCountSearch}%`).orWhereILike(
+          't2.current_name',
           `%${sanitizedCountSearch}%`
         )
       })
@@ -224,8 +224,8 @@ export default class ProDataController {
     const game = await db
       .from('pro_games as g')
       .leftJoin('pro_matches as m', 'g.match_id', 'm.match_id')
-      .leftJoin('pro_teams as bt', 'g.blue_team_id', 'bt.team_id')
-      .leftJoin('pro_teams as rt', 'g.red_team_id', 'rt.team_id')
+      .leftJoin('teams as bt', 'g.blue_team_id', 'bt.team_id')
+      .leftJoin('teams as rt', 'g.red_team_id', 'rt.team_id')
       .select(
         'g.game_id',
         'g.game_number',
@@ -239,8 +239,8 @@ export default class ProDataController {
             ELSE NULL
           END as winner_team_side
         `),
-        'bt.name as blue_team_name',
-        'rt.name as red_team_name',
+        'bt.current_name as blue_team_name',
+        'rt.current_name as red_team_name',
         'bt.external_id as blue_team_external_id',
         'm.team1_external_id',
         'm.team1_score',
@@ -429,7 +429,7 @@ export default class ProDataController {
       WITH team_agg AS (
         SELECT
           ts.team_id,
-          t.name as team_name,
+          t.current_name as team_name,
           t.short_name,
           MAX(tr.name) as tournament_name,
           COUNT(*) as games_played,
@@ -450,9 +450,9 @@ export default class ProDataController {
           COUNT(*) FILTER (WHERE ts.side = 'red' AND ts.win) as red_side_wins
         FROM pro_team_stats ts
         JOIN pro_tournaments tr ON ts.tournament_id = tr.tournament_id
-        LEFT JOIN pro_teams t ON ts.team_id = t.team_id
+        LEFT JOIN teams t ON ts.team_id = t.team_id
         WHERE (?::int IS NULL OR ts.tournament_id = ?)
-        GROUP BY ts.team_id, t.name, t.short_name
+        GROUP BY ts.team_id, t.current_name, t.short_name
         HAVING COUNT(*) >= ?
       ),
       match_agg AS (
@@ -550,15 +550,15 @@ export default class ProDataController {
          GROUP BY sub.role ORDER BY COUNT(*) DESC LIMIT 1
         ) as role,
         -- Most recent team
-        (SELECT COALESCE(st.short_name, st.name) FROM pro_player_stats sub2
+        (SELECT COALESCE(st.short_name, st.current_name) FROM pro_player_stats sub2
          JOIN pro_games g2 ON sub2.game_id = g2.game_id
-         LEFT JOIN pro_teams st ON sub2.team_id = st.team_id
+         LEFT JOIN teams st ON sub2.team_id = st.team_id
          WHERE sub2.player_id = ps.player_id
          ORDER BY g2.started_at DESC NULLS LAST LIMIT 1
         ) as team_short_name,
-        (SELECT st2.name FROM pro_player_stats sub3
+        (SELECT st2.current_name FROM pro_player_stats sub3
          JOIN pro_games g3 ON sub3.game_id = g3.game_id
-         LEFT JOIN pro_teams st2 ON sub3.team_id = st2.team_id
+         LEFT JOIN teams st2 ON sub3.team_id = st2.team_id
          WHERE sub3.player_id = ps.player_id
          ORDER BY g3.started_at DESC NULLS LAST LIMIT 1
         ) as team_name,

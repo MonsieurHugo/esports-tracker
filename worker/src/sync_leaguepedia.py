@@ -5,7 +5,7 @@ Backfills pro_* tables with historical data from Leaguepedia.
 Run standalone: python -m src.sync_leaguepedia
 
 Data flow:
-  Leaguepedia → pro_leagues, pro_tournaments, pro_teams, players,
+  Leaguepedia → pro_leagues, pro_tournaments, teams, players,
                 pro_matches, pro_games, pro_player_stats,
                 pro_drafts, pro_draft_actions,
                 pro_team_stats, pro_champion_stats
@@ -367,10 +367,10 @@ class DB:
         self.register_mapping("league", league_id, source, external_id)
         return league_id
 
-    # --- Pro Teams ---
+    # --- Teams (pro) ---
 
     def upsert_pro_team(self, external_id: str, name: str) -> int:
-        """Upsert a pro team, using mapping table then name match to avoid duplicates."""
+        """Upsert a team (pro), using mapping table then name match to avoid duplicates."""
         # 1. Check mapping table first
         mapped_id = self.find_by_source_id("team", external_id)
         if mapped_id is not None:
@@ -379,7 +379,7 @@ class DB:
         with self.conn.cursor() as cur:
             # 2. Try to find an existing team by name (case-insensitive)
             cur.execute(
-                "SELECT team_id FROM pro_teams WHERE LOWER(TRIM(name)) = LOWER(TRIM(%s)) LIMIT 1",
+                "SELECT team_id FROM teams WHERE LOWER(TRIM(current_name)) = LOWER(TRIM(%s)) AND game_id = 1 LIMIT 1",
                 (name,),
             )
             row = cur.fetchone()
@@ -390,34 +390,21 @@ class DB:
                 self.register_mapping("team", team_id, source, external_id)
             else:
                 # 3. No match — insert new team
+                slug = 'pro-' + make_slug(external_id)
                 cur.execute(
                     """
-                    INSERT INTO pro_teams (external_id, name, updated_at)
-                    VALUES (%s, %s, NOW())
+                    INSERT INTO teams (external_id, current_name, short_name, slug, game_id, is_active, updated_at)
+                    VALUES (%s, %s, %s, %s, 1, false, NOW())
                     ON CONFLICT (external_id) DO UPDATE SET
-                        name = EXCLUDED.name,
+                        current_name = EXCLUDED.current_name,
                         updated_at = NOW()
                     RETURNING team_id
                     """,
-                    (external_id, name),
+                    (external_id, name, name, slug),
                 )
                 team_id = cur.fetchone()[0]
                 source = "leaguepedia" if external_id.startswith("lp:") else "grid"
                 self.register_mapping("team", team_id, source, external_id)
-
-            # Auto-lookup short_name from soloq teams table if still NULL
-            cur.execute(
-                """
-                UPDATE pro_teams
-                SET short_name = t.short_name, updated_at = NOW()
-                FROM teams t
-                WHERE pro_teams.team_id = %s
-                  AND pro_teams.short_name IS NULL
-                  AND LOWER(TRIM(pro_teams.name)) = LOWER(TRIM(t.current_name))
-                  AND t.game_id = 1
-                """,
-                (team_id,),
-            )
 
             return team_id
 
@@ -445,14 +432,16 @@ class DB:
             cur.execute("""
                 SELECT lp.team_id  AS lp_id,
                        grid.team_id AS grid_id,
-                       lp.name,
+                       lp.current_name,
                        lp.external_id AS lp_ext,
                        grid.external_id AS grid_ext
-                FROM pro_teams lp
-                JOIN pro_teams grid
-                  ON LOWER(TRIM(lp.name)) = LOWER(TRIM(grid.name))
+                FROM teams lp
+                JOIN teams grid
+                  ON LOWER(TRIM(lp.current_name)) = LOWER(TRIM(grid.current_name))
                  AND grid.team_id != lp.team_id
-                WHERE lp.external_id LIKE 'lp:%%'
+                WHERE lp.external_id IS NOT NULL
+                  AND lp.external_id LIKE 'lp:%%'
+                  AND grid.external_id IS NOT NULL
                   AND grid.external_id NOT LIKE 'lp:%%'
             """)
             exact_matches = cur.fetchall()
@@ -461,19 +450,22 @@ class DB:
             cur.execute("""
                 SELECT lp.team_id  AS lp_id,
                        grid.team_id AS grid_id,
-                       lp.name AS lp_name,
-                       grid.name AS grid_name,
+                       lp.current_name AS lp_name,
+                       grid.current_name AS grid_name,
                        grid.short_name
-                FROM pro_teams lp
-                JOIN pro_teams grid
+                FROM teams lp
+                JOIN teams grid
                   ON grid.short_name IS NOT NULL
-                 AND LOWER(TRIM(lp.name)) = LOWER(TRIM(grid.short_name))
+                 AND LOWER(TRIM(lp.current_name)) = LOWER(TRIM(grid.short_name))
                  AND grid.team_id != lp.team_id
-                WHERE lp.external_id LIKE 'lp:%%'
+                WHERE lp.external_id IS NOT NULL
+                  AND lp.external_id LIKE 'lp:%%'
+                  AND grid.external_id IS NOT NULL
                   AND grid.external_id NOT LIKE 'lp:%%'
                   AND NOT EXISTS (
-                    SELECT 1 FROM pro_teams grid2
-                    WHERE LOWER(TRIM(lp.name)) = LOWER(TRIM(grid2.name))
+                    SELECT 1 FROM teams grid2
+                    WHERE grid2.external_id IS NOT NULL
+                      AND LOWER(TRIM(lp.current_name)) = LOWER(TRIM(grid2.current_name))
                       AND grid2.team_id != lp.team_id
                       AND grid2.external_id NOT LIKE 'lp:%%'
                   )
@@ -572,7 +564,7 @@ class DB:
             cur.execute("UPDATE pro_player_stats SET team_id = %s WHERE team_id = %s", (target_team_id, source_team_id))
             cur.execute("UPDATE pro_team_stats SET team_id = %s WHERE team_id = %s", (target_team_id, source_team_id))
             # Delete source team
-            cur.execute("DELETE FROM pro_teams WHERE team_id = %s", (source_team_id,))
+            cur.execute("DELETE FROM teams WHERE team_id = %s", (source_team_id,))
 
     def _apply_tournament_merge(self, source_id: int, target_id: int) -> None:
         """Re-point FK references from source to target tournament, then delete source."""
@@ -597,23 +589,15 @@ class DB:
             cur.execute("DELETE FROM pro_leagues WHERE league_id = %s", (source_id,))
 
     def backfill_short_names(self) -> int:
-        """Backfill pro_teams.short_name from the soloq teams table by matching names.
+        """No-op: pro_teams and teams are now the same table.
+
+        Previously backfilled pro_teams.short_name from the soloq teams table.
+        Now that the tables are merged, this is no longer needed.
 
         Returns:
-            Number of teams updated.
+            Always 0.
         """
-        with self.conn.cursor() as cur:
-            cur.execute("""
-                UPDATE pro_teams pt
-                SET short_name = t.short_name, updated_at = NOW()
-                FROM teams t
-                WHERE pt.short_name IS NULL
-                  AND LOWER(TRIM(pt.name)) = LOWER(TRIM(t.current_name))
-                  AND t.game_id = 1
-            """)
-            count = cur.rowcount
-            self.conn.commit()
-            return count
+        return 0
 
     # --- Entity Mappings ---
 
@@ -2055,7 +2039,7 @@ def main():
     parser.add_argument(
         "--backfill-short-names",
         action="store_true",
-        help="Backfill pro_teams.short_name from soloq teams table",
+        help="No-op (legacy: pro_teams and teams are now the same table)",
     )
     parser.add_argument(
         "--cleanup-parents",
@@ -2130,7 +2114,7 @@ def main():
 
     # Backfill short names from soloq teams table
     if args.backfill_short_names:
-        logger.info("Backfilling pro_teams.short_name from soloq teams table")
+        logger.info("Backfill short names (no-op: tables merged)")
         db = DB(DATABASE_URL)
         try:
             count = db.backfill_short_names()
@@ -2212,7 +2196,7 @@ def main():
 
             # 5. Delete lp:-only teams (no references from non-lp data)
             cur.execute("""
-                DELETE FROM pro_teams
+                DELETE FROM teams
                 WHERE external_id LIKE 'lp:%%'
                   AND team_id NOT IN (
                     SELECT DISTINCT blue_team_id FROM pro_games WHERE blue_team_id IS NOT NULL

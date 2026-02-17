@@ -39,10 +39,12 @@ export default class ProAdminController {
         pro_games,
         pro_matches,
         pro_tournaments,
-        pro_teams,
         pro_leagues
       CASCADE
     `)
+
+    // Delete pro teams from the shared teams table (only those with external_id from GRID)
+    await db.rawQuery(`DELETE FROM teams WHERE external_id IS NOT NULL`)
 
     logger.info('All pro tables truncated successfully')
     return ctx.response.ok({ message: 'All pro tables cleaned' })

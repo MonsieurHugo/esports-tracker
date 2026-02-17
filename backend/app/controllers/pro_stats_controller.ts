@@ -105,7 +105,7 @@ export default class ProStatsController {
       .from('pro_player_stats')
       .countDistinct('player_id as count')
       .first()
-    const teamsResult = await db.from('pro_teams').count('* as count').first()
+    const teamsResult = await db.from('teams').count('* as count').first()
 
     // Last sync time
     const lastGame = await db

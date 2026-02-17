@@ -94,8 +94,8 @@ class AggregateChampionStatsJob:
                 t2.team_id as team2_id
             FROM pro_games g
             JOIN pro_matches m ON g.match_id = m.match_id
-            LEFT JOIN pro_teams t1 ON m.team1_external_id = t1.external_id
-            LEFT JOIN pro_teams t2 ON m.team2_external_id = t2.external_id
+            LEFT JOIN teams t1 ON m.team1_external_id = t1.external_id
+            LEFT JOIN teams t2 ON m.team2_external_id = t2.external_id
             WHERE g.status IN ('completed', 'processed')
               AND DATE(m.started_at) = $1
         ),

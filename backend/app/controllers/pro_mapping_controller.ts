@@ -113,9 +113,9 @@ export default class ProMappingController {
 
     if (entityType === 'team') {
       const rows = await db
-        .from('pro_teams')
-        .select('team_id as id', 'name', 'external_id')
-        .whereILike('name', searchTerm)
+        .from('teams')
+        .select('team_id as id', 'current_name as name', 'external_id')
+        .whereILike('current_name', searchTerm)
         .orWhereILike('short_name', searchTerm)
         .orderBy('name')
         .limit(20)
@@ -294,7 +294,7 @@ export default class ProMappingController {
   private async getEntityName(entityType: string, entityId: number): Promise<string | null> {
     let row: Record<string, unknown> | null = null
     if (entityType === 'team') {
-      row = await db.from('pro_teams').select('name').where('team_id', entityId).first()
+      row = await db.from('teams').select('current_name as name').where('team_id', entityId).first()
     } else if (entityType === 'tournament') {
       row = await db.from('pro_tournaments').select('name').where('tournament_id', entityId).first()
     } else if (entityType === 'league') {

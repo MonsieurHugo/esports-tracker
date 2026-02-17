@@ -1247,7 +1247,7 @@ class DatabaseService:
         if mapped_id is not None:
             await self.execute(
                 """
-                UPDATE pro_teams
+                UPDATE teams
                 SET short_name = COALESCE($1, short_name),
                     logo_url = COALESCE($2, logo_url),
                     updated_at = NOW()
@@ -1259,23 +1259,25 @@ class DatabaseService:
             )
             return mapped_id
 
-        # 2. Name match
+        # 2. Name match (LoL teams only)
         existing = await self.fetchrow(
-            "SELECT team_id FROM pro_teams WHERE LOWER(TRIM(name)) = LOWER(TRIM($1)) LIMIT 1",
+            "SELECT team_id FROM teams WHERE LOWER(TRIM(current_name)) = LOWER(TRIM($1)) AND game_id = 1 LIMIT 1",
             name,
         )
         if existing:
             team_id = existing["team_id"]
             await self.execute(
                 """
-                UPDATE pro_teams
+                UPDATE teams
                 SET short_name = COALESCE($1, short_name),
                     logo_url = COALESCE($2, logo_url),
+                    external_id = COALESCE(external_id, $3),
                     updated_at = NOW()
-                WHERE team_id = $3
+                WHERE team_id = $4
                 """,
                 short_name,
                 logo_url,
+                external_id,
                 team_id,
             )
             source = "leaguepedia" if external_id.startswith("lp:") else "grid"
@@ -1285,13 +1287,13 @@ class DatabaseService:
         # 3. No match — insert new team
         result = await self.fetchval(
             """
-            INSERT INTO pro_teams (external_id, name, short_name, logo_url, updated_at)
-            VALUES ($1, $2, $3, $4, NOW())
+            INSERT INTO teams (external_id, current_name, short_name, logo_url, game_id, slug, is_active, updated_at)
+            VALUES ($1, $2, $3, $4, 1, 'pro-' || $1, false, NOW())
             ON CONFLICT (external_id)
             DO UPDATE SET
-                name = EXCLUDED.name,
-                short_name = COALESCE(EXCLUDED.short_name, pro_teams.short_name),
-                logo_url = COALESCE(EXCLUDED.logo_url, pro_teams.logo_url),
+                current_name = EXCLUDED.current_name,
+                short_name = COALESCE(EXCLUDED.short_name, teams.short_name),
+                logo_url = COALESCE(EXCLUDED.logo_url, teams.logo_url),
                 updated_at = NOW()
             RETURNING team_id
             """,
@@ -1307,14 +1309,14 @@ class DatabaseService:
     async def get_pro_team_by_external_id(self, external_id: str) -> asyncpg.Record | None:
         """Get a pro team by external ID."""
         return await self.fetchrow(
-            "SELECT * FROM pro_teams WHERE external_id = $1",
+            "SELECT * FROM teams WHERE external_id = $1",
             external_id,
         )
 
     async def get_pro_team_by_name(self, name: str) -> asyncpg.Record | None:
         """Get a pro team by name (case-insensitive)."""
         return await self.fetchrow(
-            "SELECT * FROM pro_teams WHERE LOWER(TRIM(name)) = LOWER(TRIM($1)) LIMIT 1",
+            "SELECT * FROM teams WHERE LOWER(TRIM(current_name)) = LOWER(TRIM($1)) AND game_id = 1 LIMIT 1",
             name,
         )
 
