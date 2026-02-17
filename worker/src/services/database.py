@@ -1475,6 +1475,120 @@ class DatabaseService:
         )
         return result or False
 
+    async def find_duplicate_pro_match(
+        self,
+        external_id: str,
+        tournament_id: int | None,
+        team1_external_id: str | None,
+        team2_external_id: str | None,
+        started_at: datetime | None,
+        format: str,
+    ) -> asyncpg.Record | None:
+        """Find an existing pro match that looks like a duplicate of a new GRID series.
+
+        Two detection levels:
+        - Cancelled matches: same tournament + same teams + started_at ±1 day
+        - Non-cancelled matches: same tournament + same teams + same format + started_at ±3 hours
+        """
+        if not tournament_id or not team1_external_id or not team2_external_id or not started_at:
+            return None
+
+        return await self.fetchrow(
+            """
+            SELECT match_id, external_id, status, started_at, format, team1_external_id
+            FROM pro_matches
+            WHERE external_id != $1
+              AND tournament_id = $2
+              AND (
+                (team1_external_id = $3 AND team2_external_id = $4)
+                OR (team1_external_id = $4 AND team2_external_id = $3)
+              )
+              AND started_at IS NOT NULL
+              AND (
+                (status = 'cancelled'
+                 AND started_at BETWEEN $5::timestamptz - INTERVAL '1 day' AND $5::timestamptz + INTERVAL '1 day')
+                OR
+                (status != 'cancelled'
+                 AND format = $6
+                 AND started_at BETWEEN $5::timestamptz - INTERVAL '3 hours' AND $5::timestamptz + INTERVAL '3 hours')
+              )
+            LIMIT 1
+            """,
+            external_id,
+            tournament_id,
+            team1_external_id,
+            team2_external_id,
+            started_at,
+            format,
+        )
+
+    async def merge_duplicate_pro_match(
+        self,
+        primary_match_id: int,
+        primary_external_id: str,
+        secondary_match_id: int,
+        secondary_external_id: str,
+    ) -> int:
+        """Merge games from secondary match into primary match, then delete secondary.
+
+        Steps (all in one transaction):
+        1. Find max game_number in primary
+        2. Renumber secondary's games (shift by max)
+        3. Re-parent games to primary (pro_games.match_id)
+        4. Re-parent team_stats to primary (pro_team_stats.match_id)
+        5. Audit trail via pro_entity_mappings
+        6. Delete orphaned secondary match
+
+        Other child tables (pro_player_stats, pro_drafts, pro_draft_actions,
+        pro_player_timing_stats, pro_game_events) only reference game_id
+        and don't need updating.
+
+        Returns number of games moved.
+        """
+        async with self.transaction() as conn:
+            # 1. Find max game_number in primary match
+            max_game_num = await conn.fetchval(
+                "SELECT COALESCE(MAX(game_number), 0) FROM pro_games WHERE match_id = $1",
+                primary_match_id,
+            )
+
+            # 2. Renumber games from secondary (shift by max_game_num)
+            # Must happen BEFORE re-parent to avoid UNIQUE(match_id, game_number) violation
+            await conn.execute(
+                "UPDATE pro_games SET game_number = game_number + $1 WHERE match_id = $2",
+                max_game_num, secondary_match_id,
+            )
+
+            # 3. Re-parent games to primary match
+            games_moved = await conn.fetchval(
+                "WITH moved AS ("
+                "  UPDATE pro_games SET match_id = $1 WHERE match_id = $2 RETURNING 1"
+                ") SELECT COUNT(*) FROM moved",
+                primary_match_id, secondary_match_id,
+            )
+
+            # 4. Re-parent team_stats (denormalized match_id)
+            await conn.execute(
+                "UPDATE pro_team_stats SET match_id = $1 WHERE match_id = $2",
+                primary_match_id, secondary_match_id,
+            )
+
+            # 5. Audit trail
+            await conn.execute(
+                """INSERT INTO pro_entity_mappings (entity_type, entity_id, source, source_id, created_at)
+                   VALUES ('match', $1, 'grid_merged', $2, NOW())
+                   ON CONFLICT (entity_type, source, source_id) DO NOTHING""",
+                primary_match_id, secondary_external_id,
+            )
+
+            # 6. Delete orphaned secondary match (no more children)
+            await conn.execute(
+                "DELETE FROM pro_matches WHERE match_id = $1",
+                secondary_match_id,
+            )
+
+            return games_moved
+
     async def mark_pro_match_processed(self, match_id: int) -> None:
         """Mark a pro match as fully processed."""
         await self.execute(
