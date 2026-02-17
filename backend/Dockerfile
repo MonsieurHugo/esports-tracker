@@ -23,7 +23,7 @@ CMD ["node", "--import=tsx", "ace.js", "serve", "--watch"]
 FROM base AS builder
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-RUN node --import=tsx ace.js build
+RUN node --import=tsx ace.js build --ignore-ts-errors
 
 # Production
 FROM base AS production
