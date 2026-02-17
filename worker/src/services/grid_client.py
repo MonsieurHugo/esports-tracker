@@ -132,7 +132,7 @@ class GridClient:
         self,
         method: str,
         url: str,
-        max_retries: int = 3,
+        max_retries: int = 5,
         **kwargs,
     ) -> httpx.Response:
         """

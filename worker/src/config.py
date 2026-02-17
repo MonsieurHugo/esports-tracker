@@ -87,7 +87,7 @@ class Settings(BaseSettings):
 
     # GRID API Configuration
     grid_api_key: str = ""
-    grid_api_rate_limit: int = 10  # requests per second
+    grid_api_rate_limit: int = 3  # requests per second
     grid_central_graphql_url: str = "https://api.grid.gg/central-data/graphql"
     grid_live_data_graphql_url: str = "https://api.grid.gg/live-data-feed/series-state/graphql"
     grid_file_download_url: str = "https://api.grid.gg/file-download"
@@ -95,7 +95,7 @@ class Settings(BaseSettings):
 
     # Pro Worker Settings
     pro_tournament_year: int = 2026
-    pro_max_concurrent_games: int = 5
+    pro_max_concurrent_games: int = 2
     pro_sync_interval_minutes: int = 5  # Sync tournaments every 5 minutes
     pro_api_port: int = 8000  # HTTP API port for pro worker
     pro_api_host: str = "0.0.0.0"  # HTTP API host
