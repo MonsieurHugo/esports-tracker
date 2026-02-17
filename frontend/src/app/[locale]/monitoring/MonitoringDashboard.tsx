@@ -577,13 +577,13 @@ export default function MonitoringDashboard() {
           {/* Current task */}
           {pro.isOnline && pro.health && (
             <div className="space-y-1.5">
-              {pro.health.currentTask ? (
+              {pro.health.current_task ? (
                 <div className="flex items-center gap-2 text-sm text-(--text-secondary)">
                   <span className="text-(--text-muted)">{'>'}</span>
                   <span>
-                    Task: <span className="font-mono text-blue-400">{pro.health.currentTask}</span>
-                    {pro.health.currentTaskStartedAt && (
-                      <span className="text-(--text-muted)"> — depuis {formatTimeAgo(pro.health.currentTaskStartedAt).replace('il y a ', '')}</span>
+                    Task: <span className="font-mono text-blue-400">{pro.health.current_task}</span>
+                    {pro.health.current_task_started_at && (
+                      <span className="text-(--text-muted)"> — depuis {formatTimeAgo(pro.health.current_task_started_at).replace('il y a ', '')}</span>
                     )}
                   </span>
                 </div>
