@@ -43,7 +43,7 @@ if not DATABASE_URL:
     raise ValueError("DATABASE_URL environment variable is required")
 LEAGUEPEDIA_MAX_YEAR = int(os.getenv("LEAGUEPEDIA_MAX_YEAR", "2025"))
 
-LEAGUES = [
+DEFAULT_LEAGUES = [
     "LoL EMEA Championship",         # LEC (2019+)
     "EU League Championship Series",  # EU LCS (2013-2018)
     "La Ligue Française",             # LFL
@@ -1881,8 +1881,11 @@ def compute_aggregated_stats(
 # Main Sync Orchestration
 # ==========================================
 
-def sync_league(lp: LeaguepediaClient, db: DB, league_name: str) -> dict:
+def sync_league(lp: LeaguepediaClient, db: DB, league_name: str, force: bool = False) -> dict:
     """Sync a single league from Leaguepedia into pro_* tables.
+
+    Args:
+        force: If True, re-sync tournaments even if marked as complete.
 
     Returns:
         Stats dict
@@ -1932,7 +1935,7 @@ def sync_league(lp: LeaguepediaClient, db: DB, league_name: str) -> dict:
         # Check if already complete
         t_ext = f"lp:{overview}"
         is_complete = db.is_tournament_complete(t_ext)
-        if is_complete is True:
+        if is_complete is True and not force:
             logger.debug("Tournament already complete, skipping", tournament=name)
             continue
 
@@ -2011,7 +2014,12 @@ def main():
         "--leagues",
         nargs="*",
         default=None,
-        help="Specific leagues to sync (default: all configured)",
+        help="Leagues to sync (default: LEC, EU LCS, LFL, LCK, LPL, LCS)",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Force re-sync of already completed tournaments (ignores is_complete flag)",
     )
     parser.add_argument(
         "--max-year",
@@ -2142,7 +2150,7 @@ def main():
             db.close()
         return
 
-    leagues_to_sync = args.leagues or LEAGUES
+    leagues_to_sync = args.leagues or DEFAULT_LEAGUES
 
     logger.info(
         "Starting Leaguepedia sync",
@@ -2242,7 +2250,7 @@ def main():
             logger.info("=" * 60)
 
             try:
-                stats = sync_league(lp, db, league_name)
+                stats = sync_league(lp, db, league_name, force=args.force)
                 logger.info(
                     "League sync complete",
                     league=league_name,

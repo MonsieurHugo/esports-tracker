@@ -172,6 +172,12 @@ export default class ProLeagueStatsController {
         slowestFirstBloodPlayer,
         fastestQuest,
         slowestQuest,
+        highestGoldDiffAt15,
+        lowestGoldDiffAt15,
+        highestCsDiffAt15,
+        highestXpDiffAt15,
+        highestGoldDiffEnd,
+        highestCsDiffEnd,
         fastestWin,
         longestGame,
         fastestFirstBlood,
@@ -358,6 +364,82 @@ export default class ProLeagueStatsController {
             AND ps.quest_completed_at > 0
             AND tr.year >= 2025
           ORDER BY ps.quest_completed_at DESC
+          LIMIT 50
+        `, [...playerBindings]),
+
+        // Highest gold diff at 15 (min 15 min)
+        db.rawQuery(`
+          SELECT p.current_pseudo as player_name, ps.champion_id,
+                 (ps.timing_data->'15'->>'gold_diff')::int as value,
+                 g.duration, COALESCE(pt.short_name, pt.name) as team_name, tr.name as tournament_name,
+                 COALESCE(g.started_at, m.started_at) as game_date, ps.role, ${opponentCol}, ${winCol}
+          ${playerJoins} AND g.duration > 900
+            AND ps.timing_data->'15'->>'gold_diff' IS NOT NULL
+          ORDER BY (ps.timing_data->'15'->>'gold_diff')::int DESC
+          LIMIT 50
+        `, [...playerBindings]),
+
+        // Lowest gold diff at 15 (biggest deficit)
+        db.rawQuery(`
+          SELECT p.current_pseudo as player_name, ps.champion_id,
+                 (ps.timing_data->'15'->>'gold_diff')::int as value,
+                 g.duration, COALESCE(pt.short_name, pt.name) as team_name, tr.name as tournament_name,
+                 COALESCE(g.started_at, m.started_at) as game_date, ps.role, ${opponentCol}, ${winCol}
+          ${playerJoins} AND g.duration > 900
+            AND ps.timing_data->'15'->>'gold_diff' IS NOT NULL
+          ORDER BY (ps.timing_data->'15'->>'gold_diff')::int ASC
+          LIMIT 50
+        `, [...playerBindings]),
+
+        // Highest CS diff at 15 (min 15 min)
+        db.rawQuery(`
+          SELECT p.current_pseudo as player_name, ps.champion_id,
+                 (ps.timing_data->'15'->>'cs_diff')::int as value,
+                 g.duration, COALESCE(pt.short_name, pt.name) as team_name, tr.name as tournament_name,
+                 COALESCE(g.started_at, m.started_at) as game_date, ps.role, ${opponentCol}, ${winCol}
+          ${playerJoins} AND g.duration > 900
+            AND ps.timing_data->'15'->>'cs_diff' IS NOT NULL
+          ORDER BY (ps.timing_data->'15'->>'cs_diff')::int DESC
+          LIMIT 50
+        `, [...playerBindings]),
+
+        // Highest XP diff at 15 (min 15 min)
+        db.rawQuery(`
+          SELECT p.current_pseudo as player_name, ps.champion_id,
+                 (ps.timing_data->'15'->>'xp_diff')::int as value,
+                 g.duration, COALESCE(pt.short_name, pt.name) as team_name, tr.name as tournament_name,
+                 COALESCE(g.started_at, m.started_at) as game_date, ps.role, ${opponentCol}, ${winCol}
+          ${playerJoins} AND g.duration > 900
+            AND ps.timing_data->'15'->>'xp_diff' IS NOT NULL
+          ORDER BY (ps.timing_data->'15'->>'xp_diff')::int DESC
+          LIMIT 50
+        `, [...playerBindings]),
+
+        // Highest gold diff at end (vs role opponent)
+        db.rawQuery(`
+          SELECT p.current_pseudo as player_name, ps.champion_id,
+                 ps.gold_earned - (SELECT opp.gold_earned FROM pro_player_stats opp WHERE opp.game_id = g.game_id AND opp.team_id != ps.team_id AND opp.role = ps.role LIMIT 1) as value,
+                 g.duration, COALESCE(pt.short_name, pt.name) as team_name, tr.name as tournament_name,
+                 COALESCE(g.started_at, m.started_at) as game_date, ps.role, ${opponentCol}, ${winCol}
+          ${playerJoins}
+            AND g.duration > 900
+            AND ps.gold_earned > 0
+            AND EXISTS (SELECT 1 FROM pro_player_stats opp WHERE opp.game_id = g.game_id AND opp.team_id != ps.team_id AND opp.role = ps.role)
+          ORDER BY value DESC
+          LIMIT 50
+        `, [...playerBindings]),
+
+        // Highest CS diff at end (vs role opponent)
+        db.rawQuery(`
+          SELECT p.current_pseudo as player_name, ps.champion_id,
+                 ps.cs - (SELECT opp.cs FROM pro_player_stats opp WHERE opp.game_id = g.game_id AND opp.team_id != ps.team_id AND opp.role = ps.role LIMIT 1) as value,
+                 g.duration, COALESCE(pt.short_name, pt.name) as team_name, tr.name as tournament_name,
+                 COALESCE(g.started_at, m.started_at) as game_date, ps.role, ${opponentCol}, ${winCol}
+          ${playerJoins}
+            AND g.duration > 900
+            AND ps.cs > 0
+            AND EXISTS (SELECT 1 FROM pro_player_stats opp WHERE opp.game_id = g.game_id AND opp.team_id != ps.team_id AND opp.role = ps.role)
+          ORDER BY value DESC
           LIMIT 50
         `, [...playerBindings]),
 
@@ -651,6 +733,12 @@ export default class ProLeagueStatsController {
           slowestFirstBlood: this.formatPlayerRecords(slowestFirstBloodPlayer.rows),
           fastestQuest: this.formatPlayerRecords(fastestQuest.rows),
           slowestQuest: this.formatPlayerRecords(slowestQuest.rows),
+          highestGoldDiffAt15: this.formatPlayerRecords(highestGoldDiffAt15.rows),
+          lowestGoldDiffAt15: this.formatPlayerRecords(lowestGoldDiffAt15.rows),
+          highestCsDiffAt15: this.formatPlayerRecords(highestCsDiffAt15.rows),
+          highestXpDiffAt15: this.formatPlayerRecords(highestXpDiffAt15.rows),
+          highestGoldDiffEnd: this.formatPlayerRecords(highestGoldDiffEnd.rows),
+          highestCsDiffEnd: this.formatPlayerRecords(highestCsDiffEnd.rows),
         },
         teamRecords: {
           fastestWin: this.formatTeamRecords(fastestWin.rows),
