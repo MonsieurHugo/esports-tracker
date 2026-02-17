@@ -823,6 +823,7 @@ export interface ProTeamRecord {
   loserName: string | null
   tournamentName: string
   gameDate: string | null
+  win?: boolean | null
 }
 
 export interface ProBoRecord {
@@ -860,8 +861,6 @@ export interface ProRecords {
     highestDpm: ProPlayerRecord[]
     highestDamageShare: ProPlayerRecord[]
     highestCsPerMin: ProPlayerRecord[]
-    fastestFirstBlood: ProPlayerRecord[]
-    slowestFirstBlood: ProPlayerRecord[]
     fastestQuest: ProPlayerRecord[]
     slowestQuest: ProPlayerRecord[]
     highestGoldDiffAt15: ProPlayerRecord[]
@@ -875,6 +874,7 @@ export interface ProRecords {
     fastestWin: ProTeamRecord[]
     longestGame: ProTeamRecord[]
     fastestFirstBlood: ProTeamRecord[]
+    slowestFirstBlood: ProTeamRecord[]
     fastestBo3: ProBoRecord[]
     slowestBo3: ProBoRecord[]
     fastestBo5: ProBoRecord[]

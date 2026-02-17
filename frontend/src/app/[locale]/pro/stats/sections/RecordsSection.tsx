@@ -199,7 +199,7 @@ function TeamTable({ title, records, formatValue, valueLabel }: {
                 onClick={() => setExpandedIndex(isExpanded ? null : i)}
                 className={`border-b border-[var(--border)]/30 transition-colors hover:bg-[var(--bg-hover)] cursor-pointer ${
                   i === 0 ? 'bg-[var(--accent)]/5' : recent ? 'bg-[var(--lol)]/5' : ''
-                } ${recent ? 'border-l-2 border-l-[var(--lol)]' : ''}`}
+                } ${recent ? 'border-l-2 border-l-[var(--lol)]' : r.win != null ? `border-l-2 ${r.win ? 'border-l-[var(--positive)]/50' : 'border-l-[var(--negative)]/50'}` : ''}`}
               >
                 <td className="py-2 px-2">
                   <RankCell rank={i + 1} />
@@ -524,8 +524,6 @@ export default function RecordsSection({ filters }: { filters: ProStatsFilters }
           <PlayerTable title="Highest DPM" records={playerRecords.highestDpm} formatValue={(r) => r.value.toLocaleString()} />
           <PlayerTable title="Highest DMG%" records={playerRecords.highestDamageShare} formatValue={(r) => `${r.value}%`} />
           <PlayerTable title="Highest CS/min" records={playerRecords.highestCsPerMin} formatValue={(r) => `${r.value}/min`} />
-          <PlayerTable title="Fastest First Blood" records={playerRecords.fastestFirstBlood} formatValue={(r) => fmt(r.value)} />
-          <PlayerTable title="Slowest First Blood" records={playerRecords.slowestFirstBlood} formatValue={(r) => fmt(r.value)} />
           <PlayerTable title="Fastest Quest" records={playerRecords.fastestQuest} formatValue={(r) => fmt(r.value)} />
           <PlayerTable title="Slowest Quest" records={playerRecords.slowestQuest} formatValue={(r) => fmt(r.value)} />
           <PlayerTable title="Gold Diff @15 (Best)" records={playerRecords.highestGoldDiffAt15} formatValue={(r) => `+${r.value.toLocaleString()}`} />
@@ -543,6 +541,7 @@ export default function RecordsSection({ filters }: { filters: ProStatsFilters }
           <TeamTable title="Victoire la plus rapide" records={teamRecords.fastestWin} />
           <TeamTable title="Game la plus longue" records={teamRecords.longestGame} />
           <TeamTable title="First Blood le plus rapide" records={teamRecords.fastestFirstBlood} />
+          <TeamTable title="First Blood le plus lent" records={teamRecords.slowestFirstBlood} />
           <BoTable title="BO3 le plus rapide" records={teamRecords.fastestBo3} />
           <BoTable title="BO3 le plus long" records={teamRecords.slowestBo3} />
           <BoTable title="BO5 le plus rapide" records={teamRecords.fastestBo5} />

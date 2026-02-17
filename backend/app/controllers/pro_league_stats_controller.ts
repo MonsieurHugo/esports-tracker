@@ -168,8 +168,6 @@ export default class ProLeagueStatsController {
         highestDpm,
         highestDamageShare,
         highestCsPerMin,
-        fastestFirstBloodPlayer,
-        slowestFirstBloodPlayer,
         fastestQuest,
         slowestQuest,
         highestGoldDiffAt15,
@@ -181,6 +179,7 @@ export default class ProLeagueStatsController {
         fastestWin,
         longestGame,
         fastestFirstBlood,
+        slowestFirstBlood,
         fastestBo3,
         slowestBo3,
         fastestBo5,
@@ -302,40 +301,6 @@ export default class ProLeagueStatsController {
                  COALESCE(g.started_at, m.started_at) as game_date, ps.role, ${opponentCol}, ${winCol}
           ${playerJoins} AND g.duration > 900
           ORDER BY ps.cs * 60.0 / GREATEST(g.duration, 1) DESC
-          LIMIT 50
-        `, [...playerBindings]),
-
-        // Fastest first blood (player)
-        db.rawQuery(`
-          SELECT p.current_pseudo as player_name, ps.champion_id,
-                 (SELECT first_blood_time FROM pro_team_stats WHERE game_id = g.game_id AND team_id = ps.team_id LIMIT 1) as value,
-                 COALESCE(pt.short_name, pt.name) as team_name, tr.name as tournament_name,
-                 COALESCE(g.started_at, m.started_at) as game_date, ps.role, ${opponentCol}, ${winCol}
-          ${playerJoins}
-            AND (ps.first_blood->>'participant')::boolean = true
-            AND EXISTS (
-              SELECT 1 FROM pro_team_stats ts_fb
-              WHERE ts_fb.game_id = g.game_id AND ts_fb.team_id = ps.team_id
-                AND ts_fb.first_blood_time IS NOT NULL AND ts_fb.first_blood_time > 0
-            )
-          ORDER BY value ASC
-          LIMIT 50
-        `, [...playerBindings]),
-
-        // Slowest first blood (player)
-        db.rawQuery(`
-          SELECT p.current_pseudo as player_name, ps.champion_id,
-                 (SELECT first_blood_time FROM pro_team_stats WHERE game_id = g.game_id AND team_id = ps.team_id LIMIT 1) as value,
-                 COALESCE(pt.short_name, pt.name) as team_name, tr.name as tournament_name,
-                 COALESCE(g.started_at, m.started_at) as game_date, ps.role, ${opponentCol}, ${winCol}
-          ${playerJoins}
-            AND (ps.first_blood->>'participant')::boolean = true
-            AND EXISTS (
-              SELECT 1 FROM pro_team_stats ts_fb
-              WHERE ts_fb.game_id = g.game_id AND ts_fb.team_id = ps.team_id
-                AND ts_fb.first_blood_time IS NOT NULL AND ts_fb.first_blood_time > 0
-            )
-          ORDER BY value DESC
           LIMIT 50
         `, [...playerBindings]),
 
@@ -472,7 +437,8 @@ export default class ProLeagueStatsController {
           SELECT ts.first_blood_time as value,
                  COALESCE(fbt.short_name, fbt.name) as winner_name,
                  COALESCE(opp.short_name, opp.name) as loser_name,
-                 tr.name as tournament_name, COALESCE(g.started_at, m.started_at) as game_date
+                 tr.name as tournament_name, COALESCE(g.started_at, m.started_at) as game_date,
+                 (g.winner_team_id = ts.team_id) as win
           FROM pro_team_stats ts
           JOIN pro_games g ON ts.game_id = g.game_id
           JOIN pro_matches m ON g.match_id = m.match_id
@@ -487,6 +453,30 @@ export default class ProLeagueStatsController {
             AND g.status IN ('completed', 'processed')
             ${teamFilterSql}${teamIdStreakSql}
           ORDER BY ts.first_blood_time ASC
+          LIMIT 50
+        `, [...teamBindings, ...teamIdStreakBindings]),
+
+        // Slowest first blood
+        db.rawQuery(`
+          SELECT ts.first_blood_time as value,
+                 COALESCE(fbt.short_name, fbt.name) as winner_name,
+                 COALESCE(opp.short_name, opp.name) as loser_name,
+                 tr.name as tournament_name, COALESCE(g.started_at, m.started_at) as game_date,
+                 (g.winner_team_id = ts.team_id) as win
+          FROM pro_team_stats ts
+          JOIN pro_games g ON ts.game_id = g.game_id
+          JOIN pro_matches m ON g.match_id = m.match_id
+          JOIN pro_tournaments tr ON m.tournament_id = tr.tournament_id
+          LEFT JOIN pro_leagues pl ON tr.pro_league_id = pl.league_id
+          JOIN pro_teams fbt ON ts.team_id = fbt.team_id
+          LEFT JOIN pro_team_stats ts_opp ON ts_opp.game_id = ts.game_id AND ts_opp.team_id != ts.team_id
+          LEFT JOIN pro_teams opp ON ts_opp.team_id = opp.team_id
+          WHERE ts.first_blood = true
+            AND ts.first_blood_time IS NOT NULL
+            AND ts.first_blood_time > 0
+            AND g.status IN ('completed', 'processed')
+            ${teamFilterSql}${teamIdStreakSql}
+          ORDER BY ts.first_blood_time DESC
           LIMIT 50
         `, [...teamBindings, ...teamIdStreakBindings]),
 
@@ -729,8 +719,6 @@ export default class ProLeagueStatsController {
           highestDpm: this.formatPlayerRecords(highestDpm.rows),
           highestDamageShare: this.formatPlayerRecords(highestDamageShare.rows),
           highestCsPerMin: this.formatPlayerRecords(highestCsPerMin.rows),
-          fastestFirstBlood: this.formatPlayerRecords(fastestFirstBloodPlayer.rows),
-          slowestFirstBlood: this.formatPlayerRecords(slowestFirstBloodPlayer.rows),
           fastestQuest: this.formatPlayerRecords(fastestQuest.rows),
           slowestQuest: this.formatPlayerRecords(slowestQuest.rows),
           highestGoldDiffAt15: this.formatPlayerRecords(highestGoldDiffAt15.rows),
@@ -744,6 +732,7 @@ export default class ProLeagueStatsController {
           fastestWin: this.formatTeamRecords(fastestWin.rows),
           longestGame: this.formatTeamRecords(longestGame.rows),
           fastestFirstBlood: this.formatTeamRecords(fastestFirstBlood.rows),
+          slowestFirstBlood: this.formatTeamRecords(slowestFirstBlood.rows),
           fastestBo3: this.formatBoRecords(fastestBo3.rows),
           slowestBo3: this.formatBoRecords(slowestBo3.rows),
           fastestBo5: this.formatBoRecords(fastestBo5.rows),
@@ -2282,6 +2271,7 @@ export default class ProLeagueStatsController {
       loserName: row.loser_name,
       tournamentName: row.tournament_name,
       gameDate: row.game_date,
+      win: row.win ?? null,
     }))
   }
 
