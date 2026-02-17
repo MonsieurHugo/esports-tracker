@@ -539,11 +539,11 @@ export default function MonitoringDashboard() {
             }`}>
               {pro.isOnline === null ? 'Checking...' : pro.isOnline ? 'Online' : 'Offline'}
             </span>
-            {pro.isOnline && pro.health?.startedAt && (
+            {pro.isOnline && pro.health?.started_at && (
               <>
                 <span className="text-(--text-muted)">·</span>
                 <span className="text-sm text-(--text-muted)">
-                  Uptime: {formatUptimeFromDate(pro.health.startedAt)}
+                  Uptime: {formatUptimeFromDate(pro.health.started_at)}
                 </span>
               </>
             )}
