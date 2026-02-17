@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import PasswordGate from './PasswordGate'
 import GlobalFilterBar from './components/GlobalFilterBar'
 import { useProStatsFilters } from './hooks/useProStatsFilters'
@@ -11,13 +11,32 @@ import ChampionMetaSection from './sections/ChampionMetaSection'
 import LeagueStatsSection from './sections/LeagueStatsSection'
 type TabType = 'records' | 'players' | 'teams' | 'champions' | 'leagues'
 
+const VALID_TABS: TabType[] = ['records', 'players', 'teams', 'champions', 'leagues']
+
+function getTabFromHash(): TabType {
+  if (typeof window === 'undefined') return 'records'
+  const hash = window.location.hash.slice(1) as TabType
+  return VALID_TABS.includes(hash) ? hash : 'records'
+}
+
 export default function ProStatsPage() {
   const [isUnlocked, setIsUnlocked] = useState<boolean | null>(null)
-  const [activeTab, setActiveTab] = useState<TabType>('records')
+  const [activeTab, setActiveTab] = useState<TabType>(getTabFromHash)
   const filters = useProStatsFilters(new Set([2026]))
+
+  const handleSetActiveTab = useCallback((tab: TabType) => {
+    setActiveTab(tab)
+    window.history.replaceState(null, '', `#${tab}`)
+  }, [])
 
   useEffect(() => {
     setIsUnlocked(localStorage.getItem('proStatsUnlocked') === 'true')
+  }, [])
+
+  useEffect(() => {
+    const onHashChange = () => setActiveTab(getTabFromHash())
+    window.addEventListener('hashchange', onHashChange)
+    return () => window.removeEventListener('hashchange', onHashChange)
   }, [])
 
   // Still loading localStorage check
@@ -63,7 +82,7 @@ export default function ProStatsPage() {
         {tabs.map((tab) => (
           <button
             key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
+            onClick={() => handleSetActiveTab(tab.key)}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
               activeTab === tab.key
                 ? 'bg-[var(--accent)] text-black'
