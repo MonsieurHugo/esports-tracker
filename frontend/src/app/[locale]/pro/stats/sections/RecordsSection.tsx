@@ -199,7 +199,7 @@ function TeamTable({ title, records, formatValue, valueLabel }: {
                 onClick={() => setExpandedIndex(isExpanded ? null : i)}
                 className={`border-b border-[var(--border)]/30 transition-colors hover:bg-[var(--bg-hover)] cursor-pointer ${
                   i === 0 ? 'bg-[var(--accent)]/5' : recent ? 'bg-[var(--lol)]/5' : ''
-                } ${recent ? 'border-l-2 border-l-[var(--lol)]' : r.win != null ? `border-l-2 ${r.win ? 'border-l-[var(--positive)]/50' : 'border-l-[var(--negative)]/50'}` : ''}`}
+                } ${r.win != null ? `border-l-2 ${r.win ? 'border-l-[var(--positive)]/50' : 'border-l-[var(--negative)]/50'}` : recent ? 'border-l-2 border-l-[var(--lol)]' : ''}`}
               >
                 <td className="py-2 px-2">
                   <RankCell rank={i + 1} />

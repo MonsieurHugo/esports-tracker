@@ -523,7 +523,8 @@ export default class ProLeagueStatsController {
           SELECT ts.kills as value,
                  COALESCE(fbt.short_name, fbt.name) as winner_name,
                  COALESCE(opp.short_name, opp.name) as loser_name,
-                 tr.name as tournament_name, COALESCE(g.started_at, m.started_at) as game_date
+                 tr.name as tournament_name, COALESCE(g.started_at, m.started_at) as game_date,
+                 ts.win as win
           FROM pro_team_stats ts
           JOIN pro_games g ON ts.game_id = g.game_id
           JOIN pro_matches m ON g.match_id = m.match_id
@@ -557,7 +558,8 @@ export default class ProLeagueStatsController {
           SELECT ts.first_tower_time as value,
                  COALESCE(fbt.short_name, fbt.name) as winner_name,
                  COALESCE(opp.short_name, opp.name) as loser_name,
-                 tr.name as tournament_name, COALESCE(g.started_at, m.started_at) as game_date
+                 tr.name as tournament_name, COALESCE(g.started_at, m.started_at) as game_date,
+                 ts.win as win
           FROM pro_team_stats ts
           JOIN pro_games g ON ts.game_id = g.game_id
           JOIN pro_matches m ON g.match_id = m.match_id
@@ -580,7 +582,8 @@ export default class ProLeagueStatsController {
           SELECT ts.first_dragon_time as value,
                  COALESCE(fbt.short_name, fbt.name) as winner_name,
                  COALESCE(opp.short_name, opp.name) as loser_name,
-                 tr.name as tournament_name, COALESCE(g.started_at, m.started_at) as game_date
+                 tr.name as tournament_name, COALESCE(g.started_at, m.started_at) as game_date,
+                 ts.win as win
           FROM pro_team_stats ts
           JOIN pro_games g ON ts.game_id = g.game_id
           JOIN pro_matches m ON g.match_id = m.match_id
@@ -603,7 +606,8 @@ export default class ProLeagueStatsController {
           SELECT ts.first_herald_time as value,
                  COALESCE(fbt.short_name, fbt.name) as winner_name,
                  COALESCE(opp.short_name, opp.name) as loser_name,
-                 tr.name as tournament_name, COALESCE(g.started_at, m.started_at) as game_date
+                 tr.name as tournament_name, COALESCE(g.started_at, m.started_at) as game_date,
+                 ts.win as win
           FROM pro_team_stats ts
           JOIN pro_games g ON ts.game_id = g.game_id
           JOIN pro_matches m ON g.match_id = m.match_id
@@ -626,7 +630,8 @@ export default class ProLeagueStatsController {
           SELECT ts.first_baron_time as value,
                  COALESCE(fbt.short_name, fbt.name) as winner_name,
                  COALESCE(opp.short_name, opp.name) as loser_name,
-                 tr.name as tournament_name, COALESCE(g.started_at, m.started_at) as game_date
+                 tr.name as tournament_name, COALESCE(g.started_at, m.started_at) as game_date,
+                 ts.win as win
           FROM pro_team_stats ts
           JOIN pro_games g ON ts.game_id = g.game_id
           JOIN pro_matches m ON g.match_id = m.match_id
@@ -649,7 +654,8 @@ export default class ProLeagueStatsController {
           SELECT ts.dragons as value,
                  COALESCE(fbt.short_name, fbt.name) as winner_name,
                  COALESCE(opp.short_name, opp.name) as loser_name,
-                 tr.name as tournament_name, COALESCE(g.started_at, m.started_at) as game_date
+                 tr.name as tournament_name, COALESCE(g.started_at, m.started_at) as game_date,
+                 ts.win as win
           FROM pro_team_stats ts
           JOIN pro_games g ON ts.game_id = g.game_id
           JOIN pro_matches m ON g.match_id = m.match_id
@@ -670,7 +676,8 @@ export default class ProLeagueStatsController {
           SELECT ts.elder_dragons as value,
                  COALESCE(fbt.short_name, fbt.name) as winner_name,
                  COALESCE(opp.short_name, opp.name) as loser_name,
-                 tr.name as tournament_name, COALESCE(g.started_at, m.started_at) as game_date
+                 tr.name as tournament_name, COALESCE(g.started_at, m.started_at) as game_date,
+                 ts.win as win
           FROM pro_team_stats ts
           JOIN pro_games g ON ts.game_id = g.game_id
           JOIN pro_matches m ON g.match_id = m.match_id
@@ -691,7 +698,8 @@ export default class ProLeagueStatsController {
           SELECT ts.barons as value,
                  COALESCE(fbt.short_name, fbt.name) as winner_name,
                  COALESCE(opp.short_name, opp.name) as loser_name,
-                 tr.name as tournament_name, COALESCE(g.started_at, m.started_at) as game_date
+                 tr.name as tournament_name, COALESCE(g.started_at, m.started_at) as game_date,
+                 ts.win as win
           FROM pro_team_stats ts
           JOIN pro_games g ON ts.game_id = g.game_id
           JOIN pro_matches m ON g.match_id = m.match_id
