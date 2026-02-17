@@ -1581,6 +1581,14 @@ class DatabaseService:
         )
         return result or False
 
+    async def is_series_already_merged(self, external_id: str) -> bool:
+        """Check if a GRID series was already merged into another match."""
+        result = await self.fetchval(
+            "SELECT EXISTS(SELECT 1 FROM pro_entity_mappings WHERE entity_type = 'match' AND source = 'grid_merged' AND source_id = $1)",
+            external_id,
+        )
+        return result or False
+
     async def find_duplicate_pro_match(
         self,
         external_id: str,

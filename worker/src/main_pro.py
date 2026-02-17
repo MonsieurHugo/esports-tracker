@@ -50,6 +50,7 @@ class ProWorker:
         self.aggregate_job: AggregateChampionStatsJob | None = None
         self._shutdown_event = asyncio.Event()
         self._running = False
+        self._syncing = False
         self._web_runner: web.AppRunner | None = None
 
     async def setup(self) -> None:
@@ -117,44 +118,52 @@ class ProWorker:
         if not self._running:
             return
 
-        try:
-            await self.db.update_pro_worker_task("Syncing tournaments")
-            stats = await self.sync_job.run(year=settings.pro_tournament_year)
-            logger.info("Sync cycle completed", **stats)
+        if self._syncing:
+            logger.warning("Sync already in progress, skipping this cycle")
+            return
 
-            # Update session counters
-            await self.db.increment_pro_worker_stats(
-                tournaments=stats.get("tournaments_processed", 0),
-                matches=stats.get("series_processed", 0),
-                games=stats.get("games_processed", 0),
-                errors=stats.get("errors", 0),
-            )
-        except Exception as e:
-            logger.error("Sync cycle failed", error=str(e))
+        self._syncing = True
+        try:
             try:
-                await self.db.set_pro_worker_error(str(e))
-                await self.db.increment_pro_worker_stats(errors=1)
+                await self.db.update_pro_worker_task("Syncing tournaments")
+                stats = await self.sync_job.run(year=settings.pro_tournament_year)
+                logger.info("Sync cycle completed", **stats)
+
+                # Update session counters
+                await self.db.increment_pro_worker_stats(
+                    tournaments=stats.get("tournaments_processed", 0),
+                    matches=stats.get("series_processed", 0),
+                    games=stats.get("games_processed", 0),
+                    errors=stats.get("errors", 0),
+                )
+            except Exception as e:
+                logger.error("Sync cycle failed", error=str(e))
+                try:
+                    await self.db.set_pro_worker_error(str(e))
+                    await self.db.increment_pro_worker_stats(errors=1)
+                except Exception:
+                    pass
+
+            # Aggregate champion stats after sync
+            try:
+                await self.db.update_pro_worker_task("Aggregating stats")
+                agg_stats = await self.aggregate_job.run(days_back=7)
+                logger.info("Aggregation completed", **agg_stats)
+            except Exception as e:
+                logger.error("Aggregation failed", error=str(e))
+                try:
+                    await self.db.set_pro_worker_error(str(e))
+                    await self.db.increment_pro_worker_stats(errors=1)
+                except Exception:
+                    pass
+
+            # Mark idle
+            try:
+                await self.db.update_pro_worker_task(None)
             except Exception:
                 pass
-
-        # Aggregate champion stats after sync
-        try:
-            await self.db.update_pro_worker_task("Aggregating stats")
-            agg_stats = await self.aggregate_job.run(days_back=7)
-            logger.info("Aggregation completed", **agg_stats)
-        except Exception as e:
-            logger.error("Aggregation failed", error=str(e))
-            try:
-                await self.db.set_pro_worker_error(str(e))
-                await self.db.increment_pro_worker_stats(errors=1)
-            except Exception:
-                pass
-
-        # Mark idle
-        try:
-            await self.db.update_pro_worker_task(None)
-        except Exception:
-            pass
+        finally:
+            self._syncing = False
 
     async def _start_health_server(self) -> None:
         """Start a minimal HTTP server with only a health endpoint."""
