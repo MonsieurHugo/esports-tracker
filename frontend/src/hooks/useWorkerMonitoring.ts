@@ -12,14 +12,23 @@ import type {
   WorkerLog,
 } from '@/lib/types'
 
-const WORKER_API_URL = process.env.NEXT_PUBLIC_WORKER_API_URL || 'http://localhost:8000'
-
 interface ProHealth {
-  status: string
-  running: boolean
-  startedAt: string | null
-  currentTask: string | null
-  currentTaskStartedAt: string | null
+  is_running: boolean
+  started_at: string | null
+  uptime: number
+  current_task: string | null
+  current_task_started_at: string | null
+  last_task: string | null
+  last_task_completed_at: string | null
+  session_tournaments: number
+  session_matches: number
+  session_games: number
+  session_errors: number
+  session_api_requests: number
+  last_activity_at: string | null
+  last_error_at: string | null
+  last_error_message: string | null
+  updated_at: string | null
 }
 
 interface SoloQData {
@@ -110,18 +119,9 @@ export function useWorkerMonitoring(): UseWorkerMonitoringReturn {
 
   const checkProHealth = useCallback(async () => {
     try {
-      const response = await fetch(`${WORKER_API_URL}/api/health`, {
-        method: 'GET',
-        signal: AbortSignal.timeout(3000),
-      })
-      if (response.ok) {
-        const data = await response.json()
-        setProHealth(data)
-        setProOnline(true)
-      } else {
-        setProOnline(false)
-        setProHealth(null)
-      }
+      const data = await api.get<ProHealth>('/pro/monitoring/worker-status')
+      setProHealth(data)
+      setProOnline(data.is_running ?? false)
     } catch {
       setProOnline(false)
       setProHealth(null)
@@ -193,10 +193,12 @@ export function useWorkerMonitoring(): UseWorkerMonitoringReturn {
       id: 'pro',
       name: 'Pro Worker',
       status: proOnline === null ? 'unknown' : proOnline ? 'online' : 'offline',
-      keyMetric: proStats
-        ? `${proStats.matches} matches`
-        : 'N/A',
-      lastActivity: proStats?.lastSyncAt ?? null,
+      keyMetric: proHealth
+        ? `${proHealth.session_games} games`
+        : proStats
+          ? `${proStats.matches} matches`
+          : 'N/A',
+      lastActivity: proHealth?.last_activity_at ?? proStats?.lastSyncAt ?? null,
     },
   ]
 

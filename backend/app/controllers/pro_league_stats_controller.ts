@@ -37,7 +37,7 @@ export default class ProLeagueStatsController {
    * All-time records across leagues
    */
   async records(ctx: HttpContext) {
-    const { leagueId, year, role, years, leagueIds, teamIds, playerIds, tournamentIds, tier, isPlayoffs } = ctx.request.qs()
+    const { leagueId, year, role, years, leagueIds, teamIds, playerIds, tournamentIds, tier, isPlayoffs, includeExcluded } = ctx.request.qs()
     const validRoles = ['Top', 'Jungle', 'Mid', 'ADC', 'Support']
     const parsedRole = role && validRoles.includes(role) ? role : null
 
@@ -49,8 +49,9 @@ export default class ProLeagueStatsController {
     const parsedTournamentIds = this.parseIds(tournamentIds) ?? []
     const parsedTier = tier && Number.isFinite(Number(tier)) ? Number(tier) : null
     const parsedIsPlayoffs = isPlayoffs === 'true' ? true : isPlayoffs === 'false' ? false : null
+    const parsedIncludeExcluded = includeExcluded === 'true'
 
-    const cacheKey = `pro:stats:records:l=${[...parsedLeagueIds].sort().join(',') || 'all'}:y=${[...parsedYears].sort().join(',') || 'all'}:t=${[...parsedTeamIds].sort().join(',') || 'all'}:p=${[...parsedPlayerIds].sort().join(',') || 'all'}:tn=${[...parsedTournamentIds].sort().join(',') || 'all'}:ti=${parsedTier ?? 'all'}:po=${parsedIsPlayoffs ?? 'all'}:r=${parsedRole || 'all'}`
+    const cacheKey = `pro:stats:records:l=${[...parsedLeagueIds].sort().join(',') || 'all'}:y=${[...parsedYears].sort().join(',') || 'all'}:t=${[...parsedTeamIds].sort().join(',') || 'all'}:p=${[...parsedPlayerIds].sort().join(',') || 'all'}:tn=${[...parsedTournamentIds].sort().join(',') || 'all'}:ti=${parsedTier ?? 'all'}:po=${parsedIsPlayoffs ?? 'all'}:r=${parsedRole || 'all'}:ex=${parsedIncludeExcluded ? 1 : 0}`
 
     const result = await cacheService.getOrSet(cacheKey, CACHE_TTL.LONG, async () => {
       const resolvedLeagueIds = await this.resolveLeagueIds(parsedLeagueIds)
@@ -90,6 +91,10 @@ export default class ProLeagueStatsController {
         playerBindings.push(parsedIsPlayoffs)
         teamClauses.push('AND tr.is_playoffs = ?')
         teamBindings.push(parsedIsPlayoffs)
+      }
+      if (!parsedIncludeExcluded) {
+        playerClauses.push('AND tr.exclude_from_records = false')
+        teamClauses.push('AND tr.exclude_from_records = false')
       }
       if (parsedRole) {
         playerClauses.push('AND ps.role = ?')
@@ -138,13 +143,13 @@ export default class ProLeagueStatsController {
         JOIN pro_matches m ON g.match_id = m.match_id
         JOIN pro_tournaments tr ON m.tournament_id = tr.tournament_id
         LEFT JOIN pro_leagues pl ON tr.pro_league_id = pl.league_id
-        LEFT JOIN pro_teams pt ON ps.team_id = pt.team_id
-        LEFT JOIN pro_teams bt ON g.blue_team_id = bt.team_id
-        LEFT JOIN pro_teams rt ON g.red_team_id = rt.team_id
+        LEFT JOIN teams pt ON ps.team_id = pt.team_id
+        LEFT JOIN teams bt ON g.blue_team_id = bt.team_id
+        LEFT JOIN teams rt ON g.red_team_id = rt.team_id
         LEFT JOIN players p ON ps.player_id = p.player_id
         WHERE g.status IN ('completed', 'processed') ${playerFilterSql}
       `
-      const opponentCol = `CASE WHEN ps.team_id = g.blue_team_id THEN COALESCE(rt.short_name, rt.name) ELSE COALESCE(bt.short_name, bt.name) END as opponent_name`
+      const opponentCol = `CASE WHEN ps.team_id = g.blue_team_id THEN COALESCE(rt.short_name, rt.current_name) ELSE COALESCE(bt.short_name, bt.current_name) END as opponent_name`
       const winCol = `(g.winner_team_id = ps.team_id) as win`
 
       const teamGameJoins = `
@@ -152,8 +157,8 @@ export default class ProLeagueStatsController {
         JOIN pro_matches m ON g.match_id = m.match_id
         JOIN pro_tournaments tr ON m.tournament_id = tr.tournament_id
         LEFT JOIN pro_leagues pl ON tr.pro_league_id = pl.league_id
-        LEFT JOIN pro_teams bt ON g.blue_team_id = bt.team_id
-        LEFT JOIN pro_teams rt ON g.red_team_id = rt.team_id
+        LEFT JOIN teams bt ON g.blue_team_id = bt.team_id
+        LEFT JOIN teams rt ON g.red_team_id = rt.team_id
         WHERE g.status IN ('completed', 'processed') ${teamFilterSql}${teamGameFilterSql}
       `
       const teamGameBindings = [...teamBindings, ...teamGameFilterBindings]
@@ -204,7 +209,7 @@ export default class ProLeagueStatsController {
           SELECT p.current_pseudo as player_name, ps.champion_id,
                  ROUND((ps.kills + ps.assists)::numeric / GREATEST(ps.deaths, 1), 2) as value,
                  ps.kills, ps.deaths, ps.assists,
-                 g.duration, COALESCE(pt.short_name, pt.name) as team_name, tr.name as tournament_name,
+                 g.duration, g.game_number, COALESCE(pt.short_name, pt.current_name) as team_name, tr.name as tournament_name,
                  COALESCE(g.started_at, m.started_at) as game_date, ps.role, ${opponentCol}, ${winCol}
           ${playerJoins} AND g.duration > 900
           ORDER BY (ps.kills + ps.assists)::numeric / GREATEST(ps.deaths, 1) DESC
@@ -214,7 +219,7 @@ export default class ProLeagueStatsController {
         // Most kills in a single game
         db.rawQuery(`
           SELECT p.current_pseudo as player_name, ps.champion_id, ps.kills as value,
-                 g.duration, COALESCE(pt.short_name, pt.name) as team_name, tr.name as tournament_name,
+                 g.duration, g.game_number, COALESCE(pt.short_name, pt.current_name) as team_name, tr.name as tournament_name,
                  COALESCE(g.started_at, m.started_at) as game_date, ps.role, ${opponentCol}, ${winCol}
           ${playerJoins}
           ORDER BY ps.kills DESC
@@ -224,7 +229,7 @@ export default class ProLeagueStatsController {
         // Most deaths in a single game
         db.rawQuery(`
           SELECT p.current_pseudo as player_name, ps.champion_id, ps.deaths as value,
-                 g.duration, COALESCE(pt.short_name, pt.name) as team_name, tr.name as tournament_name,
+                 g.duration, g.game_number, COALESCE(pt.short_name, pt.current_name) as team_name, tr.name as tournament_name,
                  COALESCE(g.started_at, m.started_at) as game_date, ps.role, ${opponentCol}, ${winCol}
           ${playerJoins}
           ORDER BY ps.deaths DESC
@@ -234,7 +239,7 @@ export default class ProLeagueStatsController {
         // Most assists in a single game
         db.rawQuery(`
           SELECT p.current_pseudo as player_name, ps.champion_id, ps.assists as value,
-                 g.duration, COALESCE(pt.short_name, pt.name) as team_name, tr.name as tournament_name,
+                 g.duration, g.game_number, COALESCE(pt.short_name, pt.current_name) as team_name, tr.name as tournament_name,
                  COALESCE(g.started_at, m.started_at) as game_date, ps.role, ${opponentCol}, ${winCol}
           ${playerJoins}
           ORDER BY ps.assists DESC
@@ -246,7 +251,7 @@ export default class ProLeagueStatsController {
           SELECT p.current_pseudo as player_name, ps.champion_id,
                  (ps.kills + ps.assists) as value,
                  ps.kills, ps.deaths, ps.assists,
-                 g.duration, COALESCE(pt.short_name, pt.name) as team_name, tr.name as tournament_name,
+                 g.duration, g.game_number, COALESCE(pt.short_name, pt.current_name) as team_name, tr.name as tournament_name,
                  COALESCE(g.started_at, m.started_at) as game_date, ps.role, ${opponentCol}, ${winCol}
           ${playerJoins} AND ps.deaths = 0 AND g.duration > 900
           ORDER BY (ps.kills + ps.assists) DESC
@@ -258,7 +263,7 @@ export default class ProLeagueStatsController {
           SELECT p.current_pseudo as player_name, ps.champion_id,
                  (ps.kills + ps.assists) as value,
                  ps.kills, ps.deaths, ps.assists,
-                 g.duration, COALESCE(pt.short_name, pt.name) as team_name, tr.name as tournament_name,
+                 g.duration, g.game_number, COALESCE(pt.short_name, pt.current_name) as team_name, tr.name as tournament_name,
                  COALESCE(g.started_at, m.started_at) as game_date, ps.role, ${opponentCol}, ${winCol}
           ${playerJoins}
           ORDER BY (ps.kills + ps.assists) DESC
@@ -269,7 +274,7 @@ export default class ProLeagueStatsController {
         db.rawQuery(`
           SELECT p.current_pseudo as player_name, ps.champion_id,
                  ROUND(ps.damage_dealt * 60.0 / GREATEST(g.duration, 1), 0) as value,
-                 ps.damage_dealt, g.duration, COALESCE(pt.short_name, pt.name) as team_name, tr.name as tournament_name,
+                 ps.damage_dealt, g.duration, g.game_number, COALESCE(pt.short_name, pt.current_name) as team_name, tr.name as tournament_name,
                  COALESCE(g.started_at, m.started_at) as game_date, ps.role, ${opponentCol}, ${winCol}
           ${playerJoins} AND g.duration > 900
           ORDER BY ps.damage_dealt * 60.0 / GREATEST(g.duration, 1) DESC
@@ -283,7 +288,7 @@ export default class ProLeagueStatsController {
                    (SELECT SUM(ps2.damage_dealt) FROM pro_player_stats ps2 WHERE ps2.game_id = g.game_id AND ps2.team_id = ps.team_id),
                    1
                  ), 1) as value,
-                 g.duration, COALESCE(pt.short_name, pt.name) as team_name, tr.name as tournament_name,
+                 g.duration, g.game_number, COALESCE(pt.short_name, pt.current_name) as team_name, tr.name as tournament_name,
                  COALESCE(g.started_at, m.started_at) as game_date, ps.role, ${opponentCol}, ${winCol}
           ${playerJoins} AND g.duration > 900
           ORDER BY ps.damage_dealt * 100.0 / GREATEST(
@@ -297,7 +302,7 @@ export default class ProLeagueStatsController {
         db.rawQuery(`
           SELECT p.current_pseudo as player_name, ps.champion_id,
                  ROUND(ps.cs * 60.0 / GREATEST(g.duration, 1), 2) as value,
-                 ps.cs, g.duration, COALESCE(pt.short_name, pt.name) as team_name, tr.name as tournament_name,
+                 ps.cs, g.duration, g.game_number, COALESCE(pt.short_name, pt.current_name) as team_name, tr.name as tournament_name,
                  COALESCE(g.started_at, m.started_at) as game_date, ps.role, ${opponentCol}, ${winCol}
           ${playerJoins} AND g.duration > 900
           ORDER BY ps.cs * 60.0 / GREATEST(g.duration, 1) DESC
@@ -307,8 +312,8 @@ export default class ProLeagueStatsController {
         // Fastest quest completion (only 2025+ data has quest_completed_at)
         db.rawQuery(`
           SELECT p.current_pseudo as player_name, ps.champion_id,
-                 ps.quest_completed_at as value,
-                 COALESCE(pt.short_name, pt.name) as team_name, tr.name as tournament_name,
+                 ps.quest_completed_at as value, g.game_number,
+                 COALESCE(pt.short_name, pt.current_name) as team_name, tr.name as tournament_name,
                  COALESCE(g.started_at, m.started_at) as game_date, ps.role, ${opponentCol}, ${winCol}
           ${playerJoins}
             AND ps.quest_completed_at IS NOT NULL
@@ -321,8 +326,8 @@ export default class ProLeagueStatsController {
         // Slowest quest completion
         db.rawQuery(`
           SELECT p.current_pseudo as player_name, ps.champion_id,
-                 ps.quest_completed_at as value,
-                 COALESCE(pt.short_name, pt.name) as team_name, tr.name as tournament_name,
+                 ps.quest_completed_at as value, g.game_number,
+                 COALESCE(pt.short_name, pt.current_name) as team_name, tr.name as tournament_name,
                  COALESCE(g.started_at, m.started_at) as game_date, ps.role, ${opponentCol}, ${winCol}
           ${playerJoins}
             AND ps.quest_completed_at IS NOT NULL
@@ -336,7 +341,7 @@ export default class ProLeagueStatsController {
         db.rawQuery(`
           SELECT p.current_pseudo as player_name, ps.champion_id,
                  (ps.timing_data->'15'->>'gold_diff')::int as value,
-                 g.duration, COALESCE(pt.short_name, pt.name) as team_name, tr.name as tournament_name,
+                 g.duration, g.game_number, COALESCE(pt.short_name, pt.current_name) as team_name, tr.name as tournament_name,
                  COALESCE(g.started_at, m.started_at) as game_date, ps.role, ${opponentCol}, ${winCol}
           ${playerJoins} AND g.duration > 900
             AND ps.timing_data->'15'->>'gold_diff' IS NOT NULL
@@ -348,7 +353,7 @@ export default class ProLeagueStatsController {
         db.rawQuery(`
           SELECT p.current_pseudo as player_name, ps.champion_id,
                  (ps.timing_data->'15'->>'gold_diff')::int as value,
-                 g.duration, COALESCE(pt.short_name, pt.name) as team_name, tr.name as tournament_name,
+                 g.duration, g.game_number, COALESCE(pt.short_name, pt.current_name) as team_name, tr.name as tournament_name,
                  COALESCE(g.started_at, m.started_at) as game_date, ps.role, ${opponentCol}, ${winCol}
           ${playerJoins} AND g.duration > 900
             AND ps.timing_data->'15'->>'gold_diff' IS NOT NULL
@@ -360,7 +365,7 @@ export default class ProLeagueStatsController {
         db.rawQuery(`
           SELECT p.current_pseudo as player_name, ps.champion_id,
                  (ps.timing_data->'15'->>'cs_diff')::int as value,
-                 g.duration, COALESCE(pt.short_name, pt.name) as team_name, tr.name as tournament_name,
+                 g.duration, g.game_number, COALESCE(pt.short_name, pt.current_name) as team_name, tr.name as tournament_name,
                  COALESCE(g.started_at, m.started_at) as game_date, ps.role, ${opponentCol}, ${winCol}
           ${playerJoins} AND g.duration > 900
             AND ps.timing_data->'15'->>'cs_diff' IS NOT NULL
@@ -372,7 +377,7 @@ export default class ProLeagueStatsController {
         db.rawQuery(`
           SELECT p.current_pseudo as player_name, ps.champion_id,
                  (ps.timing_data->'15'->>'xp_diff')::int as value,
-                 g.duration, COALESCE(pt.short_name, pt.name) as team_name, tr.name as tournament_name,
+                 g.duration, g.game_number, COALESCE(pt.short_name, pt.current_name) as team_name, tr.name as tournament_name,
                  COALESCE(g.started_at, m.started_at) as game_date, ps.role, ${opponentCol}, ${winCol}
           ${playerJoins} AND g.duration > 900
             AND ps.timing_data->'15'->>'xp_diff' IS NOT NULL
@@ -384,7 +389,7 @@ export default class ProLeagueStatsController {
         db.rawQuery(`
           SELECT p.current_pseudo as player_name, ps.champion_id,
                  ps.gold_earned - (SELECT opp.gold_earned FROM pro_player_stats opp WHERE opp.game_id = g.game_id AND opp.team_id != ps.team_id AND opp.role = ps.role LIMIT 1) as value,
-                 g.duration, COALESCE(pt.short_name, pt.name) as team_name, tr.name as tournament_name,
+                 g.duration, g.game_number, COALESCE(pt.short_name, pt.current_name) as team_name, tr.name as tournament_name,
                  COALESCE(g.started_at, m.started_at) as game_date, ps.role, ${opponentCol}, ${winCol}
           ${playerJoins}
             AND g.duration > 900
@@ -398,7 +403,7 @@ export default class ProLeagueStatsController {
         db.rawQuery(`
           SELECT p.current_pseudo as player_name, ps.champion_id,
                  ps.cs - (SELECT opp.cs FROM pro_player_stats opp WHERE opp.game_id = g.game_id AND opp.team_id != ps.team_id AND opp.role = ps.role LIMIT 1) as value,
-                 g.duration, COALESCE(pt.short_name, pt.name) as team_name, tr.name as tournament_name,
+                 g.duration, g.game_number, COALESCE(pt.short_name, pt.current_name) as team_name, tr.name as tournament_name,
                  COALESCE(g.started_at, m.started_at) as game_date, ps.role, ${opponentCol}, ${winCol}
           ${playerJoins}
             AND g.duration > 900
@@ -410,10 +415,10 @@ export default class ProLeagueStatsController {
 
         // Fastest win
         db.rawQuery(`
-          SELECT g.duration as value,
-                 COALESCE(bt.short_name, bt.name) as blue_team_name, COALESCE(rt.short_name, rt.name) as red_team_name,
-                 CASE WHEN g.winner_team_id = g.blue_team_id THEN COALESCE(bt.short_name, bt.name) ELSE COALESCE(rt.short_name, rt.name) END as winner_name,
-                 CASE WHEN g.winner_team_id = g.blue_team_id THEN COALESCE(rt.short_name, rt.name) ELSE COALESCE(bt.short_name, bt.name) END as loser_name,
+          SELECT g.duration as value, g.game_number,
+                 COALESCE(bt.short_name, bt.current_name) as blue_team_name, COALESCE(rt.short_name, rt.current_name) as red_team_name,
+                 CASE WHEN g.winner_team_id = g.blue_team_id THEN COALESCE(bt.short_name, bt.current_name) ELSE COALESCE(rt.short_name, rt.current_name) END as winner_name,
+                 CASE WHEN g.winner_team_id = g.blue_team_id THEN COALESCE(rt.short_name, rt.current_name) ELSE COALESCE(bt.short_name, bt.current_name) END as loser_name,
                  tr.name as tournament_name, COALESCE(g.started_at, m.started_at) as game_date
           ${teamGameJoins} AND g.winner_team_id IS NOT NULL AND g.duration > 0
           ORDER BY g.duration ASC
@@ -422,10 +427,10 @@ export default class ProLeagueStatsController {
 
         // Longest game
         db.rawQuery(`
-          SELECT g.duration as value,
-                 COALESCE(bt.short_name, bt.name) as blue_team_name, COALESCE(rt.short_name, rt.name) as red_team_name,
-                 CASE WHEN g.winner_team_id = g.blue_team_id THEN COALESCE(bt.short_name, bt.name) ELSE COALESCE(rt.short_name, rt.name) END as winner_name,
-                 CASE WHEN g.winner_team_id = g.blue_team_id THEN COALESCE(rt.short_name, rt.name) ELSE COALESCE(bt.short_name, bt.name) END as loser_name,
+          SELECT g.duration as value, g.game_number,
+                 COALESCE(bt.short_name, bt.current_name) as blue_team_name, COALESCE(rt.short_name, rt.current_name) as red_team_name,
+                 CASE WHEN g.winner_team_id = g.blue_team_id THEN COALESCE(bt.short_name, bt.current_name) ELSE COALESCE(rt.short_name, rt.current_name) END as winner_name,
+                 CASE WHEN g.winner_team_id = g.blue_team_id THEN COALESCE(rt.short_name, rt.current_name) ELSE COALESCE(bt.short_name, bt.current_name) END as loser_name,
                  tr.name as tournament_name, COALESCE(g.started_at, m.started_at) as game_date
           ${teamGameJoins} AND g.duration > 0
           ORDER BY g.duration DESC
@@ -434,9 +439,9 @@ export default class ProLeagueStatsController {
 
         // Fastest first blood
         db.rawQuery(`
-          SELECT ts.first_blood_time as value,
-                 COALESCE(fbt.short_name, fbt.name) as winner_name,
-                 COALESCE(opp.short_name, opp.name) as loser_name,
+          SELECT ts.first_blood_time as value, g.game_number,
+                 COALESCE(fbt.short_name, fbt.current_name) as winner_name,
+                 COALESCE(opp.short_name, opp.current_name) as loser_name,
                  tr.name as tournament_name, COALESCE(g.started_at, m.started_at) as game_date,
                  (g.winner_team_id = ts.team_id) as win
           FROM pro_team_stats ts
@@ -444,9 +449,9 @@ export default class ProLeagueStatsController {
           JOIN pro_matches m ON g.match_id = m.match_id
           JOIN pro_tournaments tr ON m.tournament_id = tr.tournament_id
           LEFT JOIN pro_leagues pl ON tr.pro_league_id = pl.league_id
-          JOIN pro_teams fbt ON ts.team_id = fbt.team_id
+          JOIN teams fbt ON ts.team_id = fbt.team_id
           LEFT JOIN pro_team_stats ts_opp ON ts_opp.game_id = ts.game_id AND ts_opp.team_id != ts.team_id
-          LEFT JOIN pro_teams opp ON ts_opp.team_id = opp.team_id
+          LEFT JOIN teams opp ON ts_opp.team_id = opp.team_id
           WHERE ts.first_blood = true
             AND ts.first_blood_time IS NOT NULL
             AND ts.first_blood_time > 0
@@ -458,9 +463,9 @@ export default class ProLeagueStatsController {
 
         // Slowest first blood
         db.rawQuery(`
-          SELECT ts.first_blood_time as value,
-                 COALESCE(fbt.short_name, fbt.name) as winner_name,
-                 COALESCE(opp.short_name, opp.name) as loser_name,
+          SELECT ts.first_blood_time as value, g.game_number,
+                 COALESCE(fbt.short_name, fbt.current_name) as winner_name,
+                 COALESCE(opp.short_name, opp.current_name) as loser_name,
                  tr.name as tournament_name, COALESCE(g.started_at, m.started_at) as game_date,
                  (g.winner_team_id = ts.team_id) as win
           FROM pro_team_stats ts
@@ -468,9 +473,9 @@ export default class ProLeagueStatsController {
           JOIN pro_matches m ON g.match_id = m.match_id
           JOIN pro_tournaments tr ON m.tournament_id = tr.tournament_id
           LEFT JOIN pro_leagues pl ON tr.pro_league_id = pl.league_id
-          JOIN pro_teams fbt ON ts.team_id = fbt.team_id
+          JOIN teams fbt ON ts.team_id = fbt.team_id
           LEFT JOIN pro_team_stats ts_opp ON ts_opp.game_id = ts.game_id AND ts_opp.team_id != ts.team_id
-          LEFT JOIN pro_teams opp ON ts_opp.team_id = opp.team_id
+          LEFT JOIN teams opp ON ts_opp.team_id = opp.team_id
           WHERE ts.first_blood = true
             AND ts.first_blood_time IS NOT NULL
             AND ts.first_blood_time > 0
@@ -520,9 +525,9 @@ export default class ProLeagueStatsController {
 
         // Most team kills in a single game
         db.rawQuery(`
-          SELECT ts.kills as value,
-                 COALESCE(fbt.short_name, fbt.name) as winner_name,
-                 COALESCE(opp.short_name, opp.name) as loser_name,
+          SELECT ts.kills as value, g.game_number,
+                 COALESCE(fbt.short_name, fbt.current_name) as winner_name,
+                 COALESCE(opp.short_name, opp.current_name) as loser_name,
                  tr.name as tournament_name, COALESCE(g.started_at, m.started_at) as game_date,
                  ts.win as win
           FROM pro_team_stats ts
@@ -530,9 +535,9 @@ export default class ProLeagueStatsController {
           JOIN pro_matches m ON g.match_id = m.match_id
           JOIN pro_tournaments tr ON m.tournament_id = tr.tournament_id
           LEFT JOIN pro_leagues pl ON tr.pro_league_id = pl.league_id
-          JOIN pro_teams fbt ON ts.team_id = fbt.team_id
+          JOIN teams fbt ON ts.team_id = fbt.team_id
           LEFT JOIN pro_team_stats ts_opp ON ts_opp.game_id = ts.game_id AND ts_opp.team_id != ts.team_id
-          LEFT JOIN pro_teams opp ON ts_opp.team_id = opp.team_id
+          LEFT JOIN teams opp ON ts_opp.team_id = opp.team_id
           WHERE ts.kills > 0
             AND g.status IN ('completed', 'processed')
             ${teamFilterSql}${teamIdStreakSql}
@@ -542,11 +547,11 @@ export default class ProLeagueStatsController {
 
         // Most total kills in a single game (both teams combined)
         db.rawQuery(`
-          SELECT COALESCE(g.blue_kills, 0) + COALESCE(g.red_kills, 0) as value,
+          SELECT COALESCE(g.blue_kills, 0) + COALESCE(g.red_kills, 0) as value, g.game_number,
                  CASE WHEN COALESCE(g.blue_kills, 0) >= COALESCE(g.red_kills, 0)
-                   THEN COALESCE(bt.short_name, bt.name) ELSE COALESCE(rt.short_name, rt.name) END as winner_name,
+                   THEN COALESCE(bt.short_name, bt.current_name) ELSE COALESCE(rt.short_name, rt.current_name) END as winner_name,
                  CASE WHEN COALESCE(g.blue_kills, 0) >= COALESCE(g.red_kills, 0)
-                   THEN COALESCE(rt.short_name, rt.name) ELSE COALESCE(bt.short_name, bt.name) END as loser_name,
+                   THEN COALESCE(rt.short_name, rt.current_name) ELSE COALESCE(bt.short_name, bt.current_name) END as loser_name,
                  tr.name as tournament_name, COALESCE(g.started_at, m.started_at) as game_date
           ${teamGameJoins}
           ORDER BY value DESC
@@ -555,9 +560,9 @@ export default class ProLeagueStatsController {
 
         // Fastest first tower
         db.rawQuery(`
-          SELECT ts.first_tower_time as value,
-                 COALESCE(fbt.short_name, fbt.name) as winner_name,
-                 COALESCE(opp.short_name, opp.name) as loser_name,
+          SELECT ts.first_tower_time as value, g.game_number,
+                 COALESCE(fbt.short_name, fbt.current_name) as winner_name,
+                 COALESCE(opp.short_name, opp.current_name) as loser_name,
                  tr.name as tournament_name, COALESCE(g.started_at, m.started_at) as game_date,
                  ts.win as win
           FROM pro_team_stats ts
@@ -565,9 +570,9 @@ export default class ProLeagueStatsController {
           JOIN pro_matches m ON g.match_id = m.match_id
           JOIN pro_tournaments tr ON m.tournament_id = tr.tournament_id
           LEFT JOIN pro_leagues pl ON tr.pro_league_id = pl.league_id
-          JOIN pro_teams fbt ON ts.team_id = fbt.team_id
+          JOIN teams fbt ON ts.team_id = fbt.team_id
           LEFT JOIN pro_team_stats ts_opp ON ts_opp.game_id = ts.game_id AND ts_opp.team_id != ts.team_id
-          LEFT JOIN pro_teams opp ON ts_opp.team_id = opp.team_id
+          LEFT JOIN teams opp ON ts_opp.team_id = opp.team_id
           WHERE ts.first_tower = true
             AND ts.first_tower_time IS NOT NULL
             AND ts.first_tower_time > 0
@@ -579,9 +584,9 @@ export default class ProLeagueStatsController {
 
         // Fastest first dragon
         db.rawQuery(`
-          SELECT ts.first_dragon_time as value,
-                 COALESCE(fbt.short_name, fbt.name) as winner_name,
-                 COALESCE(opp.short_name, opp.name) as loser_name,
+          SELECT ts.first_dragon_time as value, g.game_number,
+                 COALESCE(fbt.short_name, fbt.current_name) as winner_name,
+                 COALESCE(opp.short_name, opp.current_name) as loser_name,
                  tr.name as tournament_name, COALESCE(g.started_at, m.started_at) as game_date,
                  ts.win as win
           FROM pro_team_stats ts
@@ -589,9 +594,9 @@ export default class ProLeagueStatsController {
           JOIN pro_matches m ON g.match_id = m.match_id
           JOIN pro_tournaments tr ON m.tournament_id = tr.tournament_id
           LEFT JOIN pro_leagues pl ON tr.pro_league_id = pl.league_id
-          JOIN pro_teams fbt ON ts.team_id = fbt.team_id
+          JOIN teams fbt ON ts.team_id = fbt.team_id
           LEFT JOIN pro_team_stats ts_opp ON ts_opp.game_id = ts.game_id AND ts_opp.team_id != ts.team_id
-          LEFT JOIN pro_teams opp ON ts_opp.team_id = opp.team_id
+          LEFT JOIN teams opp ON ts_opp.team_id = opp.team_id
           WHERE ts.first_dragon = true
             AND ts.first_dragon_time IS NOT NULL
             AND ts.first_dragon_time > 0
@@ -603,9 +608,9 @@ export default class ProLeagueStatsController {
 
         // Fastest first herald
         db.rawQuery(`
-          SELECT ts.first_herald_time as value,
-                 COALESCE(fbt.short_name, fbt.name) as winner_name,
-                 COALESCE(opp.short_name, opp.name) as loser_name,
+          SELECT ts.first_herald_time as value, g.game_number,
+                 COALESCE(fbt.short_name, fbt.current_name) as winner_name,
+                 COALESCE(opp.short_name, opp.current_name) as loser_name,
                  tr.name as tournament_name, COALESCE(g.started_at, m.started_at) as game_date,
                  ts.win as win
           FROM pro_team_stats ts
@@ -613,9 +618,9 @@ export default class ProLeagueStatsController {
           JOIN pro_matches m ON g.match_id = m.match_id
           JOIN pro_tournaments tr ON m.tournament_id = tr.tournament_id
           LEFT JOIN pro_leagues pl ON tr.pro_league_id = pl.league_id
-          JOIN pro_teams fbt ON ts.team_id = fbt.team_id
+          JOIN teams fbt ON ts.team_id = fbt.team_id
           LEFT JOIN pro_team_stats ts_opp ON ts_opp.game_id = ts.game_id AND ts_opp.team_id != ts.team_id
-          LEFT JOIN pro_teams opp ON ts_opp.team_id = opp.team_id
+          LEFT JOIN teams opp ON ts_opp.team_id = opp.team_id
           WHERE ts.first_herald = true
             AND ts.first_herald_time IS NOT NULL
             AND ts.first_herald_time > 0
@@ -627,9 +632,9 @@ export default class ProLeagueStatsController {
 
         // Fastest first baron
         db.rawQuery(`
-          SELECT ts.first_baron_time as value,
-                 COALESCE(fbt.short_name, fbt.name) as winner_name,
-                 COALESCE(opp.short_name, opp.name) as loser_name,
+          SELECT ts.first_baron_time as value, g.game_number,
+                 COALESCE(fbt.short_name, fbt.current_name) as winner_name,
+                 COALESCE(opp.short_name, opp.current_name) as loser_name,
                  tr.name as tournament_name, COALESCE(g.started_at, m.started_at) as game_date,
                  ts.win as win
           FROM pro_team_stats ts
@@ -637,9 +642,9 @@ export default class ProLeagueStatsController {
           JOIN pro_matches m ON g.match_id = m.match_id
           JOIN pro_tournaments tr ON m.tournament_id = tr.tournament_id
           LEFT JOIN pro_leagues pl ON tr.pro_league_id = pl.league_id
-          JOIN pro_teams fbt ON ts.team_id = fbt.team_id
+          JOIN teams fbt ON ts.team_id = fbt.team_id
           LEFT JOIN pro_team_stats ts_opp ON ts_opp.game_id = ts.game_id AND ts_opp.team_id != ts.team_id
-          LEFT JOIN pro_teams opp ON ts_opp.team_id = opp.team_id
+          LEFT JOIN teams opp ON ts_opp.team_id = opp.team_id
           WHERE ts.first_baron = true
             AND ts.first_baron_time IS NOT NULL
             AND ts.first_baron_time > 0
@@ -651,9 +656,9 @@ export default class ProLeagueStatsController {
 
         // Most dragons in a single game
         db.rawQuery(`
-          SELECT ts.dragons as value,
-                 COALESCE(fbt.short_name, fbt.name) as winner_name,
-                 COALESCE(opp.short_name, opp.name) as loser_name,
+          SELECT ts.dragons as value, g.game_number,
+                 COALESCE(fbt.short_name, fbt.current_name) as winner_name,
+                 COALESCE(opp.short_name, opp.current_name) as loser_name,
                  tr.name as tournament_name, COALESCE(g.started_at, m.started_at) as game_date,
                  ts.win as win
           FROM pro_team_stats ts
@@ -661,9 +666,9 @@ export default class ProLeagueStatsController {
           JOIN pro_matches m ON g.match_id = m.match_id
           JOIN pro_tournaments tr ON m.tournament_id = tr.tournament_id
           LEFT JOIN pro_leagues pl ON tr.pro_league_id = pl.league_id
-          JOIN pro_teams fbt ON ts.team_id = fbt.team_id
+          JOIN teams fbt ON ts.team_id = fbt.team_id
           LEFT JOIN pro_team_stats ts_opp ON ts_opp.game_id = ts.game_id AND ts_opp.team_id != ts.team_id
-          LEFT JOIN pro_teams opp ON ts_opp.team_id = opp.team_id
+          LEFT JOIN teams opp ON ts_opp.team_id = opp.team_id
           WHERE ts.dragons > 0
             AND g.status IN ('completed', 'processed')
             ${teamFilterSql}${teamIdStreakSql}
@@ -673,9 +678,9 @@ export default class ProLeagueStatsController {
 
         // Most elder dragons in a single game
         db.rawQuery(`
-          SELECT ts.elder_dragons as value,
-                 COALESCE(fbt.short_name, fbt.name) as winner_name,
-                 COALESCE(opp.short_name, opp.name) as loser_name,
+          SELECT ts.elder_dragons as value, g.game_number,
+                 COALESCE(fbt.short_name, fbt.current_name) as winner_name,
+                 COALESCE(opp.short_name, opp.current_name) as loser_name,
                  tr.name as tournament_name, COALESCE(g.started_at, m.started_at) as game_date,
                  ts.win as win
           FROM pro_team_stats ts
@@ -683,9 +688,9 @@ export default class ProLeagueStatsController {
           JOIN pro_matches m ON g.match_id = m.match_id
           JOIN pro_tournaments tr ON m.tournament_id = tr.tournament_id
           LEFT JOIN pro_leagues pl ON tr.pro_league_id = pl.league_id
-          JOIN pro_teams fbt ON ts.team_id = fbt.team_id
+          JOIN teams fbt ON ts.team_id = fbt.team_id
           LEFT JOIN pro_team_stats ts_opp ON ts_opp.game_id = ts.game_id AND ts_opp.team_id != ts.team_id
-          LEFT JOIN pro_teams opp ON ts_opp.team_id = opp.team_id
+          LEFT JOIN teams opp ON ts_opp.team_id = opp.team_id
           WHERE ts.elder_dragons > 0
             AND g.status IN ('completed', 'processed')
             ${teamFilterSql}${teamIdStreakSql}
@@ -695,9 +700,9 @@ export default class ProLeagueStatsController {
 
         // Most barons in a single game
         db.rawQuery(`
-          SELECT ts.barons as value,
-                 COALESCE(fbt.short_name, fbt.name) as winner_name,
-                 COALESCE(opp.short_name, opp.name) as loser_name,
+          SELECT ts.barons as value, g.game_number,
+                 COALESCE(fbt.short_name, fbt.current_name) as winner_name,
+                 COALESCE(opp.short_name, opp.current_name) as loser_name,
                  tr.name as tournament_name, COALESCE(g.started_at, m.started_at) as game_date,
                  ts.win as win
           FROM pro_team_stats ts
@@ -705,9 +710,9 @@ export default class ProLeagueStatsController {
           JOIN pro_matches m ON g.match_id = m.match_id
           JOIN pro_tournaments tr ON m.tournament_id = tr.tournament_id
           LEFT JOIN pro_leagues pl ON tr.pro_league_id = pl.league_id
-          JOIN pro_teams fbt ON ts.team_id = fbt.team_id
+          JOIN teams fbt ON ts.team_id = fbt.team_id
           LEFT JOIN pro_team_stats ts_opp ON ts_opp.game_id = ts.game_id AND ts_opp.team_id != ts.team_id
-          LEFT JOIN pro_teams opp ON ts_opp.team_id = opp.team_id
+          LEFT JOIN teams opp ON ts_opp.team_id = opp.team_id
           WHERE ts.barons > 0
             AND g.status IN ('completed', 'processed')
             ${teamFilterSql}${teamIdStreakSql}
@@ -850,6 +855,8 @@ export default class ProLeagueStatsController {
       isPlayoffs,
       role,
       search,
+      startDate,
+      endDate,
       minGames = 5,
       sortBy = 'kda',
       page = 1,
@@ -959,6 +966,20 @@ export default class ProLeagueStatsController {
       filterBindings.push(...parsedRoles)
     }
 
+    // Date filters
+    const isoDateRegex = /^\d{4}-\d{2}-\d{2}$/
+    const parsedStartDate = startDate && isoDateRegex.test(String(startDate)) ? String(startDate) : null
+    const parsedEndDate = endDate && isoDateRegex.test(String(endDate)) ? String(endDate) : null
+
+    if (parsedStartDate) {
+      filterClauses.push('AND COALESCE(g.started_at, m.started_at) >= ?::date')
+      filterBindings.push(parsedStartDate)
+    }
+    if (parsedEndDate) {
+      filterClauses.push("AND COALESCE(g.started_at, m.started_at) < ?::date + interval '1 day'")
+      filterBindings.push(parsedEndDate)
+    }
+
     const sanitizedSearch = search ? String(search).replace(/[%_'\\]/g, '').trim().slice(0, 100) : ''
     if (sanitizedSearch && !duoMode) {
       filterClauses.push(`AND (p.current_pseudo ILIKE ?
@@ -972,7 +993,7 @@ export default class ProLeagueStatsController {
     const filterSql = filterClauses.join(' ')
     const needsLeagueJoin = parsedTier !== null
 
-    const cacheKey = `pro:stats:player-lb:l=${[...parsedLeagueIds].sort().join(',') || 'all'}:tn=${[...parsedTournamentIds].sort().join(',') || 'all'}:y=${[...parsedYears].sort().join(',') || 'all'}:t=${[...parsedTeamIds].sort().join(',') || 'all'}:p=${[...parsedPlayerIds].sort().join(',') || 'all'}:ti=${parsedTier ?? 'all'}:po=${parsedIsPlayoffs ?? 'all'}:${parsedRoles.join(',') || 'all'}:${duoMode ? 'duo' : 'solo'}:${sanitizedSearch || 'all'}:${parsedMinGames}:${sortBy}:${pageNum}:${perPageNum}`
+    const cacheKey = `pro:stats:player-lb:l=${[...parsedLeagueIds].sort().join(',') || 'all'}:tn=${[...parsedTournamentIds].sort().join(',') || 'all'}:y=${[...parsedYears].sort().join(',') || 'all'}:t=${[...parsedTeamIds].sort().join(',') || 'all'}:p=${[...parsedPlayerIds].sort().join(',') || 'all'}:ti=${parsedTier ?? 'all'}:po=${parsedIsPlayoffs ?? 'all'}:${parsedRoles.join(',') || 'all'}:${duoMode ? 'duo' : 'solo'}:${sanitizedSearch || 'all'}:${parsedMinGames}:sd=${parsedStartDate || 'all'}:ed=${parsedEndDate || 'all'}:${sortBy}:${pageNum}:${perPageNum}`
 
     const result = await cacheService.getOrSet(cacheKey, CACHE_TTL.MEDIUM, async () => {
       // Duo mode: combine stats of two roles from the same team per game
@@ -1056,8 +1077,8 @@ export default class ProLeagueStatsController {
           )
           SELECT
             dg.team_id,
-            COALESCE(pt.short_name, pt.name) as team_short_name,
-            pt.name as team_name,
+            COALESCE(pt.short_name, pt.current_name) as team_short_name,
+            pt.current_name as team_name,
             COUNT(*)::int as games_played,
             COUNT(*) FILTER (WHERE dg.winner_team_id = dg.team_id)::int as games_won,
             ROUND(COUNT(*) FILTER (WHERE dg.winner_team_id = dg.team_id) * 100.0 / GREATEST(COUNT(*), 1), 1) as win_rate,
@@ -1107,8 +1128,8 @@ export default class ProLeagueStatsController {
             0::numeric as avg_solo_kills,
             ROUND(AVG(dg.vision_score * 60.0 / GREATEST(dg.duration, 1)), 2) as avg_vspm
           FROM duo_games dg
-          LEFT JOIN pro_teams pt ON dg.team_id = pt.team_id
-          GROUP BY dg.team_id, pt.short_name, pt.name
+          LEFT JOIN teams pt ON dg.team_id = pt.team_id
+          GROUP BY dg.team_id, pt.short_name, pt.current_name
           HAVING COUNT(*) >= ?
           ORDER BY ${orderColumn} DESC
           OFFSET ?
@@ -1216,17 +1237,17 @@ export default class ProLeagueStatsController {
           ) as role,
 
           -- Team (most recent)
-          (SELECT COALESCE(st.short_name, st.name) FROM pro_player_stats sub2
+          (SELECT COALESCE(st.short_name, st.current_name) FROM pro_player_stats sub2
            JOIN pro_games sg2 ON sub2.game_id = sg2.game_id
-           LEFT JOIN pro_teams st ON sub2.team_id = st.team_id
+           LEFT JOIN teams st ON sub2.team_id = st.team_id
            WHERE sub2.player_id = ps.player_id
              AND sg2.status IN ('completed', 'processed')
            ORDER BY sg2.started_at DESC NULLS LAST LIMIT 1
           ) as team_short_name,
 
-          (SELECT st2.name FROM pro_player_stats sub3
+          (SELECT st2.current_name FROM pro_player_stats sub3
            JOIN pro_games sg3 ON sub3.game_id = sg3.game_id
-           LEFT JOIN pro_teams st2 ON sub3.team_id = st2.team_id
+           LEFT JOIN teams st2 ON sub3.team_id = st2.team_id
            WHERE sub3.player_id = ps.player_id
              AND sg3.status IN ('completed', 'processed')
            ORDER BY sg3.started_at DESC NULLS LAST LIMIT 1
@@ -1531,8 +1552,8 @@ export default class ProLeagueStatsController {
         WITH team_agg AS (
           SELECT
             ts.team_id,
-            t.name as team_name,
-            COALESCE(t.short_name, t.name) as short_name,
+            t.current_name as team_name,
+            COALESCE(t.short_name, t.current_name) as short_name,
             COUNT(*) as total_games,
             COUNT(*) FILTER (WHERE ts.win) as total_wins,
             ROUND(COUNT(*) FILTER (WHERE ts.win) * 100.0 / COUNT(*), 1) as game_win_rate,
@@ -1587,9 +1608,9 @@ export default class ProLeagueStatsController {
           FROM pro_team_stats ts
           JOIN pro_tournaments tr ON ts.tournament_id = tr.tournament_id
           ${leagueJoinSql}
-          LEFT JOIN pro_teams t ON ts.team_id = t.team_id
+          LEFT JOIN teams t ON ts.team_id = t.team_id
           WHERE 1=1 ${filterSql}
-          GROUP BY ts.team_id, t.name, t.short_name
+          GROUP BY ts.team_id, t.current_name, t.short_name
           HAVING COUNT(*) >= ?
         ),
         match_agg AS (
@@ -1800,6 +1821,83 @@ export default class ProLeagueStatsController {
   }
 
   /**
+   * GET /api/v1/pro/stats/league-stats
+   * Aggregated match/game counts per league
+   */
+  async leagueStats(ctx: HttpContext) {
+    const { leagueIds, years, tier, isPlayoffs } = ctx.request.qs()
+    const parsedLeagueIds = this.parseIds(leagueIds) ?? []
+    const parsedYears = this.parseIds(years) ?? []
+    const parsedTier = tier && Number.isFinite(Number(tier)) ? Number(tier) : null
+    const parsedIsPlayoffs = isPlayoffs === 'true' ? true : isPlayoffs === 'false' ? false : null
+
+    const cacheKey = `pro:stats:league-stats:l=${[...parsedLeagueIds].sort().join(',') || 'all'}:y=${[...parsedYears].sort().join(',') || 'all'}:ti=${parsedTier ?? 'all'}:po=${parsedIsPlayoffs ?? 'all'}`
+
+    const result = await cacheService.getOrSet(cacheKey, CACHE_TTL.MEDIUM, async () => {
+      const resolvedLeagueIds = await this.resolveLeagueIds(parsedLeagueIds)
+      const filterClauses: string[] = []
+      const filterBindings: unknown[] = []
+
+      if (resolvedLeagueIds.length > 0) {
+        filterClauses.push(`AND t.pro_league_id IN (${resolvedLeagueIds.map(() => '?').join(',')})`)
+        filterBindings.push(...resolvedLeagueIds)
+      }
+      if (parsedYears.length > 0) {
+        filterClauses.push(`AND t.year IN (${parsedYears.map(() => '?').join(',')})`)
+        filterBindings.push(...parsedYears)
+      }
+      if (parsedTier !== null) {
+        filterClauses.push('AND pl.tier = ?')
+        filterBindings.push(parsedTier)
+      }
+      if (parsedIsPlayoffs !== null) {
+        filterClauses.push('AND t.is_playoffs = ?')
+        filterBindings.push(parsedIsPlayoffs)
+      }
+
+      const filterSql = filterClauses.join(' ')
+
+      const dataResult = await db.rawQuery(`
+        SELECT
+          pl.league_id,
+          pl.name,
+          pl.short_name,
+          pl.region,
+          pl.tier,
+          COUNT(DISTINCT m.match_id)::int as match_count,
+          COUNT(DISTINCT g.game_id)::int as game_count,
+          COUNT(DISTINCT CASE WHEN g.winner_team_id = g.blue_team_id THEN g.game_id END)::int as blue_wins,
+          COUNT(DISTINCT CASE WHEN g.winner_team_id = g.red_team_id THEN g.game_id END)::int as red_wins,
+          ROUND(AVG(g.duration) FILTER (WHERE g.duration > 0))::int as avg_duration
+        FROM pro_leagues pl
+        JOIN pro_tournaments t ON t.pro_league_id = pl.league_id
+        JOIN pro_matches m ON m.tournament_id = t.tournament_id
+        JOIN pro_games g ON g.match_id = m.match_id
+        WHERE pl.canonical_league_id IS NULL
+          AND g.status IN ('completed', 'processed')
+          ${filterSql}
+        GROUP BY pl.league_id, pl.name, pl.short_name, pl.region, pl.tier
+        ORDER BY COUNT(DISTINCT g.game_id) DESC
+      `, filterBindings)
+
+      return dataResult.rows.map((row: Record<string, unknown>) => ({
+        leagueId: Number(row.league_id),
+        name: row.name,
+        shortName: row.short_name,
+        region: row.region,
+        tier: Number(row.tier),
+        matchCount: Number(row.match_count),
+        gameCount: Number(row.game_count),
+        blueWins: Number(row.blue_wins),
+        redWins: Number(row.red_wins),
+        avgDuration: Number(row.avg_duration) || 0,
+      }))
+    })
+
+    return ctx.response.ok(result)
+  }
+
+  /**
    * GET /api/v1/pro/stats/leagues
    * List available pro leagues
    */
@@ -1909,10 +2007,10 @@ export default class ProLeagueStatsController {
       if (!parsedLeagueId && !parsedYear) {
         // No filters: use simpler query
         const dataResult = await db.rawQuery(`
-          SELECT DISTINCT t.team_id, t.name, COALESCE(t.short_name, t.name) as short_name
-          FROM pro_teams t
+          SELECT DISTINCT t.team_id, t.current_name as name, COALESCE(t.short_name, t.current_name) as short_name
+          FROM teams t
           JOIN pro_team_stats ts ON ts.team_id = t.team_id
-          ORDER BY COALESCE(t.short_name, t.name)
+          ORDER BY COALESCE(t.short_name, t.current_name)
         `)
         return {
           data: dataResult.rows.map((row: Record<string, unknown>) => ({
@@ -1937,13 +2035,13 @@ export default class ProLeagueStatsController {
       const filterSql = clauses.join(' ')
 
       const dataResult = await db.rawQuery(`
-        SELECT DISTINCT t.team_id, t.name, COALESCE(t.short_name, t.name) as short_name
-        FROM pro_teams t
+        SELECT DISTINCT t.team_id, t.current_name as name, COALESCE(t.short_name, t.current_name) as short_name
+        FROM teams t
         JOIN pro_team_stats ts ON ts.team_id = t.team_id
         JOIN pro_matches m ON ts.match_id = m.match_id
         JOIN pro_tournaments tr ON m.tournament_id = tr.tournament_id
         WHERE 1=1 ${filterSql}
-        ORDER BY COALESCE(t.short_name, t.name)
+        ORDER BY COALESCE(t.short_name, t.current_name)
       `, [...bindings])
 
       return {
@@ -1970,9 +2068,9 @@ export default class ProLeagueStatsController {
            WHERE sub.player_id = p.player_id
            GROUP BY sub.role ORDER BY COUNT(*) DESC LIMIT 1
           ) as role,
-          (SELECT COALESCE(st.short_name, st.name) FROM pro_player_stats sub2
+          (SELECT COALESCE(st.short_name, st.current_name) FROM pro_player_stats sub2
            JOIN pro_games g2 ON sub2.game_id = g2.game_id
-           LEFT JOIN pro_teams st ON sub2.team_id = st.team_id
+           LEFT JOIN teams st ON sub2.team_id = st.team_id
            WHERE sub2.player_id = p.player_id
            ORDER BY g2.started_at DESC NULLS LAST LIMIT 1
           ) as team_short_name
@@ -2017,8 +2115,8 @@ export default class ProLeagueStatsController {
       ),
       bo_with_teams AS (
         SELECT bg.*,
-               COALESCE(t1.short_name, t1.name) as team1_name, COALESCE(t2.short_name, t2.name) as team2_name,
-               CASE WHEN ts1_wins > ts2_wins THEN COALESCE(t1.short_name, t1.name) ELSE COALESCE(t2.short_name, t2.name) END as winner_name
+               COALESCE(t1.short_name, t1.current_name) as team1_name, COALESCE(t2.short_name, t2.current_name) as team2_name,
+               CASE WHEN ts1_wins > ts2_wins THEN COALESCE(t1.short_name, t1.current_name) ELSE COALESCE(t2.short_name, t2.current_name) END as winner_name
         FROM bo_games bg
         LEFT JOIN LATERAL (
           SELECT ts.team_id, COUNT(*) FILTER (WHERE ts.win) as wins
@@ -2030,8 +2128,8 @@ export default class ProLeagueStatsController {
           WHERE ts.match_id = bg.match_id AND ts.team_id != COALESCE(w1.team_id, 0)
           LIMIT 1
         ) w2 ON true
-        LEFT JOIN pro_teams t1 ON w1.team_id = t1.team_id
-        LEFT JOIN pro_teams t2 ON w2.team_id = t2.team_id
+        LEFT JOIN teams t1 ON w1.team_id = t1.team_id
+        LEFT JOIN teams t2 ON w2.team_id = t2.team_id
         LEFT JOIN LATERAL (
           SELECT COUNT(*) FILTER (WHERE ts.win) as ts1_wins
           FROM pro_team_stats ts WHERE ts.match_id = bg.match_id AND ts.team_id = w1.team_id
@@ -2053,12 +2151,12 @@ export default class ProLeagueStatsController {
     const winCondition = isWin ? 'win = true' : 'win = false'
     return db.rawQuery(`
       WITH game_results AS (
-        SELECT ts.team_id, COALESCE(t.short_name, t.name) as team_name, g.started_at, ts.win,
+        SELECT ts.team_id, COALESCE(t.short_name, t.current_name) as team_name, g.started_at, ts.win,
           ROW_NUMBER() OVER (PARTITION BY ts.team_id ORDER BY g.started_at) -
           ROW_NUMBER() OVER (PARTITION BY ts.team_id, ts.win ORDER BY g.started_at) as grp
         FROM pro_team_stats ts
         JOIN pro_games g ON ts.game_id = g.game_id
-        JOIN pro_teams t ON ts.team_id = t.team_id
+        JOIN teams t ON ts.team_id = t.team_id
         JOIN pro_matches m ON ts.match_id = m.match_id
         JOIN pro_tournaments tr ON m.tournament_id = tr.tournament_id
         LEFT JOIN pro_leagues pl ON tr.pro_league_id = pl.league_id
@@ -2078,17 +2176,17 @@ export default class ProLeagueStatsController {
     const winCondition = isWin ? 'match_won = true' : 'match_won = false'
     return db.rawQuery(`
       WITH match_results AS (
-        SELECT ts.team_id, COALESCE(t.short_name, t.name) as team_name, ts.match_id,
+        SELECT ts.team_id, COALESCE(t.short_name, t.current_name) as team_name, ts.match_id,
                MIN(g.started_at) as match_date,
                COUNT(*) FILTER (WHERE ts.win) > COUNT(*) FILTER (WHERE NOT ts.win) as match_won
         FROM pro_team_stats ts
         JOIN pro_games g ON ts.game_id = g.game_id
-        JOIN pro_teams t ON ts.team_id = t.team_id
+        JOIN teams t ON ts.team_id = t.team_id
         JOIN pro_matches m ON ts.match_id = m.match_id
         JOIN pro_tournaments tr ON m.tournament_id = tr.tournament_id
         LEFT JOIN pro_leagues pl ON tr.pro_league_id = pl.league_id
         WHERE g.status IN ('completed', 'processed') ${filterSql}${teamIdFilterSql}
-        GROUP BY ts.team_id, t.name, t.short_name, ts.match_id
+        GROUP BY ts.team_id, t.current_name, t.short_name, ts.match_id
       ),
       numbered AS (
         SELECT *,
@@ -2136,14 +2234,14 @@ export default class ProLeagueStatsController {
 
         // Teams (only those with completed/processed games)
         db.rawQuery(`
-          SELECT DISTINCT t.team_id, t.name, COALESCE(t.short_name, t.name) as short_name
-          FROM pro_teams t
+          SELECT DISTINCT t.team_id, t.current_name as name, COALESCE(t.short_name, t.current_name) as short_name
+          FROM teams t
           WHERE EXISTS (
             SELECT 1 FROM pro_player_stats ps
             JOIN pro_games g ON ps.game_id = g.game_id
             WHERE ps.team_id = t.team_id AND g.status IN ('completed', 'processed')
           )
-          ORDER BY COALESCE(t.short_name, t.name)
+          ORDER BY COALESCE(t.short_name, t.current_name)
         `),
 
         // Players (only those with completed/processed games)
@@ -2269,6 +2367,7 @@ export default class ProLeagueStatsController {
       assists: row.assists != null ? Number(row.assists) : undefined,
       duration: row.duration != null ? Number(row.duration) : undefined,
       win: row.win ?? null,
+      gameNumber: row.game_number != null ? Number(row.game_number) : null,
     }))
   }
 
@@ -2280,6 +2379,7 @@ export default class ProLeagueStatsController {
       tournamentName: row.tournament_name,
       gameDate: row.game_date,
       win: row.win ?? null,
+      gameNumber: row.game_number != null ? Number(row.game_number) : null,
     }))
   }
 

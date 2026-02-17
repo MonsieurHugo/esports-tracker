@@ -399,8 +399,13 @@ class LeaguepediaClient:
                 for obj_name, obj in objectives.items()
             }
 
+        # Riot match-v5: gameDuration was in ms before patch 11.20, seconds after
+        game_duration = info.get("gameDuration")
+        if game_duration and game_duration > 100000:
+            game_duration = game_duration // 1000
+
         return {
-            "game_duration": info.get("gameDuration"),
+            "game_duration": game_duration,
             "game_version": info.get("gameVersion"),
             "players": players,
             "teams": teams_data,

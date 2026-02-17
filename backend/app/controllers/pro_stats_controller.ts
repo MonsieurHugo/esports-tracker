@@ -1,7 +1,65 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import db from '@adonisjs/lucid/services/db'
+import { DateTime } from 'luxon'
 
 export default class ProStatsController {
+  /**
+   * GET /api/v1/pro/monitoring/worker-status
+   * Pro worker status from heartbeat table
+   */
+  async workerStatus(ctx: HttpContext) {
+    const row = await db.from('pro_worker_status').where('id', 1).first()
+
+    if (!row) {
+      return ctx.response.ok({
+        is_running: false,
+        started_at: null,
+        uptime: 0,
+        current_task: null,
+        current_task_started_at: null,
+        last_task: null,
+        last_task_completed_at: null,
+        session_tournaments: 0,
+        session_matches: 0,
+        session_games: 0,
+        session_errors: 0,
+        session_api_requests: 0,
+        last_activity_at: null,
+        last_error_at: null,
+        last_error_message: null,
+        updated_at: null,
+      })
+    }
+
+    const uptime =
+      row.is_running && row.started_at
+        ? Math.floor(DateTime.now().diff(DateTime.fromJSDate(new Date(row.started_at)), 'seconds').seconds)
+        : 0
+
+    return ctx.response.ok({
+      is_running: row.is_running,
+      started_at: row.started_at ? new Date(row.started_at).toISOString() : null,
+      uptime,
+      current_task: row.current_task,
+      current_task_started_at: row.current_task_started_at
+        ? new Date(row.current_task_started_at).toISOString()
+        : null,
+      last_task: row.last_task,
+      last_task_completed_at: row.last_task_completed_at
+        ? new Date(row.last_task_completed_at).toISOString()
+        : null,
+      session_tournaments: row.session_tournaments,
+      session_matches: row.session_matches,
+      session_games: row.session_games,
+      session_errors: row.session_errors,
+      session_api_requests: row.session_api_requests,
+      last_activity_at: row.last_activity_at ? new Date(row.last_activity_at).toISOString() : null,
+      last_error_at: row.last_error_at ? new Date(row.last_error_at).toISOString() : null,
+      last_error_message: row.last_error_message,
+      updated_at: row.updated_at ? new Date(row.updated_at).toISOString() : null,
+    })
+  }
+
   /**
    * GET /api/v1/pro/monitoring/stats
    * Global stats for pro esports data

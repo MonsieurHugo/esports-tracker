@@ -8,7 +8,8 @@ import RecordsSection from './sections/RecordsSection'
 import PlayerLeaderboardSection from './sections/PlayerLeaderboardSection'
 import TeamLeaderboardSection from './sections/TeamLeaderboardSection'
 import ChampionMetaSection from './sections/ChampionMetaSection'
-type TabType = 'records' | 'players' | 'teams' | 'champions'
+import LeagueStatsSection from './sections/LeagueStatsSection'
+type TabType = 'records' | 'players' | 'teams' | 'champions' | 'leagues'
 
 export default function ProStatsPage() {
   const [isUnlocked, setIsUnlocked] = useState<boolean | null>(null)
@@ -31,6 +32,7 @@ export default function ProStatsPage() {
     { key: 'players', label: 'Players' },
     { key: 'teams', label: 'Teams' },
     { key: 'champions', label: 'Champions' },
+    { key: 'leagues', label: 'Leagues' },
   ]
 
   return (
@@ -81,6 +83,7 @@ export default function ProStatsPage() {
       {activeTab === 'players' && <PlayerLeaderboardSection filters={filters} />}
       {activeTab === 'teams' && <TeamLeaderboardSection filters={filters} />}
       {activeTab === 'champions' && <ChampionMetaSection filters={filters} />}
+      {activeTab === 'leagues' && <LeagueStatsSection filters={filters} />}
     </div>
   )
 }

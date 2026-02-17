@@ -172,7 +172,10 @@ jobs:
           
           # Riot API
           RIOT_API_KEY=${{ secrets.RIOT_API_KEY }}
-          
+
+          # GRID API (Pro Worker)
+          GRID_API_KEY=${{ secrets.GRID_API_KEY }}
+
           # Frontend
           NEXT_PUBLIC_API_URL=${{ vars.NEXT_PUBLIC_API_URL }}
           NEXT_PUBLIC_WS_URL=${{ vars.NEXT_PUBLIC_WS_URL }}

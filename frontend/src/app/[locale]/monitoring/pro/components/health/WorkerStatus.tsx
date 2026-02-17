@@ -1,15 +1,24 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
+import api from '@/lib/api'
 
 interface WorkerHealth {
-  status: string
-  running: boolean
-  startedAt: string | null
-  currentTask: string | null
-  currentTaskStartedAt: string | null
-  lastTask: string | null
-  lastTaskCompletedAt: string | null
+  is_running: boolean
+  started_at: string | null
+  uptime: number
+  current_task: string | null
+  current_task_started_at: string | null
+  last_task: string | null
+  last_task_completed_at: string | null
+  session_tournaments: number
+  session_matches: number
+  session_games: number
+  session_errors: number
+  session_api_requests: number
+  last_activity_at: string | null
+  last_error_at: string | null
+  last_error_message: string | null
 }
 
 export default function WorkerStatus() {
@@ -19,19 +28,9 @@ export default function WorkerStatus() {
 
   const checkWorkerHealth = useCallback(async () => {
     try {
-      const response = await fetch('http://localhost:8000/api/health', {
-        method: 'GET',
-        signal: AbortSignal.timeout(3000),
-      })
-
-      if (response.ok) {
-        const data = await response.json()
-        setHealth(data)
-        setIsOnline(true)
-      } else {
-        setIsOnline(false)
-        setHealth(null)
-      }
+      const data = await api.get<WorkerHealth>('/pro/monitoring/worker-status')
+      setHealth(data)
+      setIsOnline(data.is_running ?? false)
     } catch {
       setIsOnline(false)
       setHealth(null)
@@ -102,9 +101,9 @@ export default function WorkerStatus() {
           }`}>
             {isOnline === null ? 'Checking...' : isOnline ? 'Online' : 'Offline'}
           </span>
-          {health?.startedAt && (
+          {health?.started_at && (
             <span className="text-xs text-(--text-muted)">
-              Uptime: {formatUptime(health.startedAt)}
+              Uptime: {formatUptime(health.started_at)}
             </span>
           )}
         </div>
@@ -112,13 +111,13 @@ export default function WorkerStatus() {
         {/* Current task */}
         {isOnline && health && (
           <div className="pl-6 space-y-2">
-            {health.currentTask ? (
+            {health.current_task ? (
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
-                <span className="text-sm text-blue-400">{health.currentTask}</span>
-                {health.currentTaskStartedAt && (
+                <span className="text-sm text-blue-400">{health.current_task}</span>
+                {health.current_task_started_at && (
                   <span className="text-xs text-(--text-muted)">
-                    ({formatDuration(health.currentTaskStartedAt)})
+                    ({formatDuration(health.current_task_started_at)})
                   </span>
                 )}
               </div>
@@ -130,14 +129,27 @@ export default function WorkerStatus() {
             )}
 
             {/* Last completed task */}
-            {health.lastTask && (
+            {health.last_task && (
               <div className="text-xs text-(--text-muted)">
-                Last: {health.lastTask}
-                {health.lastTaskCompletedAt && (
-                  <span> ({formatDuration(health.lastTaskCompletedAt)})</span>
+                Last: {health.last_task}
+                {health.last_task_completed_at && (
+                  <span> ({formatDuration(health.last_task_completed_at)})</span>
                 )}
               </div>
             )}
+
+            {/* Session stats */}
+            <div className="grid grid-cols-3 gap-2 pt-1">
+              <div className="text-xs text-(--text-muted)">
+                <span className="text-(--text-secondary) font-mono">{health.session_tournaments}</span> tournaments
+              </div>
+              <div className="text-xs text-(--text-muted)">
+                <span className="text-(--text-secondary) font-mono">{health.session_matches}</span> matches
+              </div>
+              <div className="text-xs text-(--text-muted)">
+                <span className="text-(--text-secondary) font-mono">{health.session_games}</span> games
+              </div>
+            </div>
           </div>
         )}
 
@@ -145,7 +157,7 @@ export default function WorkerStatus() {
         {isOnline === false && (
           <div className="pl-6">
             <p className="text-xs text-(--text-muted)">
-              Worker is not responding. Make sure it&apos;s running on port 8000.
+              Worker is not running.
             </p>
           </div>
         )}

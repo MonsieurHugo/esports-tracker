@@ -95,6 +95,8 @@ export default function PlayerLeaderboardSection({ filters }: PlayerLeaderboardS
   const [minGames, setMinGames] = useState(5)
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
+  const [startDate, setStartDate] = useState('')
+  const [endDate, setEndDate] = useState('')
   const [statTab, setStatTab] = useState<StatTab>('general')
   const [proxRole, setProxRole] = useState<string>('Top')
   const [selectedPlayerId, setSelectedPlayerId] = useState<number | null>(null)
@@ -123,6 +125,8 @@ export default function PlayerLeaderboardSection({ filters }: PlayerLeaderboardS
           params.role = proxRole
         }
         if (debouncedSearch) params.search = debouncedSearch
+        if (startDate) params.startDate = startDate
+        if (endDate) params.endDate = endDate
 
         const response = await api.get<PaginatedResponse<ProPlayerLeaderboardEntry>>(
           '/pro/stats/player-leaderboards',
@@ -142,13 +146,13 @@ export default function PlayerLeaderboardSection({ filters }: PlayerLeaderboardS
     run()
     return () => controller.abort()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [buildParams, sortBy, page, minGames, debouncedSearch, statTab, proxRole])
+  }, [buildParams, sortBy, page, minGames, debouncedSearch, startDate, endDate, statTab, proxRole])
 
   // Reset page when filters change
   useEffect(() => {
     setPage(1)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [buildParams, sortBy, minGames, debouncedSearch, statTab, proxRole])
+  }, [buildParams, sortBy, minGames, debouncedSearch, startDate, endDate, statTab, proxRole])
 
   // Proximity: table metrics for selected role (exclude self-role)
   const proxTableMetrics = useMemo(() => {
@@ -305,6 +309,33 @@ export default function PlayerLeaderboardSection({ filters }: PlayerLeaderboardS
               <option key={n} value={n}>{n} games</option>
             ))}
           </select>
+        </div>
+
+        {/* Date range */}
+        <div className="flex items-center gap-2 text-xs text-(--text-muted)">
+          <span>Du</span>
+          <input
+            type="date"
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+            className="px-2 py-1 bg-[var(--bg-card)] border border-[var(--border)] rounded text-xs text-(--text-secondary) font-mono focus:outline-none focus:border-[var(--accent)] transition-colors"
+          />
+          <span>au</span>
+          <input
+            type="date"
+            value={endDate}
+            onChange={(e) => setEndDate(e.target.value)}
+            className="px-2 py-1 bg-[var(--bg-card)] border border-[var(--border)] rounded text-xs text-(--text-secondary) font-mono focus:outline-none focus:border-[var(--accent)] transition-colors"
+          />
+          {(startDate || endDate) && (
+            <button
+              onClick={() => { setStartDate(''); setEndDate('') }}
+              className="px-1.5 py-0.5 text-[10px] bg-[var(--bg-hover)] border border-[var(--border)] rounded hover:border-[var(--accent)] text-(--text-muted) hover:text-(--text-primary) transition-colors"
+              title="Effacer les dates"
+            >
+              &times;
+            </button>
+          )}
         </div>
 
       </div>

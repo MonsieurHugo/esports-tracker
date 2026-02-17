@@ -142,7 +142,7 @@ services:
       - "traefik.http.routers.frontend.middlewares=www-redirect"
 
   # ============================================
-  # WORKER
+  # WORKER (SoloQ)
   # ============================================
   worker:
     image: ghcr.io/${GITHUB_REPOSITORY}/worker:latest
@@ -156,6 +156,23 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+    networks:
+      - esports-network
+
+  # ============================================
+  # WORKER (Pro - GRID)
+  # ============================================
+  pro-worker:
+    image: ghcr.io/${GITHUB_REPOSITORY}/worker:latest
+    container_name: esports-pro-worker
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_DATABASE}
+      GRID_API_KEY: ${GRID_API_KEY}
+    command: ["python", "-m", "src.main_pro"]
+    depends_on:
+      postgres:
         condition: service_healthy
     networks:
       - esports-network

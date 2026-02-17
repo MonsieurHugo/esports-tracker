@@ -815,6 +815,7 @@ export interface ProPlayerRecord {
   assists?: number
   duration?: number
   win?: boolean | null
+  gameNumber?: number | null
 }
 
 export interface ProTeamRecord {
@@ -824,6 +825,7 @@ export interface ProTeamRecord {
   tournamentName: string
   gameDate: string | null
   win?: boolean | null
+  gameNumber?: number | null
 }
 
 export interface ProBoRecord {

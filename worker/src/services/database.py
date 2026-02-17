@@ -791,6 +791,110 @@ class DatabaseService:
         )
 
     # ==========================================
+    # Pro Worker Status Operations
+    # ==========================================
+
+    async def set_pro_worker_running(self, is_running: bool) -> None:
+        """Set pro worker running state."""
+        if is_running:
+            await self.execute(
+                """
+                UPDATE pro_worker_status
+                SET is_running = true,
+                    started_at = NOW(),
+                    session_tournaments = 0,
+                    session_matches = 0,
+                    session_games = 0,
+                    session_errors = 0,
+                    session_api_requests = 0,
+                    current_task = NULL,
+                    current_task_started_at = NULL,
+                    updated_at = NOW()
+                WHERE id = 1
+                """
+            )
+        else:
+            await self.execute(
+                """
+                UPDATE pro_worker_status
+                SET is_running = false,
+                    current_task = NULL,
+                    current_task_started_at = NULL,
+                    updated_at = NOW()
+                WHERE id = 1
+                """
+            )
+
+    async def update_pro_worker_task(self, task_name: str | None) -> None:
+        """Update current task for the pro worker."""
+        if task_name:
+            await self.execute(
+                """
+                UPDATE pro_worker_status
+                SET current_task = $1,
+                    current_task_started_at = NOW(),
+                    last_activity_at = NOW(),
+                    updated_at = NOW()
+                WHERE id = 1
+                """,
+                task_name,
+            )
+        else:
+            # Task finished — move current to last
+            await self.execute(
+                """
+                UPDATE pro_worker_status
+                SET last_task = current_task,
+                    last_task_completed_at = NOW(),
+                    current_task = NULL,
+                    current_task_started_at = NULL,
+                    last_activity_at = NOW(),
+                    updated_at = NOW()
+                WHERE id = 1
+                """
+            )
+
+    async def increment_pro_worker_stats(
+        self,
+        tournaments: int = 0,
+        matches: int = 0,
+        games: int = 0,
+        errors: int = 0,
+        api_requests: int = 0,
+    ) -> None:
+        """Increment pro worker session stats."""
+        await self.execute(
+            """
+            UPDATE pro_worker_status
+            SET session_tournaments = session_tournaments + $1,
+                session_matches = session_matches + $2,
+                session_games = session_games + $3,
+                session_errors = session_errors + $4,
+                session_api_requests = session_api_requests + $5,
+                updated_at = NOW()
+            WHERE id = 1
+            """,
+            tournaments,
+            matches,
+            games,
+            errors,
+            api_requests,
+        )
+
+    async def set_pro_worker_error(self, error_message: str) -> None:
+        """Set last pro worker error metadata (does not increment session_errors)."""
+        await self.execute(
+            """
+            UPDATE pro_worker_status
+            SET last_error_at = NOW(),
+                last_error_message = $1,
+                updated_at = NOW()
+            WHERE id = 1
+            """,
+            error_message,
+        )
+
+    # ==========================================
     # Priority Queue Operations
     # ==========================================
 

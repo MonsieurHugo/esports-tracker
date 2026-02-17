@@ -152,6 +152,12 @@ function PlayerTable({ title, records, formatValue }: {
                       <span className="font-mono">{fmt(r.duration)}</span>
                     </>
                   )}
+                  {r.gameNumber != null && (
+                    <>
+                      <span className="text-(--text-muted)/50">·</span>
+                      <span className="font-mono">G{r.gameNumber}</span>
+                    </>
+                  )}
                   <span className="text-(--text-muted)/50">·</span>
                   <span>{r.tournamentName}</span>
                 </DetailRow>
@@ -223,6 +229,12 @@ function TeamTable({ title, records, formatValue, valueLabel }: {
               </tr>
               {isExpanded && (
                 <DetailRow colSpan={colCount}>
+                  {r.gameNumber != null && (
+                    <>
+                      <span className="font-mono">G{r.gameNumber}</span>
+                      <span className="text-(--text-muted)/50">·</span>
+                    </>
+                  )}
                   <span>{r.tournamentName}</span>
                 </DetailRow>
               )}
@@ -423,6 +435,7 @@ export default function RecordsSection({ filters }: { filters: ProStatsFilters }
   const [records, setRecords] = useState<ProRecords | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [subTab, setSubTab] = useState<RecordSubTab>('players')
+  const [includeExcluded, setIncludeExcluded] = useState(false)
 
   useEffect(() => {
     try {
@@ -452,6 +465,7 @@ export default function RecordsSection({ filters }: { filters: ProStatsFilters }
         try {
           setIsLoading(true)
           const params = buildParams()
+          if (includeExcluded) params.includeExcluded = 'true'
           const data = await api.get<ProRecords>('/pro/stats/records', {
             params,
             signal: ctrl.signal,
@@ -471,7 +485,7 @@ export default function RecordsSection({ filters }: { filters: ProStatsFilters }
       clearTimeout(debounceRef.current)
       controller?.abort()
     }
-  }, [buildParams])
+  }, [buildParams, includeExcluded])
 
   if (isLoading) {
     return (
@@ -495,21 +509,42 @@ export default function RecordsSection({ filters }: { filters: ProStatsFilters }
 
   return (
     <div className="space-y-6">
-      {/* Sub-tabs */}
-      <div className="flex gap-1 p-1 bg-[var(--bg-secondary)] rounded-lg border border-[var(--border)] w-fit">
-        {SUB_TABS.map((tab) => (
+      {/* Sub-tabs + toggle */}
+      <div className="flex items-center gap-4 flex-wrap">
+        <div className="flex gap-1 p-1 bg-[var(--bg-secondary)] rounded-lg border border-[var(--border)] w-fit">
+          {SUB_TABS.map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => handleSubTab(tab.key)}
+              className={`px-4 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                subTab === tab.key
+                  ? 'bg-[var(--accent)] text-black'
+                  : 'text-(--text-secondary) hover:text-(--text-primary) hover:bg-[var(--bg-hover)]'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        <label className="flex items-center gap-2 cursor-pointer select-none ml-2">
           <button
-            key={tab.key}
-            onClick={() => handleSubTab(tab.key)}
-            className={`px-4 py-1.5 rounded-md text-xs font-medium transition-colors ${
-              subTab === tab.key
-                ? 'bg-[var(--accent)] text-black'
-                : 'text-(--text-secondary) hover:text-(--text-primary) hover:bg-[var(--bg-hover)]'
+            type="button"
+            role="switch"
+            aria-checked={includeExcluded}
+            onClick={() => setIncludeExcluded((v) => !v)}
+            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+              includeExcluded ? 'bg-[var(--accent)]' : 'bg-[var(--bg-hover)] border border-[var(--border)]'
             }`}
           >
-            {tab.label}
+            <span
+              className={`inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform ${
+                includeExcluded ? 'translate-x-[18px]' : 'translate-x-[3px]'
+              }`}
+            />
           </button>
-        ))}
+          <span className="text-xs text-(--text-secondary)">Inclure tournois promotions/autres</span>
+        </label>
       </div>
 
       {/* Player Records */}

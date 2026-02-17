@@ -136,6 +136,7 @@ router
      */
     router
       .group(() => {
+        router.get('/worker-status', [ProStatsController, 'workerStatus'])
         router.get('/stats', [ProStatsController, 'stats'])
         router.get('/stats/enhanced', [ProStatsController, 'statsEnhanced'])
         router.get('/tournaments', [ProDataController, 'tournaments'])
@@ -201,6 +202,7 @@ router
         router.get('/player-leaderboards', [ProLeagueStatsController, 'playerLeaderboards'])
         router.get('/team-leaderboards', [ProLeagueStatsController, 'teamLeaderboards'])
         router.get('/champion-stats', [ProLeagueStatsController, 'championStats'])
+        router.get('/league-stats', [ProLeagueStatsController, 'leagueStats'])
         router.get('/leagues', [ProLeagueStatsController, 'leagues'])
         router.get('/teams', [ProLeagueStatsController, 'proTeams'])
         router.get('/tournaments', [ProLeagueStatsController, 'tournaments'])

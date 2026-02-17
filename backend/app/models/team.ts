@@ -23,7 +23,13 @@ export default class Team extends BaseModel {
   declare currentName: string
 
   @column()
-  declare shortName: string
+  declare shortName: string | null
+
+  @column()
+  declare externalId: string | null
+
+  @column()
+  declare logoUrl: string | null
 
   @column()
   declare region: string | null
