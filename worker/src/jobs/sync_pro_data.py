@@ -5,7 +5,7 @@ Synchronizes esports data from GRID API to the database.
 """
 
 import asyncio
-from datetime import date
+from datetime import date, datetime
 from typing import Any
 
 import structlog
@@ -704,6 +704,8 @@ class SyncProDataJob:
             red_plates=game.red_plates,
             plates_detail=game.plates_detail or None,
             objectives_timeline=game.objectives_timeline or None,
+            started_at=datetime.fromisoformat(game.started_at) if game.started_at else None,
+            ended_at=datetime.fromisoformat(game.ended_at) if game.ended_at else None,
         )
 
         # Aggregate gold and vision per team from player stats
@@ -751,6 +753,7 @@ class SyncProDataJob:
                 blue_kills_at_15=game.blue_kills_at_15,
                 red_kills_at_15=game.red_kills_at_15,
                 first_blood_team=game.first_blood_team,
+                first_blood_time=game.first_blood_time,
                 first_tower_team=game.first_tower_team,
                 first_dragon_team=game.first_dragon_team,
                 first_baron_team=game.first_baron_team,
@@ -798,8 +801,7 @@ class SyncProDataJob:
                 "gold_earned": ps.gold_earned,
                 "damage_dealt": ps.damage_dealt,
                 "damage_taken": ps.damage_taken,
-                "first_blood_participant": ps.first_blood_participant,
-                "first_blood_victim": ps.first_blood_victim,
+                "first_blood": ps.first_blood,
                 "vision": ps.vision,
                 "max_diffs": ps.max_diffs,
                 "multi_kills": ps.multi_kills,

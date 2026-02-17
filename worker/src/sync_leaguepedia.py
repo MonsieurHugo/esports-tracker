@@ -1026,7 +1026,7 @@ class DB:
                     game_id, player_id, team_id, team_side, role,
                     champion_id,
                     kills, deaths, assists, cs, gold_earned, damage_dealt, damage_taken,
-                    first_blood_participant, first_blood_victim,
+                    first_blood,
                     vision, max_diffs, multi_kills, solo_stats,
                     items, runes, timing_data, proximity, plates
                 )
@@ -1047,8 +1047,7 @@ class DB:
                         s.get("gold_earned", 0),
                         s.get("damage_dealt", 0),
                         s.get("damage_taken", 0),
-                        s.get("first_blood_participant", False),
-                        s.get("first_blood_victim", False),
+                        json.dumps(s.get("first_blood")) if s.get("first_blood") is not None else None,
                         json.dumps(s.get("vision", {})),
                         json.dumps({}),  # max_diffs
                         json.dumps(s.get("multi_kills", {})),
@@ -1527,8 +1526,18 @@ def process_tournament(
                     "control_wards": rp.get("control_wards_placed", 0),
                 }
 
-                first_blood_participant = rp.get("first_blood_kill", False) or rp.get("first_blood_assist", False)
-                first_blood_victim = rp.get("first_blood_victim", False)
+                fb_kill = rp.get("first_blood_kill", False)
+                fb_assist = rp.get("first_blood_assist", False)
+                fb_victim = rp.get("first_blood_victim", False)
+                if fb_kill or fb_assist or fb_victim:
+                    first_blood = {
+                        "participant": fb_kill or fb_assist,
+                        "victim": fb_victim,
+                        "assist": fb_assist,
+                        "time": None,  # Leaguepedia has no first blood timing
+                    }
+                else:
+                    first_blood = None
 
                 items_data = [i for i in rp.get("items", []) if i > 0]
                 runes_data = rp.get("runes", {})
@@ -1557,8 +1566,7 @@ def process_tournament(
                 damage_taken = 0
                 vision_score = to_int(p.get("VisionScore"))
                 vision_data = {"score": vision_score} if vision_score else {}
-                first_blood_participant = False
-                first_blood_victim = False
+                first_blood = None
                 items_data = []
                 runes_data = {}
                 multi_kills_data = {}
@@ -1580,8 +1588,7 @@ def process_tournament(
                 "gold_earned": gold_earned,
                 "damage_dealt": damage_dealt,
                 "damage_taken": damage_taken,
-                "first_blood_participant": first_blood_participant,
-                "first_blood_victim": first_blood_victim,
+                "first_blood": first_blood,
                 "vision": vision_data,
                 "items": items_data,
                 "runes": runes_data,
@@ -1603,7 +1610,7 @@ def process_tournament(
         # Detect first blood from player data
         fb_team = None
         for ps in player_stats:
-            if ps.get("first_blood_participant"):
+            if ps.get("first_blood") and ps["first_blood"].get("participant"):
                 fb_team = ps.get("team_side")
                 break
 

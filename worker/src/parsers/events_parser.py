@@ -18,6 +18,7 @@ Data source: Events JSONL file (primary source for all data)
 """
 
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any
 
 import structlog
@@ -57,8 +58,7 @@ class ProPlayerStats:
     gold_earned: int = 0
     damage_dealt: int = 0
     damage_taken: int = 0
-    first_blood_participant: bool = False
-    first_blood_victim: bool = False
+    first_blood: dict | None = None
 
     # Vision stats (JSONB)
     vision: dict[str, int] = field(default_factory=lambda: {
@@ -172,6 +172,7 @@ class ProGameInfo:
 
     # First objectives
     first_blood_team: str | None = None  # 'blue' or 'red'
+    first_blood_time: int | None = None  # In seconds
     first_tower_team: str | None = None
     first_dragon_team: str | None = None
     first_baron_team: str | None = None
@@ -317,6 +318,15 @@ class EventsParser:
 
         # 1b. Enrich champion IDs from summary (game_info only has names)
         self._enrich_champion_ids_from_summary()
+
+        # 1c. Extract game timestamps from summary
+        if self._summary:
+            start_ts = self._summary.get("gameStartTimestamp")
+            end_ts = self._summary.get("gameEndTimestamp")
+            if start_ts:
+                self._game_info.started_at = datetime.fromtimestamp(start_ts / 1000, tz=timezone.utc).isoformat()
+            if end_ts:
+                self._game_info.ended_at = datetime.fromtimestamp(end_ts / 1000, tz=timezone.utc).isoformat()
 
         # 2. Second pass: process all events
         self._process_events()
@@ -485,7 +495,7 @@ class EventsParser:
 
         The GRID events may not include victim in champion_kill_special,
         but the details file (Riot API timeline format) has CHAMPION_KILL
-        events with victimId.
+        events with victimId. Also extracts first blood timestamp.
         """
         if not self._details:
             return
@@ -494,9 +504,19 @@ class EventsParser:
         for frame in frames:
             for ev in frame.get("events", []):
                 if ev.get("type") == "CHAMPION_KILL":
+                    # Extract timestamp (ms -> seconds)
+                    timestamp_ms = ev.get("timestamp", 0)
+                    fb_time = timestamp_ms // 1000 if timestamp_ms else None
+
+                    # Set game-level first_blood_time if not already set
+                    if fb_time and self._game_info.first_blood_time is None:
+                        self._game_info.first_blood_time = fb_time
+
                     victim_pid = ev.get("victimId")
                     if victim_pid and victim_pid in self._player_stats:
-                        self._player_stats[victim_pid].first_blood_victim = True
+                        self._player_stats[victim_pid].first_blood = {
+                            "participant": False, "victim": True, "assist": False, "time": fb_time,
+                        }
                     return  # First kill = first blood, done
 
     def _ensure_player_stats(self, participant_id: int) -> ProPlayerStats:
@@ -1242,6 +1262,10 @@ class EventsParser:
         victim_pid = event.get("victim")
 
         if kill_type == "firstBlood":
+            game_time = event.get("gameTime", 0)
+            fb_time_seconds = game_time // 1000 if game_time else None
+            self._game_info.first_blood_time = fb_time_seconds
+
             # Determine first blood team
             if killer_pid is not None:
                 team_id = self._participant_id_to_team.get(killer_pid)
@@ -1252,10 +1276,14 @@ class EventsParser:
 
                 # Mark player as first blood participant
                 if killer_pid in self._player_stats:
-                    self._player_stats[killer_pid].first_blood_participant = True
+                    self._player_stats[killer_pid].first_blood = {
+                        "participant": True, "victim": False, "assist": False, "time": fb_time_seconds,
+                    }
 
             if victim_pid is not None and victim_pid in self._player_stats:
-                self._player_stats[victim_pid].first_blood_victim = True
+                self._player_stats[victim_pid].first_blood = {
+                    "participant": False, "victim": True, "assist": False, "time": fb_time_seconds,
+                }
 
         elif kill_type == "kill_double":
             if killer_pid in self._player_stats:

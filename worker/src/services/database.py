@@ -1711,6 +1711,7 @@ class DatabaseService:
         blue_kills_at_15: int | None = None,
         red_kills_at_15: int | None = None,
         first_blood_team: str | None = None,
+        first_blood_time: int | None = None,
         first_tower_team: str | None = None,
         first_dragon_team: str | None = None,
         first_baron_team: str | None = None,
@@ -1860,7 +1861,7 @@ class DatabaseService:
                 is_first_baron, is_first_herald,
                 is_first_grubs,
                 # Timings: only set if this team got the first objective
-                None,  # first_blood_time - not available from timeline
+                first_blood_time if is_first_blood else None,
                 side_obj.get("first_tower_time") if is_first_tower else None,
                 side_obj.get("first_dragon_time") if is_first_dragon else None,
                 side_obj.get("first_herald_time") if is_first_herald else None,
@@ -2031,7 +2032,7 @@ class DatabaseService:
                 game_id, player_id, team_id, team_side, role,
                 champion_id,
                 kills, deaths, assists, cs, gold_earned, damage_dealt, damage_taken,
-                first_blood_participant, first_blood_victim,
+                first_blood,
                 vision, max_diffs, multi_kills, solo_stats,
                 items, runes, timing_data, proximity, isolation, quest_completed_at, plates
             )
@@ -2039,9 +2040,9 @@ class DatabaseService:
                 $1::int[], $2::int[], $3::int[], $4::text[], $5::text[],
                 $6::int[],
                 $7::int[], $8::int[], $9::int[], $10::int[], $11::int[], $12::int[], $13::int[],
-                $14::bool[], $15::bool[],
-                $16::jsonb[], $17::jsonb[], $18::jsonb[], $19::jsonb[],
-                $20::jsonb[], $21::jsonb[], $22::jsonb[], $23::jsonb[], $24::int[], $25::int[], $26::jsonb[]
+                $14::jsonb[],
+                $15::jsonb[], $16::jsonb[], $17::jsonb[], $18::jsonb[],
+                $19::jsonb[], $20::jsonb[], $21::jsonb[], $22::jsonb[], $23::int[], $24::int[], $25::jsonb[]
             )
         """
 
@@ -2059,8 +2060,7 @@ class DatabaseService:
         gold_earneds = []
         damage_dealts = []
         damage_takens = []
-        first_blood_parts = []
-        first_blood_victims = []
+        first_blood_list = []
         vision_list = []
         max_diffs_list = []
         multi_kills_list = []
@@ -2087,8 +2087,8 @@ class DatabaseService:
             gold_earneds.append(s.get("gold_earned", 0))
             damage_dealts.append(s.get("damage_dealt", 0))
             damage_takens.append(s.get("damage_taken", 0))
-            first_blood_parts.append(s.get("first_blood_participant", False))
-            first_blood_victims.append(s.get("first_blood_victim", False))
+            fb = s.get("first_blood")
+            first_blood_list.append(json.dumps(fb) if fb is not None else None)
             vision_list.append(json.dumps(s.get("vision", {})))
             max_diffs_list.append(json.dumps(s.get("max_diffs", {})))
             multi_kills_list.append(json.dumps(s.get("multi_kills", {})))
@@ -2107,7 +2107,7 @@ class DatabaseService:
                 game_ids, player_ids, team_ids, team_sides, roles,
                 champion_ids,
                 kills, deaths, assists, cs_list, gold_earneds, damage_dealts, damage_takens,
-                first_blood_parts, first_blood_victims,
+                first_blood_list,
                 vision_list, max_diffs_list, multi_kills_list, solo_stats_list,
                 items_list, runes_list, timing_datas, proximity_list, isolation_list, quest_completed_ats, plates_list,
             )
@@ -2117,7 +2117,7 @@ class DatabaseService:
                 game_ids, player_ids, team_ids, team_sides, roles,
                 champion_ids,
                 kills, deaths, assists, cs_list, gold_earneds, damage_dealts, damage_takens,
-                first_blood_parts, first_blood_victims,
+                first_blood_list,
                 vision_list, max_diffs_list, multi_kills_list, solo_stats_list,
                 items_list, runes_list, timing_datas, proximity_list, isolation_list, quest_completed_ats, plates_list,
             )
