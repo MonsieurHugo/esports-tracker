@@ -425,6 +425,7 @@ class LeaguepediaClient:
         kill_tracker: dict[int, dict] = {}  # pid → {kills, deaths, assists}
 
         # Event-based stats
+        first_blood_time_ms: int | None = None
         first_blood_victim_pid: int | None = None
         solo_kills: dict[int, int] = {}   # pid → count
         solo_deaths: dict[int, int] = {}  # pid → count
@@ -454,9 +455,10 @@ class LeaguepediaClient:
                         kill_tracker.setdefault(a, {"kills": 0, "deaths": 0, "assists": 0})
                         kill_tracker[a]["assists"] += 1
 
-                    # First blood victim (first kill event)
+                    # First blood (first kill event)
                     if first_blood_victim_pid is None and victim_id > 0:
                         first_blood_victim_pid = victim_id
+                        first_blood_time_ms = event.get("timestamp", 0)
 
                     # Solo kills (no assists, killer is a player)
                     if len(assists) == 0 and killer_id > 0:
@@ -518,6 +520,7 @@ class LeaguepediaClient:
             "frames": parsed_frames,
             "events": {
                 "first_blood_victim_pid": first_blood_victim_pid,
+                "first_blood_time": first_blood_time_ms // 1000 if first_blood_time_ms else None,
                 "solo_kills": solo_kills,
                 "solo_deaths": solo_deaths,
                 "plates": plates_by_player,

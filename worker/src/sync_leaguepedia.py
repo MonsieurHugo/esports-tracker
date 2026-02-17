@@ -1105,6 +1105,7 @@ class DB:
         blue_kills: int = 0,
         red_kills: int = 0,
         first_blood_team: str | None = None,
+        first_blood_time: int | None = None,
     ) -> None:
         """Insert 2 rows per game into pro_team_stats (one per team side).
 
@@ -1122,6 +1123,7 @@ class DB:
 
             win = winner_team_id == team_id if winner_team_id else False
             fb = first_blood_team == side if first_blood_team else False
+            fb_time = first_blood_time if fb else None
 
             with self.conn.cursor() as cur:
                 cur.execute(
@@ -1130,10 +1132,10 @@ class DB:
                         game_id, match_id, tournament_id, team_id,
                         side, win, duration,
                         kills, deaths,
-                        first_blood,
+                        first_blood, first_blood_time,
                         created_at
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
                     ON CONFLICT (game_id, team_id) DO UPDATE SET
                         match_id = EXCLUDED.match_id,
                         tournament_id = EXCLUDED.tournament_id,
@@ -1142,13 +1144,14 @@ class DB:
                         duration = EXCLUDED.duration,
                         kills = EXCLUDED.kills,
                         deaths = EXCLUDED.deaths,
-                        first_blood = EXCLUDED.first_blood
+                        first_blood = EXCLUDED.first_blood,
+                        first_blood_time = EXCLUDED.first_blood_time
                     """,
                     (
                         game_id, match_id, tournament_id, team_id,
                         side, win, duration,
                         kills or 0, deaths or 0,
-                        fb,
+                        fb, fb_time,
                     ),
                 )
 
@@ -1371,6 +1374,8 @@ def process_tournament(
 
                 # Attach timeline + event-based stats to players
                 if riot_timeline:
+                    fb_time_from_tl = riot_timeline.get("events", {}).get("first_blood_time")
+
                     players_with_tl = LeaguepediaClient.attach_timeline_to_players(
                         riot_stats, riot_timeline
                     )
@@ -1384,6 +1389,7 @@ def process_tournament(
                             riot_player_map[(pwt_cid, pwt_side)]["solo_deaths"] = pwt.get("solo_deaths", 0)
                             riot_player_map[(pwt_cid, pwt_side)]["plates_timeline"] = pwt.get("plates_timeline", {})
                             riot_player_map[(pwt_cid, pwt_side)]["first_blood_victim"] = pwt.get("first_blood_victim", False)
+                            riot_player_map[(pwt_cid, pwt_side)]["first_blood_time"] = fb_time_from_tl
             else:
                 logger.debug("No Riot data available, using scoreboard", game_id=game_id, rpgid=rpgid)
         else:
@@ -1529,12 +1535,13 @@ def process_tournament(
                 fb_kill = rp.get("first_blood_kill", False)
                 fb_assist = rp.get("first_blood_assist", False)
                 fb_victim = rp.get("first_blood_victim", False)
+                fb_time = rp.get("first_blood_time")
                 if fb_kill or fb_assist or fb_victim:
                     first_blood = {
                         "participant": fb_kill or fb_assist,
                         "victim": fb_victim,
                         "assist": fb_assist,
-                        "time": None,  # Leaguepedia has no first blood timing
+                        "time": fb_time,
                     }
                 else:
                     first_blood = None
@@ -1609,9 +1616,11 @@ def process_tournament(
         )
         # Detect first blood from player data
         fb_team = None
+        fb_time = None
         for ps in player_stats:
             if ps.get("first_blood") and ps["first_blood"].get("participant"):
                 fb_team = ps.get("team_side")
+                fb_time = ps["first_blood"].get("time")
                 break
 
         db.upsert_team_game_stats(
@@ -1625,6 +1634,7 @@ def process_tournament(
             blue_kills=blue_kills_total,
             red_kills=red_kills_total,
             first_blood_team=fb_team,
+            first_blood_time=fb_time,
         )
 
         stats["games"] += 1
