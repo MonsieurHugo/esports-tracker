@@ -90,6 +90,10 @@ export interface LolMatchStat {
   damageDealt: number
   goldEarned: number
   role?: string
+  summoner1Id?: number
+  summoner2Id?: number
+  summoner1Casts?: number
+  summoner2Casts?: number
 }
 
 export interface LolDailyStat {
@@ -918,6 +922,7 @@ export interface ProPlayerLeaderboardEntry {
   avgCsPerMin: number
   avgGoldPerMin: number
   avgDamagePerMin: number
+  avgDpmPost15: number
   avgKillParticipation: number
   avgGoldDiffAt15: number
   totalKills: number

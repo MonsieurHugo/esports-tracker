@@ -321,15 +321,20 @@ class DatabaseService:
         gold_earned: int,
         role: str | None = None,
         team_id: int | None = None,
+        summoner1_id: int | None = None,
+        summoner2_id: int | None = None,
+        summoner1_casts: int | None = None,
+        summoner2_casts: int | None = None,
     ) -> None:
         """Insert match stats for a participant."""
         await self.execute(
             """
             INSERT INTO lol_match_stats (
                 match_id, puuid, champion_id, win, kills, deaths, assists,
-                cs, vision_score, damage_dealt, gold_earned, role, team_id
+                cs, vision_score, damage_dealt, gold_earned, role, team_id,
+                summoner1_id, summoner2_id, summoner1_casts, summoner2_casts
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
             ON CONFLICT (match_id, puuid) DO NOTHING
             """,
             match_id,
@@ -345,6 +350,10 @@ class DatabaseService:
             gold_earned,
             role,
             team_id,
+            summoner1_id,
+            summoner2_id,
+            summoner1_casts,
+            summoner2_casts,
         )
 
     # ==========================================

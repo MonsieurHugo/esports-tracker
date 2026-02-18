@@ -504,6 +504,10 @@ class FetchMatchesJobV2:
             }
             role = role_map.get(raw_role, raw_role) if raw_role else None
             team_id = participant.get("teamId")
+            summoner1_id = participant.get("summoner1Id")
+            summoner2_id = participant.get("summoner2Id")
+            summoner1_casts = participant.get("summoner1Casts", 0)
+            summoner2_casts = participant.get("summoner2Casts", 0)
 
             await self.db.insert_match_stats(
                 match_id=match_id,
@@ -519,6 +523,10 @@ class FetchMatchesJobV2:
                 gold_earned=gold_earned,
                 role=role,
                 team_id=team_id,
+                summoner1_id=summoner1_id,
+                summoner2_id=summoner2_id,
+                summoner1_casts=summoner1_casts,
+                summoner2_casts=summoner2_casts,
             )
 
             if p_puuid == tracked_puuid:

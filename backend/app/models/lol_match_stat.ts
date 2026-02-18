@@ -48,6 +48,18 @@ export default class LolMatchStat extends BaseModel {
   @column()
   declare teamId: number | null
 
+  @column()
+  declare summoner1Id: number | null
+
+  @column()
+  declare summoner2Id: number | null
+
+  @column()
+  declare summoner1Casts: number | null
+
+  @column()
+  declare summoner2Casts: number | null
+
   @belongsTo(() => LolMatch, { foreignKey: 'matchId' })
   declare match: BelongsTo<typeof LolMatch>
 
