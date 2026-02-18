@@ -4,14 +4,13 @@ Pro Data Sync Job
 Synchronizes esports data from GRID API to the database.
 """
 
-import asyncio
 from datetime import date, datetime
 from typing import Any
 
 import structlog
 
 from src.config import settings
-from src.parsers.events_parser import EventsParser, ParsedGameData, SummaryParser
+from src.parsers.events_parser import EventsParser, ParsedGameData
 from src.services.database import DatabaseService
 from src.services.grid_client import GridClient, GridClientError
 from src.services.grid_files import GridFiles
@@ -44,6 +43,9 @@ class SyncProDataJob:
         self.graphql = GridGraphQL(grid_client)
         self.files = GridFiles(grid_client)
         self.max_concurrent_games = settings.pro_max_concurrent_games
+
+        # Chronobreak fragment tracking: game external IDs consumed as supplements
+        self._consumed_fragment_ids: set[str] = set()
 
         # Stats tracking
         self._tournaments_processed = 0
@@ -138,6 +140,7 @@ class SyncProDataJob:
         self._games_skipped = 0
         self._errors = 0
         self._duplicates_replaced = 0
+        self._consumed_fragment_ids.clear()
 
         try:
             if tournament_ids:
@@ -401,16 +404,18 @@ class SyncProDataJob:
                 )
 
                 # Process games directly into the primary match (no temporary match needed)
-                finished_games = [g for g in state.games if g.finished]
+                # In merge path, accept started (not just finished) games — cancelled GRID
+                # series mark games as not-finished even when data files exist.
+                merge_games = [g for g in state.games if g.finished or g.started]
                 games_added = 0
-                if finished_games:
-                    semaphore = asyncio.Semaphore(self.max_concurrent_games)
+                if merge_games:
                     team1_state = state.teams[0] if len(state.teams) >= 1 else None
                     team2_state = state.teams[1] if len(state.teams) >= 2 else None
 
-                    async def process_with_semaphore(game_state):
-                        async with semaphore:
-                            return await self._process_game(
+                    # Process sequentially for chronobreak fragment tracking
+                    for game_state in sorted(merge_games, key=lambda g: g.sequence_number):
+                        try:
+                            await self._process_game(
                                 series_id=series.id,
                                 game_state=game_state,
                                 match_id=primary_match_id,
@@ -420,18 +425,28 @@ class SyncProDataJob:
                                 team1_state=team1_state,
                                 team2_state=team2_state,
                                 game_number_offset=max_game_num,
+                                all_series_games=state.games,
                             )
-
-                    results = await asyncio.gather(
-                        *[process_with_semaphore(g) for g in finished_games],
-                        return_exceptions=True,
-                    )
-                    for r in results:
-                        if isinstance(r, Exception):
-                            logger.error("Game processing failed during merge", error=str(r))
-                            self._errors += 1
-                        else:
                             games_added += 1
+                        except Exception as e:
+                            logger.error("Game processing failed during merge", error=str(e))
+                            self._errors += 1
+
+                # Re-number all games in the match by started_at so that
+                # games merged from a cancelled series get the correct order.
+                if games_added > 0:
+                    await self.db.execute(
+                        """UPDATE pro_games g
+                           SET game_number = sub.rn
+                           FROM (
+                               SELECT game_id,
+                                      ROW_NUMBER() OVER (ORDER BY started_at NULLS LAST, game_id) AS rn
+                               FROM pro_games
+                               WHERE match_id = $1
+                           ) sub
+                           WHERE g.game_id = sub.game_id AND g.game_number != sub.rn""",
+                        primary_match_id,
+                    )
 
                 # Audit trail: record that this series was merged
                 await self.db.execute(
@@ -497,16 +512,15 @@ class SyncProDataJob:
             )
 
             if finished_games:
-                # Create semaphore to limit concurrent game processing
-                semaphore = asyncio.Semaphore(self.max_concurrent_games)
-
                 # Get team states for roster matching
                 team1_state = state.teams[0] if len(state.teams) >= 1 else None
                 team2_state = state.teams[1] if len(state.teams) >= 2 else None
 
-                async def process_with_semaphore(game_state):
-                    async with semaphore:
-                        return await self._process_game(
+                # Process games sequentially (required for chronobreak fragment tracking:
+                # seq 1 must mark seq 2 as consumed before seq 2 starts processing)
+                for game_state in sorted(finished_games, key=lambda g: g.sequence_number):
+                    try:
+                        await self._process_game(
                             series_id=series.id,
                             game_state=game_state,
                             match_id=match_id,
@@ -515,17 +529,10 @@ class SyncProDataJob:
                             team2_db_id=team2_db_id,
                             team1_state=team1_state,
                             team2_state=team2_state,
+                            all_series_games=state.games,
                         )
-
-                results = await asyncio.gather(
-                    *[process_with_semaphore(g) for g in finished_games],
-                    return_exceptions=True,
-                )
-
-                # Count errors from results
-                for result in results:
-                    if isinstance(result, Exception):
-                        logger.error("Game processing failed", error=str(result))
+                    except Exception as e:
+                        logger.error("Game processing failed", error=str(e))
                         self._errors += 1
                         all_games_successful = False
 
@@ -560,6 +567,29 @@ class SyncProDataJob:
             )
             self._errors += 1
 
+    @staticmethod
+    def _has_game_end(events: list[dict]) -> bool:
+        """Check if events contain a game_end event (scans from end since it's always last)."""
+        return any(e.get("rfc461Schema") == "game_end" for e in reversed(events))
+
+    @staticmethod
+    def _match_participants(events: list[dict], summary: dict) -> bool:
+        """Check if events and summary have the same champion set."""
+        event_champs: set[str] = set()
+        for e in events:
+            if e.get("rfc461Schema") == "game_info":
+                for p in e.get("participants", []):
+                    name = p.get("championName")
+                    if name:
+                        event_champs.add(name)
+                break
+        summary_champs = {
+            p.get("championName")
+            for p in summary.get("participants", [])
+            if p.get("championName")
+        }
+        return bool(event_champs) and event_champs == summary_champs
+
     async def _process_game(
         self,
         series_id: str,
@@ -571,11 +601,21 @@ class SyncProDataJob:
         team1_state: SeriesTeamState | None = None,
         team2_state: SeriesTeamState | None = None,
         game_number_offset: int = 0,
+        all_series_games: list | None = None,
     ) -> None:
         """Process a single game."""
         game_external_id = game_state.id
         grid_game_number = game_state.sequence_number  # Original number for GRID API file paths
         game_number = grid_game_number + game_number_offset  # DB game_number (offset for merges)
+
+        # Skip games consumed as chronobreak fragments
+        if game_external_id in self._consumed_fragment_ids:
+            logger.info(
+                "Game already consumed as chronobreak fragment, skipping",
+                game_id=game_external_id,
+            )
+            self._games_skipped += 1
+            return
 
         # Check if already processed
         if await self.db.is_pro_game_processed(game_external_id):
@@ -597,33 +637,58 @@ class SyncProDataJob:
             # Download events file (use grid_game_number for GRID API paths)
             events = await self.files.get_events(series_id, grid_game_number)
 
-            if not events:
-                # Fallback: try summary-only parsing (e.g. chronobreaks with no events)
-                summary = await self.files.get_summary(series_id, grid_game_number)
-                if summary and summary.get("participants"):
-                    logger.warning(
-                        "No events — falling back to summary-only parsing",
-                        series_id=series_id,
-                        game_number=game_number,
-                        game_id=game_external_id,
-                    )
-                    details = await self.files.get_details(series_id, grid_game_number)
-                    parser = SummaryParser(summary, details)
-                    parsed = parser.parse()
-                else:
-                    logger.error(
-                        "No events AND no summary for game - SKIPPING",
-                        series_id=series_id,
-                        game_number=game_number,
-                        game_id=game_external_id,
-                    )
-                    raise GridClientError(f"No events for game {game_number}")
-            else:
-                # Normal flow with events
-                summary = await self.files.get_summary(series_id, grid_game_number)
-                details = await self.files.get_details(series_id, grid_game_number)
-                parser = EventsParser(events, summary, details)
-                parsed = parser.parse()
+            # Download summary and details
+            summary = await self.files.get_summary(series_id, grid_game_number)
+            details = await self.files.get_details(series_id, grid_game_number)
+
+            if not events and not (summary and summary.get("participants")):
+                logger.error(
+                    "No events AND no summary for game - SKIPPING",
+                    series_id=series_id,
+                    game_number=game_number,
+                    game_id=game_external_id,
+                )
+                raise GridClientError(f"No data for game {game_number}")
+
+            # Chronobreak detection: if events are truncated (no game_end),
+            # scan subsequent game sequences for a summary with matching champions
+            if events and not self._has_game_end(events) and all_series_games:
+                logger.warning(
+                    "Events truncated (no game_end), scanning for chronobreak fragment",
+                    series_id=series_id,
+                    game_number=grid_game_number,
+                    game_id=game_external_id,
+                )
+                sorted_games = sorted(all_series_games, key=lambda g: g.sequence_number)
+                for candidate in sorted_games:
+                    if candidate.sequence_number <= grid_game_number:
+                        continue
+                    if not candidate.finished and not candidate.started:
+                        continue
+                    try:
+                        candidate_summary = await self.files.get_summary(
+                            series_id, candidate.sequence_number
+                        )
+                        if candidate_summary and self._match_participants(events, candidate_summary):
+                            candidate_details = await self.files.get_details(
+                                series_id, candidate.sequence_number
+                            )
+                            summary = candidate_summary
+                            details = candidate_details
+                            self._consumed_fragment_ids.add(candidate.id)
+                            logger.info(
+                                "Chronobreak detected: using summary from fragment",
+                                primary_seq=grid_game_number,
+                                fragment_seq=candidate.sequence_number,
+                                fragment_id=candidate.id,
+                            )
+                            break
+                    except GridClientError:
+                        continue
+
+            # Unified parser: handles all combinations of available sources
+            parser = EventsParser(events or [], summary, details)
+            parsed = parser.parse()
 
             # Insert data in a transaction
             async with self.db.transaction() as conn:
@@ -659,7 +724,6 @@ class SyncProDataJob:
                 game_number=game_number,
                 error=str(e),
             )
-            self._errors += 1
             raise
 
     @staticmethod
