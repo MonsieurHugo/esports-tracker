@@ -189,12 +189,36 @@ class SyncProDataJob:
                         logger.warning("Tournament not found", tournament_id=tid)
                 logger.info("Fetched specific tournaments", count=len(tournaments), requested=len(tournament_ids))
             else:
-                # Discover all tournaments for the year
+                # Discover all tournaments for the year (gets splits / level 1)
                 tournaments = await self.graphql.get_tournaments(
                     start_date=date(year, 1, 1),
                     end_date=date(year, 12, 31),
                 )
-                logger.info("Found tournaments", count=len(tournaments), year=year)
+                logger.info("Found date-filtered tournaments", count=len(tournaments), year=year)
+
+                # Recursively fetch child tournaments (phases, leaf nodes)
+                # Children often don't have their own dates so the date filter misses them
+                all_ids = {t.id for t in tournaments}
+                current_parent_ids = list(all_ids)
+                depth = 0
+                while current_parent_ids and depth < 5:
+                    depth += 1
+                    children = await self.graphql.get_tournaments(
+                        parent_ids=current_parent_ids,
+                    )
+                    new_children = [c for c in children if c.id not in all_ids]
+                    if not new_children:
+                        break
+                    logger.info(
+                        "Found child tournaments",
+                        depth=depth,
+                        count=len(new_children),
+                    )
+                    tournaments.extend(new_children)
+                    all_ids.update(c.id for c in new_children)
+                    current_parent_ids = [c.id for c in new_children]
+
+                logger.info("Total tournaments after child discovery", count=len(tournaments), year=year)
 
             # Sort so parents are processed before children
             tournaments = self._sort_parents_first(tournaments)
