@@ -4,6 +4,7 @@ Pro Data Sync Job
 Synchronizes esports data from GRID API to the database.
 """
 
+import asyncio
 import traceback
 from datetime import date, datetime
 from typing import Any
@@ -196,8 +197,12 @@ class SyncProDataJob:
                 )
                 logger.info("Found date-filtered tournaments (splits)", count=len(tournaments), year=year)
 
+                # Brief pause to avoid rate limit after paginated fetch
+                await asyncio.sleep(3.0)
+
                 # Step 2: Recursively fetch child tournaments via children connection
                 # Children (phases, leaf nodes) often don't have dates so the date filter misses them
+                # Add delay between requests to respect GRID rate limits
                 all_ids = {t.id for t in tournaments}
                 current_parents = list(tournaments)
                 depth = 0
@@ -205,6 +210,7 @@ class SyncProDataJob:
                     depth += 1
                     new_children: list[Tournament] = []
                     for parent_t in current_parents:
+                        await asyncio.sleep(1.0)  # Rate limit: ~1 req/sec
                         children = await self.graphql.get_tournament_children(parent_t.id)
                         for child in children:
                             if child.id not in all_ids:
