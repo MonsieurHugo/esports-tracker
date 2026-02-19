@@ -877,6 +877,23 @@ export interface ProTournamentPlayerRecord {
   assists?: number
 }
 
+export interface ProQuestGapRecord {
+  gap: number
+  fastPlayerName: string
+  fastChampionId: number | null
+  fastQuestTime: number
+  fastTeamName: string | null
+  fastTeamFullName?: string | null
+  slowPlayerName: string
+  slowChampionId: number | null
+  slowQuestTime: number
+  slowTeamName: string | null
+  slowTeamFullName?: string | null
+  tournamentName: string
+  gameDate: string | null
+  gameNumber?: number | null
+}
+
 export interface ProRecords {
   playerRecords: {
     bestKda: ProPlayerRecord[]
@@ -891,6 +908,12 @@ export interface ProRecords {
     highestCsPerMin: ProPlayerRecord[]
     fastestQuest: ProPlayerRecord[]
     slowestQuest: ProPlayerRecord[]
+    biggestQuestGap: ProQuestGapRecord[]
+    mostSoloKills: ProPlayerRecord[]
+    mostSoloDeaths: ProPlayerRecord[]
+    mostKillsAt15: ProPlayerRecord[]
+    mostKillsAssistsAt15: ProPlayerRecord[]
+    mostDeathsAt15: ProPlayerRecord[]
     highestGoldDiffAt15: ProPlayerRecord[]
     lowestGoldDiffAt15: ProPlayerRecord[]
     highestCsDiffAt15: ProPlayerRecord[]

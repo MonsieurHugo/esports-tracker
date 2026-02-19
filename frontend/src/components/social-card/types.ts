@@ -5,6 +5,7 @@ import type {
   ProStreakRecord,
   ProTournamentKillsRecord,
   ProTournamentPlayerRecord,
+  ProQuestGapRecord,
 } from '@/lib/types'
 
 export type SocialCardFormat = 'twitter' | 'instagram' | 'tiktok'
@@ -45,6 +46,7 @@ export type RecordCardType =
   | 'streak'
   | 'tournamentKills'
   | 'tournamentPlayer'
+  | 'questGap'
 
 export interface FilterSummary {
   leagues: string[]
@@ -64,6 +66,7 @@ export interface SocialCardData {
     | ProStreakRecord[]
     | ProTournamentKillsRecord[]
     | ProTournamentPlayerRecord[]
+    | ProQuestGapRecord[]
   filters: FilterSummary
   /** Extra props for team/streak tables */
   extra?: {

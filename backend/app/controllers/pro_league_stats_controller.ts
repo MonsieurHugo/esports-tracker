@@ -119,6 +119,49 @@ export default class ProLeagueStatsController {
       const playerFilterSql = playerClauses.join(' ')
       const teamFilterSql = teamClauses.join(' ')
 
+      // Quest gap uses a self-join (ps1/ps2) so needs adapted filter aliases
+      const questGapClauses: string[] = []
+      const questGapBindings: unknown[] = []
+
+      if (resolvedLeagueIds.length > 0) {
+        questGapClauses.push(`AND tr.pro_league_id IN (${resolvedLeagueIds.map(() => '?').join(',')})`)
+        questGapBindings.push(...resolvedLeagueIds)
+      }
+      if (parsedYears.length > 0) {
+        questGapClauses.push(`AND tr.year IN (${parsedYears.map(() => '?').join(',')})`)
+        questGapBindings.push(...parsedYears)
+      }
+      if (parsedTournamentIds.length > 0) {
+        questGapClauses.push(`AND m.tournament_id IN (${parsedTournamentIds.map(() => '?').join(',')})`)
+        questGapBindings.push(...parsedTournamentIds)
+      }
+      if (parsedTier !== null) {
+        questGapClauses.push('AND pl.tier = ?')
+        questGapBindings.push(parsedTier)
+      }
+      if (parsedIsPlayoffs !== null) {
+        questGapClauses.push('AND tr.is_playoffs = ?')
+        questGapBindings.push(parsedIsPlayoffs)
+      }
+      if (parsedPhases.length > 0) {
+        questGapClauses.push(`AND tr.phase IN (${parsedPhases.map(() => '?').join(',')})`)
+        questGapBindings.push(...parsedPhases)
+      }
+      if (!parsedIncludeExcluded) {
+        questGapClauses.push('AND tr.exclude_from_records = false')
+      }
+      if (parsedTeamIds.length > 0) {
+        const ph = parsedTeamIds.map(() => '?').join(',')
+        questGapClauses.push(`AND (ps1.team_id IN (${ph}) OR ps2.team_id IN (${ph}))`)
+        questGapBindings.push(...parsedTeamIds, ...parsedTeamIds)
+      }
+      if (parsedPlayerIds.length > 0) {
+        const ph = parsedPlayerIds.map(() => '?').join(',')
+        questGapClauses.push(`AND (ps1.player_id IN (${ph}) OR ps2.player_id IN (${ph}))`)
+        questGapBindings.push(...parsedPlayerIds, ...parsedPlayerIds)
+      }
+      const questGapFilterSql = questGapClauses.join(' ')
+
       // Team ID filter for team game records (fastest win, longest game)
       let teamGameFilterSql = ''
       const teamGameFilterBindings: (number | string)[] = []
@@ -183,6 +226,12 @@ export default class ProLeagueStatsController {
         highestCsPerMin,
         fastestQuest,
         slowestQuest,
+        biggestQuestGap,
+        mostSoloKills,
+        mostSoloDeaths,
+        mostKillsAt15,
+        mostKillsAssistsAt15,
+        mostDeathsAt15,
         highestGoldDiffAt15,
         lowestGoldDiffAt15,
         highestCsDiffAt15,
@@ -367,6 +416,101 @@ export default class ProLeagueStatsController {
             AND ps.quest_completed_at > 0
             AND tr.year >= 2025
           ORDER BY ps.quest_completed_at DESC
+          LIMIT 50
+        `, [...playerBindings]),
+
+        // Biggest quest gap between two supports in the same game
+        db.rawQuery(`
+          SELECT
+            (ps2.quest_completed_at - ps1.quest_completed_at) as gap,
+            p1.current_pseudo as fast_player_name, ps1.champion_id as fast_champion_id,
+            ps1.quest_completed_at as fast_quest_time,
+            COALESCE(t1.short_name, t1.current_name) as fast_team_name,
+            t1.current_name as fast_team_full_name,
+            p2.current_pseudo as slow_player_name, ps2.champion_id as slow_champion_id,
+            ps2.quest_completed_at as slow_quest_time,
+            COALESCE(t2.short_name, t2.current_name) as slow_team_name,
+            t2.current_name as slow_team_full_name,
+            g.game_number, COALESCE(g.started_at, m.started_at) as game_date, tr.name as tournament_name
+          FROM pro_player_stats ps1
+          JOIN pro_player_stats ps2 ON ps1.game_id = ps2.game_id
+            AND ps1.team_id != ps2.team_id
+            AND ps1.role = ps2.role
+            AND ps1.quest_completed_at < ps2.quest_completed_at
+          JOIN pro_games g ON ps1.game_id = g.game_id
+          JOIN pro_matches m ON g.match_id = m.match_id
+          JOIN pro_tournaments tr ON m.tournament_id = tr.tournament_id
+          LEFT JOIN pro_leagues pl ON tr.pro_league_id = pl.league_id
+          LEFT JOIN teams t1 ON ps1.team_id = t1.team_id
+          LEFT JOIN teams t2 ON ps2.team_id = t2.team_id
+          LEFT JOIN players p1 ON ps1.player_id = p1.player_id
+          LEFT JOIN players p2 ON ps2.player_id = p2.player_id
+          WHERE g.status IN ('completed', 'processed')
+            AND ps1.quest_completed_at IS NOT NULL AND ps1.quest_completed_at > 0
+            AND ps2.quest_completed_at IS NOT NULL AND ps2.quest_completed_at > 0
+            AND tr.year >= 2025
+            ${questGapFilterSql}
+          ORDER BY gap DESC
+          LIMIT 50
+        `, [...questGapBindings]),
+
+        // Most solo kills in a single game
+        db.rawQuery(`
+          SELECT p.current_pseudo as player_name, ps.champion_id,
+                 COALESCE((ps.solo_stats->>'solo_kills')::int, 0) as value,
+                 g.duration, g.game_number, COALESCE(pt.short_name, pt.current_name) as team_name, pt.current_name as team_full_name, tr.name as tournament_name,
+                 COALESCE(g.started_at, m.started_at) as game_date, ps.role, ${opponentCol}, ${winCol}
+          ${playerJoins}
+            AND (ps.solo_stats->>'solo_kills')::int > 0
+          ORDER BY (ps.solo_stats->>'solo_kills')::int DESC
+          LIMIT 50
+        `, [...playerBindings]),
+
+        // Most solo deaths in a single game
+        db.rawQuery(`
+          SELECT p.current_pseudo as player_name, ps.champion_id,
+                 COALESCE((ps.solo_stats->>'solo_deaths')::int, 0) as value,
+                 g.duration, g.game_number, COALESCE(pt.short_name, pt.current_name) as team_name, pt.current_name as team_full_name, tr.name as tournament_name,
+                 COALESCE(g.started_at, m.started_at) as game_date, ps.role, ${opponentCol}, ${winCol}
+          ${playerJoins}
+            AND (ps.solo_stats->>'solo_deaths')::int > 0
+          ORDER BY (ps.solo_stats->>'solo_deaths')::int DESC
+          LIMIT 50
+        `, [...playerBindings]),
+
+        // Most kills at 15 min
+        db.rawQuery(`
+          SELECT p.current_pseudo as player_name, ps.champion_id,
+                 (ps.timing_data->'15'->>'kills')::int as value,
+                 g.duration, g.game_number, COALESCE(pt.short_name, pt.current_name) as team_name, pt.current_name as team_full_name, tr.name as tournament_name,
+                 COALESCE(g.started_at, m.started_at) as game_date, ps.role, ${opponentCol}, ${winCol}
+          ${playerJoins} AND g.duration > 900
+            AND ps.timing_data->'15'->>'kills' IS NOT NULL
+          ORDER BY (ps.timing_data->'15'->>'kills')::int DESC
+          LIMIT 50
+        `, [...playerBindings]),
+
+        // Most kills+assists at 15 min
+        db.rawQuery(`
+          SELECT p.current_pseudo as player_name, ps.champion_id,
+                 (COALESCE((ps.timing_data->'15'->>'kills')::int, 0) + COALESCE((ps.timing_data->'15'->>'assists')::int, 0)) as value,
+                 g.duration, g.game_number, COALESCE(pt.short_name, pt.current_name) as team_name, pt.current_name as team_full_name, tr.name as tournament_name,
+                 COALESCE(g.started_at, m.started_at) as game_date, ps.role, ${opponentCol}, ${winCol}
+          ${playerJoins} AND g.duration > 900
+            AND (ps.timing_data->'15'->>'kills' IS NOT NULL OR ps.timing_data->'15'->>'assists' IS NOT NULL)
+          ORDER BY (COALESCE((ps.timing_data->'15'->>'kills')::int, 0) + COALESCE((ps.timing_data->'15'->>'assists')::int, 0)) DESC
+          LIMIT 50
+        `, [...playerBindings]),
+
+        // Most deaths at 15 min
+        db.rawQuery(`
+          SELECT p.current_pseudo as player_name, ps.champion_id,
+                 (ps.timing_data->'15'->>'deaths')::int as value,
+                 g.duration, g.game_number, COALESCE(pt.short_name, pt.current_name) as team_name, pt.current_name as team_full_name, tr.name as tournament_name,
+                 COALESCE(g.started_at, m.started_at) as game_date, ps.role, ${opponentCol}, ${winCol}
+          ${playerJoins} AND g.duration > 900
+            AND ps.timing_data->'15'->>'deaths' IS NOT NULL
+          ORDER BY (ps.timing_data->'15'->>'deaths')::int DESC
           LIMIT 50
         `, [...playerBindings]),
 
@@ -994,6 +1138,12 @@ export default class ProLeagueStatsController {
           highestCsPerMin: this.formatPlayerRecords(highestCsPerMin.rows),
           fastestQuest: this.formatPlayerRecords(fastestQuest.rows),
           slowestQuest: this.formatPlayerRecords(slowestQuest.rows),
+          biggestQuestGap: this.formatQuestGapRecords(biggestQuestGap.rows),
+          mostSoloKills: this.formatPlayerRecords(mostSoloKills.rows),
+          mostSoloDeaths: this.formatPlayerRecords(mostSoloDeaths.rows),
+          mostKillsAt15: this.formatPlayerRecords(mostKillsAt15.rows),
+          mostKillsAssistsAt15: this.formatPlayerRecords(mostKillsAssistsAt15.rows),
+          mostDeathsAt15: this.formatPlayerRecords(mostDeathsAt15.rows),
           highestGoldDiffAt15: this.formatPlayerRecords(highestGoldDiffAt15.rows),
           lowestGoldDiffAt15: this.formatPlayerRecords(lowestGoldDiffAt15.rows),
           highestCsDiffAt15: this.formatPlayerRecords(highestCsDiffAt15.rows),
@@ -2480,6 +2630,25 @@ export default class ProLeagueStatsController {
       value: Number(row.streak_length),
       streakStart: row.streak_start ?? null,
       streakEnd: row.streak_end ?? null,
+    }))
+  }
+
+  private formatQuestGapRecords(rows: Record<string, unknown>[]) {
+    return rows.map((row) => ({
+      gap: Number(row.gap),
+      fastPlayerName: row.fast_player_name,
+      fastChampionId: row.fast_champion_id != null && Number(row.fast_champion_id) !== 0 ? Number(row.fast_champion_id) : null,
+      fastQuestTime: Number(row.fast_quest_time),
+      fastTeamName: row.fast_team_name ?? null,
+      fastTeamFullName: row.fast_team_full_name ?? null,
+      slowPlayerName: row.slow_player_name,
+      slowChampionId: row.slow_champion_id != null && Number(row.slow_champion_id) !== 0 ? Number(row.slow_champion_id) : null,
+      slowQuestTime: Number(row.slow_quest_time),
+      slowTeamName: row.slow_team_name ?? null,
+      slowTeamFullName: row.slow_team_full_name ?? null,
+      tournamentName: row.tournament_name,
+      gameDate: row.game_date,
+      gameNumber: row.game_number != null ? Number(row.game_number) : null,
     }))
   }
 

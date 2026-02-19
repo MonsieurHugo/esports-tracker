@@ -8,7 +8,7 @@ import { Skeleton } from '@/components/ui/Skeleton'
 import TeamLogo from '@/components/ui/TeamLogo'
 import { SocialCardModal } from '@/components/social-card/SocialCardModal'
 import type { SocialCardData, RecordCardType, FilterSummary } from '@/components/social-card/types'
-import type { ProRecords, ProPlayerRecord, ProTeamRecord, ProBoRecord, ProStreakRecord, ProTournamentKillsRecord, ProTournamentPlayerRecord } from '@/lib/types'
+import type { ProRecords, ProPlayerRecord, ProQuestGapRecord, ProTeamRecord, ProBoRecord, ProStreakRecord, ProTournamentKillsRecord, ProTournamentPlayerRecord } from '@/lib/types'
 import { getChampionName, getChampionIconUrlDDragon } from '@/lib/champions'
 import { getRoleImagePath, getRankTextClass } from '@/lib/utils'
 import type { ProStatsFilters } from '../hooks/useProStatsFilters'
@@ -163,6 +163,106 @@ function PlayerTable({ title, records, formatValue, onExport }: {
                   )}
                   <span className="text-(--text-muted)/50">·</span>
                   <span>{r.tournamentName}</span>
+                </DetailRow>
+              )}
+              </React.Fragment>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+function QuestGapTable({ title, records }: {
+  title: string
+  records: ProQuestGapRecord[]
+}) {
+  const [expandedIndex, setExpandedIndex] = useState<number | null>(null)
+  if (!records || records.length === 0) return null
+  const colCount = 4
+  return (
+    <div className="bg-[var(--bg-secondary)] rounded-lg border border-[var(--border)] overflow-hidden">
+      <TableTitle title={title} />
+      <div className="max-h-[420px] overflow-y-auto scrollbar-thin">
+        <table className="w-full text-sm">
+          <thead className="sticky top-0 z-10">
+            <tr className="text-left text-[10px] text-(--text-muted) uppercase tracking-wider bg-[var(--bg-card)] border-b border-[var(--border)]">
+              <th className="py-1.5 px-2 w-6"></th>
+              <th className="py-1.5">Ecart</th>
+              <th className="py-1.5">Rapide</th>
+              <th className="py-1.5">Lent</th>
+            </tr>
+          </thead>
+          <tbody>
+            {records.map((r, i) => {
+              const recent = isRecent(r.gameDate)
+              const isExpanded = expandedIndex === i
+              return (
+              <React.Fragment key={i}>
+              <tr
+                onClick={() => setExpandedIndex(isExpanded ? null : i)}
+                className={`border-b border-[var(--border)]/30 transition-colors hover:bg-[var(--bg-hover)] cursor-pointer ${
+                  i === 0 ? 'bg-[var(--accent)]/5' : recent ? 'bg-[var(--lol)]/5' : ''
+                }`}
+              >
+                <td className="py-1.5 px-2">
+                  <RankCell rank={i + 1} />
+                </td>
+                <td className={`py-1.5 font-mono font-bold text-xs ${i === 0 ? 'text-[var(--accent)]' : 'text-(--text-primary)'}`}>
+                  {fmt(r.gap)}
+                </td>
+                <td className="py-1.5">
+                  <div className="flex items-center gap-1">
+                    {r.fastTeamName && <TeamLogo slug={r.fastTeamName.toLowerCase()} shortName={r.fastTeamName} name={r.fastTeamFullName} size={16} />}
+                    {r.fastChampionId != null && r.fastChampionId !== 0 && (
+                      <Image
+                        src={getChampionIconUrlDDragon(r.fastChampionId)}
+                        alt={getChampionName(r.fastChampionId)}
+                        width={20}
+                        height={20}
+                        className="w-5 h-5 rounded"
+                        unoptimized
+                      />
+                    )}
+                    <span className="text-xs text-(--text-primary)">{r.fastPlayerName}</span>
+                    <span className="text-[10px] text-(--text-muted) font-mono">{fmt(r.fastQuestTime)}</span>
+                  </div>
+                </td>
+                <td className="py-1.5">
+                  <div className="flex items-center gap-1">
+                    {r.slowTeamName && <TeamLogo slug={r.slowTeamName.toLowerCase()} shortName={r.slowTeamName} name={r.slowTeamFullName} size={16} />}
+                    {r.slowChampionId != null && r.slowChampionId !== 0 && (
+                      <Image
+                        src={getChampionIconUrlDDragon(r.slowChampionId)}
+                        alt={getChampionName(r.slowChampionId)}
+                        width={20}
+                        height={20}
+                        className="w-5 h-5 rounded"
+                        unoptimized
+                      />
+                    )}
+                    <span className="text-xs text-(--text-primary)">{r.slowPlayerName}</span>
+                    <span className="text-[10px] text-(--text-muted) font-mono">{fmt(r.slowQuestTime)}</span>
+                  </div>
+                </td>
+              </tr>
+              {isExpanded && (
+                <DetailRow colSpan={colCount}>
+                  {r.gameNumber != null && (
+                    <>
+                      <span className="font-mono">G{r.gameNumber}</span>
+                      <span className="text-(--text-muted)/50">·</span>
+                    </>
+                  )}
+                  <span>{r.tournamentName}</span>
+                  {r.gameDate && (
+                    <>
+                      <span className="text-(--text-muted)/50">·</span>
+                      <span>{new Date(r.gameDate).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: '2-digit' })}</span>
+                    </>
+                  )}
                 </DetailRow>
               )}
               </React.Fragment>
@@ -523,6 +623,43 @@ function TournamentPlayerTable({ title, records, formatValue, valueLabel, onExpo
   )
 }
 
+function CollapsibleCategory({ title, defaultOpen = false, children }: {
+  title: string
+  defaultOpen?: boolean
+  children: React.ReactNode
+}) {
+  const [isOpen, setIsOpen] = useState(defaultOpen)
+  return (
+    <div>
+      <button
+        onClick={() => setIsOpen((v) => !v)}
+        className="flex items-center gap-3 w-full group cursor-pointer mb-3"
+      >
+        <svg
+          className={`w-4 h-4 text-(--text-muted) transition-transform duration-200 ${isOpen ? 'rotate-90' : ''}`}
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <polyline points="9 18 15 12 9 6" />
+        </svg>
+        <span className="text-xs font-semibold text-(--text-secondary) uppercase tracking-wider whitespace-nowrap">
+          {title}
+        </span>
+        <div className="h-px flex-1 bg-[var(--border)]" />
+      </button>
+      {isOpen && (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+          {children}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function TableTitle({ title, onExport }: { title: string; onExport?: () => void }) {
   return (
     <div className="px-4 py-2.5 bg-[var(--bg-card)] border-b border-[var(--border)] flex items-center justify-between">
@@ -719,59 +856,133 @@ export default function RecordsSection({ filters }: { filters: ProStatsFilters }
 
       {/* Player Records */}
       {subTab === 'players' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-          {([
-            ['Best KDA', playerRecords.bestKda, (r: ProPlayerRecord) => `${r.value.toFixed(2)} (${r.kills}/${r.deaths}/${r.assists})`],
-            ['Most Kills', playerRecords.mostKills, (r: ProPlayerRecord) => String(r.value)],
-            ['Most Deaths', playerRecords.mostDeaths, (r: ProPlayerRecord) => String(r.value)],
-            ['Most Assists', playerRecords.mostAssists, (r: ProPlayerRecord) => String(r.value)],
-            ['K+A (0 Deaths)', playerRecords.mostKillsAssistsZeroDeaths, (r: ProPlayerRecord) => `${r.value} (${r.kills}/${r.deaths}/${r.assists})`],
-            ['Most K+A', playerRecords.mostKillsAssists, (r: ProPlayerRecord) => `${r.value} (${r.kills}/${r.deaths}/${r.assists})`],
-            ['Highest DPM', playerRecords.highestDpm, (r: ProPlayerRecord) => Math.round(r.value).toLocaleString()],
-            ['Highest DPM Post 15', playerRecords.highestDpmPost15, (r: ProPlayerRecord) => Math.round(r.value).toLocaleString()],
-            ['Highest DMG%', playerRecords.highestDamageShare, (r: ProPlayerRecord) => `${r.value.toFixed(1)}%`],
-            ['Highest CS/min', playerRecords.highestCsPerMin, (r: ProPlayerRecord) => r.value.toFixed(2)],
-            ['Fastest Quest', playerRecords.fastestQuest, (r: ProPlayerRecord) => fmt(r.value)],
-            ['Slowest Quest', playerRecords.slowestQuest, (r: ProPlayerRecord) => fmt(r.value)],
-            ['Gold Diff @15 (Best)', playerRecords.highestGoldDiffAt15, (r: ProPlayerRecord) => `+${Math.round(r.value).toLocaleString()}`],
-            ['Gold Diff @15 (Worst)', playerRecords.lowestGoldDiffAt15, (r: ProPlayerRecord) => Math.round(r.value).toLocaleString()],
-            ['CS Diff @15 (Best)', playerRecords.highestCsDiffAt15, (r: ProPlayerRecord) => `+${Math.round(r.value)}`],
-            ['XP Diff @15 (Best)', playerRecords.highestXpDiffAt15, (r: ProPlayerRecord) => `+${Math.round(r.value).toLocaleString()}`],
-            ['Gold Diff End (Best)', playerRecords.highestGoldDiffEnd, (r: ProPlayerRecord) => `+${Math.round(r.value).toLocaleString()}`],
-            ['CS Diff End (Best)', playerRecords.highestCsDiffEnd, (r: ProPlayerRecord) => `+${Math.round(r.value)}`],
-          ] as [string, ProPlayerRecord[], (r: ProPlayerRecord) => string][]).map(([title, recs, fv]) => (
-            <PlayerTable
-              key={title}
-              title={title}
-              records={recs}
-              formatValue={fv}
-              onExport={() => openSocialCard(title, 'player', recs, fv as SocialCardData['formatValue'])}
-            />
-          ))}
+        <div className="space-y-2">
+          <CollapsibleCategory title="KDA & Combat">
+            {([
+              ['Best KDA', playerRecords.bestKda, (r: ProPlayerRecord) => `${r.value.toFixed(2)} (${r.kills}/${r.deaths}/${r.assists})`],
+              ['Most Kills', playerRecords.mostKills, (r: ProPlayerRecord) => String(r.value)],
+              ['Most Deaths', playerRecords.mostDeaths, (r: ProPlayerRecord) => String(r.value)],
+              ['Most Assists', playerRecords.mostAssists, (r: ProPlayerRecord) => String(r.value)],
+              ['K+A (0 Deaths)', playerRecords.mostKillsAssistsZeroDeaths, (r: ProPlayerRecord) => `${r.value} (${r.kills}/${r.deaths}/${r.assists})`],
+              ['Most K+A', playerRecords.mostKillsAssists, (r: ProPlayerRecord) => `${r.value} (${r.kills}/${r.deaths}/${r.assists})`],
+              ['Solo Kills', playerRecords.mostSoloKills, (r: ProPlayerRecord) => String(r.value)],
+              ['Solo Deaths', playerRecords.mostSoloDeaths, (r: ProPlayerRecord) => String(r.value)],
+            ] as [string, ProPlayerRecord[], (r: ProPlayerRecord) => string][]).map(([title, recs, fv]) => (
+              <PlayerTable
+                key={title}
+                title={title}
+                records={recs}
+                formatValue={fv}
+                onExport={() => openSocialCard(title, 'player', recs, fv as SocialCardData['formatValue'])}
+              />
+            ))}
+          </CollapsibleCategory>
+
+          <CollapsibleCategory title="Degats & Farm">
+            {([
+              ['Highest DPM', playerRecords.highestDpm, (r: ProPlayerRecord) => Math.round(r.value).toLocaleString()],
+              ['Highest DPM Post 15', playerRecords.highestDpmPost15, (r: ProPlayerRecord) => Math.round(r.value).toLocaleString()],
+              ['Highest DMG%', playerRecords.highestDamageShare, (r: ProPlayerRecord) => `${r.value.toFixed(1)}%`],
+              ['Highest CS/min', playerRecords.highestCsPerMin, (r: ProPlayerRecord) => r.value.toFixed(2)],
+            ] as [string, ProPlayerRecord[], (r: ProPlayerRecord) => string][]).map(([title, recs, fv]) => (
+              <PlayerTable
+                key={title}
+                title={title}
+                records={recs}
+                formatValue={fv}
+                onExport={() => openSocialCard(title, 'player', recs, fv as SocialCardData['formatValue'])}
+              />
+            ))}
+          </CollapsibleCategory>
+
+          <CollapsibleCategory title="Quetes">
+            {([
+              ['Fastest Quest', playerRecords.fastestQuest, (r: ProPlayerRecord) => fmt(r.value)],
+              ['Slowest Quest', playerRecords.slowestQuest, (r: ProPlayerRecord) => fmt(r.value)],
+            ] as [string, ProPlayerRecord[], (r: ProPlayerRecord) => string][]).map(([title, recs, fv]) => (
+              <PlayerTable
+                key={title}
+                title={title}
+                records={recs}
+                formatValue={fv}
+                onExport={() => openSocialCard(title, 'player', recs, fv as SocialCardData['formatValue'])}
+              />
+            ))}
+            <QuestGapTable title="Plus gros ecart de quete" records={playerRecords.biggestQuestGap} />
+          </CollapsibleCategory>
+
+          <CollapsibleCategory title="Avantage en lane @15">
+            {([
+              ['Kills @15', playerRecords.mostKillsAt15, (r: ProPlayerRecord) => String(Math.round(r.value))],
+              ['Kills + Assists @15', playerRecords.mostKillsAssistsAt15, (r: ProPlayerRecord) => String(Math.round(r.value))],
+              ['Deaths @15', playerRecords.mostDeathsAt15, (r: ProPlayerRecord) => String(Math.round(r.value))],
+              ['Gold Diff @15 (Best)', playerRecords.highestGoldDiffAt15, (r: ProPlayerRecord) => `+${Math.round(r.value).toLocaleString()}`],
+              ['Gold Diff @15 (Worst)', playerRecords.lowestGoldDiffAt15, (r: ProPlayerRecord) => Math.round(r.value).toLocaleString()],
+              ['CS Diff @15 (Best)', playerRecords.highestCsDiffAt15, (r: ProPlayerRecord) => `+${Math.round(r.value)}`],
+              ['XP Diff @15 (Best)', playerRecords.highestXpDiffAt15, (r: ProPlayerRecord) => `+${Math.round(r.value).toLocaleString()}`],
+            ] as [string, ProPlayerRecord[], (r: ProPlayerRecord) => string][]).map(([title, recs, fv]) => (
+              <PlayerTable
+                key={title}
+                title={title}
+                records={recs}
+                formatValue={fv}
+                onExport={() => openSocialCard(title, 'player', recs, fv as SocialCardData['formatValue'])}
+              />
+            ))}
+          </CollapsibleCategory>
+
+          <CollapsibleCategory title="Avantage fin de game">
+            {([
+              ['Gold Diff End (Best)', playerRecords.highestGoldDiffEnd, (r: ProPlayerRecord) => `+${Math.round(r.value).toLocaleString()}`],
+              ['CS Diff End (Best)', playerRecords.highestCsDiffEnd, (r: ProPlayerRecord) => `+${Math.round(r.value)}`],
+            ] as [string, ProPlayerRecord[], (r: ProPlayerRecord) => string][]).map(([title, recs, fv]) => (
+              <PlayerTable
+                key={title}
+                title={title}
+                records={recs}
+                formatValue={fv}
+                onExport={() => openSocialCard(title, 'player', recs, fv as SocialCardData['formatValue'])}
+              />
+            ))}
+          </CollapsibleCategory>
         </div>
       )}
 
       {/* Team Records */}
       {subTab === 'teams' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-          <TeamTable title="Victoire la plus rapide" records={teamRecords.fastestWin} onExport={() => openSocialCard('Victoire la plus rapide', 'team', teamRecords.fastestWin, ((r: ProTeamRecord) => fmt(r.value)) as SocialCardData['formatValue'])} />
-          <TeamTable title="Game la plus longue" records={teamRecords.longestGame} onExport={() => openSocialCard('Game la plus longue', 'team', teamRecords.longestGame, ((r: ProTeamRecord) => fmt(r.value)) as SocialCardData['formatValue'])} />
-          <TeamTable title="First Blood le plus rapide" records={teamRecords.fastestFirstBlood} winnerLabel="Auteur" loserLabel="Victime" onExport={() => openSocialCard('First Blood le plus rapide', 'team', teamRecords.fastestFirstBlood, ((r: ProTeamRecord) => fmt(r.value)) as SocialCardData['formatValue'], { winnerLabel: 'Auteur', loserLabel: 'Victime' })} />
-          <TeamTable title="First Blood le plus lent" records={teamRecords.slowestFirstBlood} winnerLabel="Auteur" loserLabel="Victime" onExport={() => openSocialCard('First Blood le plus lent', 'team', teamRecords.slowestFirstBlood, ((r: ProTeamRecord) => fmt(r.value)) as SocialCardData['formatValue'], { winnerLabel: 'Auteur', loserLabel: 'Victime' })} />
-          <BoTable title="BO3 le plus rapide" records={teamRecords.fastestBo3} onExport={() => openSocialCard('BO3 le plus rapide', 'bo', teamRecords.fastestBo3, (() => '') as SocialCardData['formatValue'])} />
-          <BoTable title="BO3 le plus long" records={teamRecords.slowestBo3} onExport={() => openSocialCard('BO3 le plus long', 'bo', teamRecords.slowestBo3, (() => '') as SocialCardData['formatValue'])} />
-          <BoTable title="BO5 le plus rapide" records={teamRecords.fastestBo5} onExport={() => openSocialCard('BO5 le plus rapide', 'bo', teamRecords.fastestBo5, (() => '') as SocialCardData['formatValue'])} />
-          <BoTable title="BO5 le plus long" records={teamRecords.slowestBo5} onExport={() => openSocialCard('BO5 le plus long', 'bo', teamRecords.slowestBo5, (() => '') as SocialCardData['formatValue'])} />
-          <TeamTable title="Plus de kills (equipe)" records={teamRecords.mostTeamKills} valueLabel="Kills" formatValue={(r) => String(r.value)} onExport={() => openSocialCard('Plus de kills (equipe)', 'team', teamRecords.mostTeamKills, ((r: ProTeamRecord) => String(r.value)) as SocialCardData['formatValue'], { valueLabel: 'Kills' })} />
-          <TeamTable title="Plus de kills (game)" records={teamRecords.mostGameKills} valueLabel="Kills" formatValue={(r) => String(r.value)} onExport={() => openSocialCard('Plus de kills (game)', 'team', teamRecords.mostGameKills, ((r: ProTeamRecord) => String(r.value)) as SocialCardData['formatValue'], { valueLabel: 'Kills' })} />
-          <TeamTable title="First Tower le plus rapide" records={teamRecords.fastestFirstTower} onExport={() => openSocialCard('First Tower le plus rapide', 'team', teamRecords.fastestFirstTower, ((r: ProTeamRecord) => fmt(r.value)) as SocialCardData['formatValue'])} />
-          <TeamTable title="First Dragon le plus rapide" records={teamRecords.fastestFirstDragon} onExport={() => openSocialCard('First Dragon le plus rapide', 'team', teamRecords.fastestFirstDragon, ((r: ProTeamRecord) => fmt(r.value)) as SocialCardData['formatValue'])} />
-          <TeamTable title="First Herald le plus rapide" records={teamRecords.fastestFirstHerald} onExport={() => openSocialCard('First Herald le plus rapide', 'team', teamRecords.fastestFirstHerald, ((r: ProTeamRecord) => fmt(r.value)) as SocialCardData['formatValue'])} />
-          <TeamTable title="First Baron le plus rapide" records={teamRecords.fastestFirstBaron} onExport={() => openSocialCard('First Baron le plus rapide', 'team', teamRecords.fastestFirstBaron, ((r: ProTeamRecord) => fmt(r.value)) as SocialCardData['formatValue'])} />
-          <TeamTable title="Plus de dragons (game)" records={teamRecords.mostDragons} valueLabel="Dragons" formatValue={(r) => String(r.value)} onExport={() => openSocialCard('Plus de dragons (game)', 'team', teamRecords.mostDragons, ((r: ProTeamRecord) => String(r.value)) as SocialCardData['formatValue'], { valueLabel: 'Dragons' })} />
-          <TeamTable title="Plus d'Elder Dragons" records={teamRecords.mostElderDragons} valueLabel="Elders" formatValue={(r) => String(r.value)} onExport={() => openSocialCard("Plus d'Elder Dragons", 'team', teamRecords.mostElderDragons, ((r: ProTeamRecord) => String(r.value)) as SocialCardData['formatValue'], { valueLabel: 'Elders' })} />
-          <TeamTable title="Plus de Barons" records={teamRecords.mostBarons} valueLabel="Barons" formatValue={(r) => String(r.value)} onExport={() => openSocialCard('Plus de Barons', 'team', teamRecords.mostBarons, ((r: ProTeamRecord) => String(r.value)) as SocialCardData['formatValue'], { valueLabel: 'Barons' })} />
-          <TournamentKillsTable title="Moyenne de kills par game" records={tournamentRecords.avgKillsPerGame} onExport={() => openSocialCard('Moyenne de kills par game', 'tournamentKills', tournamentRecords.avgKillsPerGame, (() => '') as SocialCardData['formatValue'])} />
+        <div className="space-y-2">
+          <CollapsibleCategory title="Duree">
+            <TeamTable title="Victoire la plus rapide" records={teamRecords.fastestWin} onExport={() => openSocialCard('Victoire la plus rapide', 'team', teamRecords.fastestWin, ((r: ProTeamRecord) => fmt(r.value)) as SocialCardData['formatValue'])} />
+            <TeamTable title="Game la plus longue" records={teamRecords.longestGame} onExport={() => openSocialCard('Game la plus longue', 'team', teamRecords.longestGame, ((r: ProTeamRecord) => fmt(r.value)) as SocialCardData['formatValue'])} />
+          </CollapsibleCategory>
+
+          <CollapsibleCategory title="First Blood">
+            <TeamTable title="First Blood le plus rapide" records={teamRecords.fastestFirstBlood} winnerLabel="Auteur" loserLabel="Victime" onExport={() => openSocialCard('First Blood le plus rapide', 'team', teamRecords.fastestFirstBlood, ((r: ProTeamRecord) => fmt(r.value)) as SocialCardData['formatValue'], { winnerLabel: 'Auteur', loserLabel: 'Victime' })} />
+            <TeamTable title="First Blood le plus lent" records={teamRecords.slowestFirstBlood} winnerLabel="Auteur" loserLabel="Victime" onExport={() => openSocialCard('First Blood le plus lent', 'team', teamRecords.slowestFirstBlood, ((r: ProTeamRecord) => fmt(r.value)) as SocialCardData['formatValue'], { winnerLabel: 'Auteur', loserLabel: 'Victime' })} />
+          </CollapsibleCategory>
+
+          <CollapsibleCategory title="Best of">
+            <BoTable title="BO3 le plus rapide" records={teamRecords.fastestBo3} onExport={() => openSocialCard('BO3 le plus rapide', 'bo', teamRecords.fastestBo3, (() => '') as SocialCardData['formatValue'])} />
+            <BoTable title="BO3 le plus long" records={teamRecords.slowestBo3} onExport={() => openSocialCard('BO3 le plus long', 'bo', teamRecords.slowestBo3, (() => '') as SocialCardData['formatValue'])} />
+            <BoTable title="BO5 le plus rapide" records={teamRecords.fastestBo5} onExport={() => openSocialCard('BO5 le plus rapide', 'bo', teamRecords.fastestBo5, (() => '') as SocialCardData['formatValue'])} />
+            <BoTable title="BO5 le plus long" records={teamRecords.slowestBo5} onExport={() => openSocialCard('BO5 le plus long', 'bo', teamRecords.slowestBo5, (() => '') as SocialCardData['formatValue'])} />
+          </CollapsibleCategory>
+
+          <CollapsibleCategory title="Kills">
+            <TeamTable title="Plus de kills (equipe)" records={teamRecords.mostTeamKills} valueLabel="Kills" formatValue={(r) => String(r.value)} onExport={() => openSocialCard('Plus de kills (equipe)', 'team', teamRecords.mostTeamKills, ((r: ProTeamRecord) => String(r.value)) as SocialCardData['formatValue'], { valueLabel: 'Kills' })} />
+            <TeamTable title="Plus de kills (game)" records={teamRecords.mostGameKills} valueLabel="Kills" formatValue={(r) => String(r.value)} onExport={() => openSocialCard('Plus de kills (game)', 'team', teamRecords.mostGameKills, ((r: ProTeamRecord) => String(r.value)) as SocialCardData['formatValue'], { valueLabel: 'Kills' })} />
+            <TournamentKillsTable title="Moyenne de kills par game" records={tournamentRecords.avgKillsPerGame} onExport={() => openSocialCard('Moyenne de kills par game', 'tournamentKills', tournamentRecords.avgKillsPerGame, (() => '') as SocialCardData['formatValue'])} />
+          </CollapsibleCategory>
+
+          <CollapsibleCategory title="Objectifs">
+            <TeamTable title="First Tower le plus rapide" records={teamRecords.fastestFirstTower} onExport={() => openSocialCard('First Tower le plus rapide', 'team', teamRecords.fastestFirstTower, ((r: ProTeamRecord) => fmt(r.value)) as SocialCardData['formatValue'])} />
+            <TeamTable title="First Dragon le plus rapide" records={teamRecords.fastestFirstDragon} onExport={() => openSocialCard('First Dragon le plus rapide', 'team', teamRecords.fastestFirstDragon, ((r: ProTeamRecord) => fmt(r.value)) as SocialCardData['formatValue'])} />
+            <TeamTable title="First Herald le plus rapide" records={teamRecords.fastestFirstHerald} onExport={() => openSocialCard('First Herald le plus rapide', 'team', teamRecords.fastestFirstHerald, ((r: ProTeamRecord) => fmt(r.value)) as SocialCardData['formatValue'])} />
+            <TeamTable title="First Baron le plus rapide" records={teamRecords.fastestFirstBaron} onExport={() => openSocialCard('First Baron le plus rapide', 'team', teamRecords.fastestFirstBaron, ((r: ProTeamRecord) => fmt(r.value)) as SocialCardData['formatValue'])} />
+            <TeamTable title="Plus de dragons (game)" records={teamRecords.mostDragons} valueLabel="Dragons" formatValue={(r) => String(r.value)} onExport={() => openSocialCard('Plus de dragons (game)', 'team', teamRecords.mostDragons, ((r: ProTeamRecord) => String(r.value)) as SocialCardData['formatValue'], { valueLabel: 'Dragons' })} />
+            <TeamTable title="Plus d'Elder Dragons" records={teamRecords.mostElderDragons} valueLabel="Elders" formatValue={(r) => String(r.value)} onExport={() => openSocialCard("Plus d'Elder Dragons", 'team', teamRecords.mostElderDragons, ((r: ProTeamRecord) => String(r.value)) as SocialCardData['formatValue'], { valueLabel: 'Elders' })} />
+            <TeamTable title="Plus de Barons" records={teamRecords.mostBarons} valueLabel="Barons" formatValue={(r) => String(r.value)} onExport={() => openSocialCard('Plus de Barons', 'team', teamRecords.mostBarons, ((r: ProTeamRecord) => String(r.value)) as SocialCardData['formatValue'], { valueLabel: 'Barons' })} />
+          </CollapsibleCategory>
         </div>
       )}
 
