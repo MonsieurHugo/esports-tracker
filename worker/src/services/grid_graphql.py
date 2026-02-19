@@ -311,22 +311,18 @@ class GridGraphQL:
         query = """
         query GetTournamentChildren($id: ID!) {
             tournament(id: $id) {
-                children(first: 50) {
-                    edges {
-                        node {
-                            id
-                            name
-                            nameShortened
-                            startDate
-                            endDate
-                            parent {
-                                id
-                                name
-                            }
-                            titles {
-                                id
-                            }
-                        }
+                children {
+                    id
+                    name
+                    nameShortened
+                    startDate
+                    endDate
+                    parent {
+                        id
+                        name
+                    }
+                    titles {
+                        id
                     }
                 }
             }
@@ -339,10 +335,8 @@ class GridGraphQL:
             if not node:
                 return []
 
-            children_conn = node.get("children", {})
             children: list[Tournament] = []
-            for edge in children_conn.get("edges", []):
-                child = edge.get("node", {})
+            for child in node.get("children", []):
                 parent = child.get("parent")
                 titles = child.get("titles", [])
                 children.append(
