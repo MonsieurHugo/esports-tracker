@@ -368,7 +368,6 @@ class GridGraphQL:
         if tournament_ids:
             filter_obj["tournament"] = {
                 "id": {"in": tournament_ids},
-                "includeChildren": {"equals": True},
             }
 
         if types:
