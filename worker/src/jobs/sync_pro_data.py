@@ -103,15 +103,19 @@ class SyncProDataJob:
                 ancestors_chain.append(ancestor)
 
             # ancestor = the split (topmost in our set, level 1)
-            t.split_name = ancestor.name  
+            t.split_name = ancestor.name
+
             if len(ancestors_chain) == 1:
                 # This IS the split itself → no phase
-                t.phase = None              elif len(ancestors_chain) == 2:
+                t.phase = None
+            elif len(ancestors_chain) == 2:
                 # Direct child of split → it IS a phase
-                t.phase = t.name_short or t.name              else:
+                t.phase = t.name_short or t.name
+            else:
                 # Deeper level → phase is the ancestor at level 2 (second from top)
                 phase_ancestor = ancestors_chain[-2]
-                t.phase = phase_ancestor.name_short or phase_ancestor.name  
+                t.phase = phase_ancestor.name_short or phase_ancestor.name
+
     @staticmethod
     def _calculate_match_status(state: SeriesState) -> str:
         """
