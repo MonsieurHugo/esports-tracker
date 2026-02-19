@@ -298,6 +298,72 @@ class GridGraphQL:
             logger.error("Failed to fetch tournament", tournament_id=tournament_id, error=str(e))
             return None
 
+    async def get_tournament_children(self, tournament_id: str) -> list[Tournament]:
+        """
+        Get direct children of a tournament via the children connection.
+
+        Args:
+            tournament_id: GRID tournament ID
+
+        Returns:
+            List of child Tournament objects
+        """
+        query = """
+        query GetTournamentChildren($id: ID!) {
+            tournament(id: $id) {
+                children(first: 50) {
+                    edges {
+                        node {
+                            id
+                            name
+                            nameShortened
+                            startDate
+                            endDate
+                            parent {
+                                id
+                                name
+                            }
+                            titles {
+                                id
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        """
+
+        try:
+            data = await self.client.graphql_central(query, {"id": tournament_id})
+            node = data.get("tournament")
+            if not node:
+                return []
+
+            children_conn = node.get("children", {})
+            children: list[Tournament] = []
+            for edge in children_conn.get("edges", []):
+                child = edge.get("node", {})
+                parent = child.get("parent")
+                titles = child.get("titles", [])
+                children.append(
+                    Tournament(
+                        id=child.get("id", ""),
+                        name=child.get("name", ""),
+                        name_short=child.get("nameShortened"),
+                        start_date=self._parse_date(child.get("startDate")),
+                        end_date=self._parse_date(child.get("endDate")),
+                        parent_id=parent.get("id") if parent else None,
+                        parent_name=parent.get("name") if parent else None,
+                        titles=[t.get("id") for t in titles if t.get("id")],
+                    )
+                )
+
+            return children
+
+        except GridClientError as e:
+            logger.error("Failed to fetch tournament children", tournament_id=tournament_id, error=str(e))
+            return []
+
     # ==========================================
     # Series (allSeries)
     # ==========================================

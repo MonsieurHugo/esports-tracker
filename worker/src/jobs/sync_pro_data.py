@@ -190,44 +190,33 @@ class SyncProDataJob:
                 logger.info("Fetched specific tournaments", count=len(tournaments), requested=len(tournament_ids))
             else:
                 # Step 1: Fetch tournaments with dates in target year (gets splits / level 1)
-                date_filtered = await self.graphql.get_tournaments(
+                tournaments = await self.graphql.get_tournaments(
                     start_date=date(year, 1, 1),
                     end_date=date(year, 12, 31),
                 )
-                split_ids = {t.id for t in date_filtered}
-                logger.info("Found date-filtered tournaments (splits)", count=len(date_filtered), year=year)
+                logger.info("Found date-filtered tournaments (splits)", count=len(tournaments), year=year)
 
-                if split_ids:
-                    # Step 2: Fetch ALL LoL tournaments (no date filter) to discover children
-                    all_tournaments = await self.graphql.get_tournaments()
-                    logger.info("Fetched all LoL tournaments for child discovery", count=len(all_tournaments))
+                # Step 2: Recursively fetch child tournaments via children connection
+                # Children (phases, leaf nodes) often don't have dates so the date filter misses them
+                all_ids = {t.id for t in tournaments}
+                current_parents = list(tournaments)
+                depth = 0
+                while current_parents and depth < 5:
+                    depth += 1
+                    new_children: list[Tournament] = []
+                    for parent_t in current_parents:
+                        children = await self.graphql.get_tournament_children(parent_t.id)
+                        for child in children:
+                            if child.id not in all_ids:
+                                new_children.append(child)
+                                all_ids.add(child.id)
+                    if not new_children:
+                        break
+                    logger.info("Found child tournaments", depth=depth, count=len(new_children))
+                    tournaments.extend(new_children)
+                    current_parents = new_children
 
-                    # Step 3: Keep only tournaments that are in the year hierarchy
-                    by_id = {t.id: t for t in all_tournaments}
-
-                    def is_year_descendant(t: Tournament) -> bool:
-                        if t.id in split_ids:
-                            return True
-                        seen: set[str] = set()
-                        current = t
-                        while current.parent_id and current.parent_id in by_id:
-                            if current.parent_id in split_ids:
-                                return True
-                            if current.parent_id in seen:
-                                break
-                            seen.add(current.parent_id)
-                            current = by_id[current.parent_id]
-                        return False
-
-                    tournaments = [t for t in all_tournaments if is_year_descendant(t)]
-                    logger.info(
-                        "Filtered to year hierarchy",
-                        total_fetched=len(all_tournaments),
-                        kept=len(tournaments),
-                        year=year,
-                    )
-                else:
-                    tournaments = []
+                logger.info("Total tournaments after child discovery", count=len(tournaments), year=year)
 
             # Sort so parents are processed before children
             tournaments = self._sort_parents_first(tournaments)
