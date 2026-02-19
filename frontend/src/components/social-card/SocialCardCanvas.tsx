@@ -1,8 +1,9 @@
 import { forwardRef } from 'react'
-import type { ProPlayerRecord, ProTeamRecord, ProBoRecord, ProStreakRecord, ProTournamentKillsRecord, ProTournamentPlayerRecord } from '@/lib/types'
+import type { ProPlayerRecord, ProQuestGapRecord, ProTeamRecord, ProBoRecord, ProStreakRecord, ProTournamentKillsRecord, ProTournamentPlayerRecord } from '@/lib/types'
 import { CardHeader } from './CardHeader'
 import { CardFooter } from './CardFooter'
 import { PlayerRecordCard } from './layouts/PlayerRecordCard'
+import { QuestGapRecordCard } from './layouts/QuestGapRecordCard'
 import { TeamRecordCard } from './layouts/TeamRecordCard'
 import { BoRecordCard } from './layouts/BoRecordCard'
 import { StreakRecordCard } from './layouts/StreakRecordCard'
@@ -74,6 +75,13 @@ export const SocialCardCanvas = forwardRef<HTMLDivElement, SocialCardCanvasProps
           {data.cardType === 'tournamentKills' && (
             <TournamentKillsCard
               records={data.records as ProTournamentKillsRecord[]}
+              format={format}
+            />
+          )}
+          {data.cardType === 'questGap' && (
+            <QuestGapRecordCard
+              records={data.records as ProQuestGapRecord[]}
+              formatValue={data.formatValue as (r: ProQuestGapRecord) => string}
               format={format}
             />
           )}

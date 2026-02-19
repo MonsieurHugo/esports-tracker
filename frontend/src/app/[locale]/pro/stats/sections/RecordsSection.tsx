@@ -175,16 +175,17 @@ function PlayerTable({ title, records, formatValue, onExport }: {
   )
 }
 
-function QuestGapTable({ title, records }: {
+function QuestGapTable({ title, records, onExport }: {
   title: string
   records: ProQuestGapRecord[]
+  onExport?: () => void
 }) {
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null)
   if (!records || records.length === 0) return null
   const colCount = 4
   return (
     <div className="bg-[var(--bg-secondary)] rounded-lg border border-[var(--border)] overflow-hidden">
-      <TableTitle title={title} />
+      <TableTitle title={title} onExport={onExport} />
       <div className="max-h-[420px] overflow-y-auto scrollbar-thin">
         <table className="w-full text-sm">
           <thead className="sticky top-0 z-10">
@@ -623,7 +624,7 @@ function TournamentPlayerTable({ title, records, formatValue, valueLabel, onExpo
   )
 }
 
-function CollapsibleCategory({ title, defaultOpen = false, children }: {
+function CollapsibleCategory({ title, defaultOpen = true, children }: {
   title: string
   defaultOpen?: boolean
   children: React.ReactNode
@@ -867,6 +868,8 @@ export default function RecordsSection({ filters }: { filters: ProStatsFilters }
               ['Most K+A', playerRecords.mostKillsAssists, (r: ProPlayerRecord) => `${r.value} (${r.kills}/${r.deaths}/${r.assists})`],
               ['Solo Kills', playerRecords.mostSoloKills, (r: ProPlayerRecord) => String(r.value)],
               ['Solo Deaths', playerRecords.mostSoloDeaths, (r: ProPlayerRecord) => String(r.value)],
+              ['Gold Diff End (Best)', playerRecords.highestGoldDiffEnd, (r: ProPlayerRecord) => `+${Math.round(r.value).toLocaleString()}`],
+              ['CS Diff End (Best)', playerRecords.highestCsDiffEnd, (r: ProPlayerRecord) => `+${Math.round(r.value)}`],
             ] as [string, ProPlayerRecord[], (r: ProPlayerRecord) => string][]).map(([title, recs, fv]) => (
               <PlayerTable
                 key={title}
@@ -908,7 +911,7 @@ export default function RecordsSection({ filters }: { filters: ProStatsFilters }
                 onExport={() => openSocialCard(title, 'player', recs, fv as SocialCardData['formatValue'])}
               />
             ))}
-            <QuestGapTable title="Plus gros ecart de quete" records={playerRecords.biggestQuestGap} />
+            <QuestGapTable title="Plus gros ecart de quete" records={playerRecords.biggestQuestGap} onExport={() => openSocialCard('Plus gros ecart de quete', 'questGap', playerRecords.biggestQuestGap, ((r: ProQuestGapRecord) => fmt(r.gap)) as SocialCardData['formatValue'])} />
           </CollapsibleCategory>
 
           <CollapsibleCategory title="Avantage en lane @15">
@@ -931,20 +934,6 @@ export default function RecordsSection({ filters }: { filters: ProStatsFilters }
             ))}
           </CollapsibleCategory>
 
-          <CollapsibleCategory title="Avantage fin de game">
-            {([
-              ['Gold Diff End (Best)', playerRecords.highestGoldDiffEnd, (r: ProPlayerRecord) => `+${Math.round(r.value).toLocaleString()}`],
-              ['CS Diff End (Best)', playerRecords.highestCsDiffEnd, (r: ProPlayerRecord) => `+${Math.round(r.value)}`],
-            ] as [string, ProPlayerRecord[], (r: ProPlayerRecord) => string][]).map(([title, recs, fv]) => (
-              <PlayerTable
-                key={title}
-                title={title}
-                records={recs}
-                formatValue={fv}
-                onExport={() => openSocialCard(title, 'player', recs, fv as SocialCardData['formatValue'])}
-              />
-            ))}
-          </CollapsibleCategory>
         </div>
       )}
 

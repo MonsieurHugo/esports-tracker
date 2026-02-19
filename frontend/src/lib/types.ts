@@ -889,6 +889,8 @@ export interface ProQuestGapRecord {
   slowQuestTime: number
   slowTeamName: string | null
   slowTeamFullName?: string | null
+  role: string | null
+  fastWin?: boolean | null
   tournamentName: string
   gameDate: string | null
   gameNumber?: number | null
@@ -1036,7 +1038,6 @@ export interface FilterMapResponse {
   teams: { teamId: number; name: string; shortName: string }[]
   players: { playerId: number; name: string }[]
   tournaments: { tournamentId: number; name: string }[]
-  phases: string[]
 }
 
 export interface ProTeamLeaderboardEntry {

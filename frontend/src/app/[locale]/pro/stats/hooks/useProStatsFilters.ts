@@ -14,8 +14,9 @@ export interface AvailableOptions {
   teams: { teamId: number; name: string; shortName: string }[]
   players: { playerId: number; name: string }[]
   tiers: number[]
-  phases: string[]
 }
+
+export type PlayoffsFilter = 'all' | 'season' | 'playoffs'
 
 export interface ProStatsFilters {
   // State
@@ -26,7 +27,7 @@ export interface ProStatsFilters {
   selectedPlayerIds: Set<number>
   role: string | null
   selectedTier: number | null
-  selectedPhases: Set<string>
+  playoffsFilter: PlayoffsFilter
 
   // Setters
   setSelectedYears: (v: Set<number>) => void
@@ -36,7 +37,7 @@ export interface ProStatsFilters {
   setSelectedPlayerIds: (v: Set<number>) => void
   setRole: (v: string | null) => void
   setSelectedTier: (v: number | null) => void
-  setSelectedPhases: (v: Set<string>) => void
+  setPlayoffsFilter: (v: PlayoffsFilter) => void
 
   // Derived
   availableOptions: AvailableOptions
@@ -55,7 +56,7 @@ export function useProStatsFilters(defaultYears?: Set<number>): ProStatsFilters 
   const [selectedPlayerIds, setSelectedPlayerIds] = useState<Set<number>>(new Set())
   const [role, setRole] = useState<string | null>(null)
   const [selectedTier, setSelectedTier] = useState<number | null>(null)
-  const [selectedPhases, setSelectedPhases] = useState<Set<string>>(new Set())
+  const [playoffsFilter, setPlayoffsFilter] = useState<PlayoffsFilter>('all')
 
   // Filter map data (loaded once at mount)
   const [filterMap, setFilterMap] = useState<FilterMapResponse | null>(null)
@@ -80,7 +81,7 @@ export function useProStatsFilters(defaultYears?: Set<number>): ProStatsFilters 
 
   // Independent filters: return all lists directly from the backend (no cascading)
   const availableOptions = useMemo<AvailableOptions>(() => {
-    if (!filterMap) return { years: [], leagues: [], tournaments: [], teams: [], players: [], tiers: [], phases: [] }
+    if (!filterMap) return { years: [], leagues: [], tournaments: [], teams: [], players: [], tiers: [] }
 
     return {
       years: filterMap.years,
@@ -89,7 +90,6 @@ export function useProStatsFilters(defaultYears?: Set<number>): ProStatsFilters 
       teams: [...filterMap.teams].sort((a, b) => a.shortName.localeCompare(b.shortName)),
       players: [...filterMap.players].sort((a, b) => a.name.localeCompare(b.name)),
       tiers: filterMap.tiers,
-      phases: filterMap.phases ?? [],
     }
   }, [filterMap])
 
@@ -103,7 +103,7 @@ export function useProStatsFilters(defaultYears?: Set<number>): ProStatsFilters 
     setSelectedPlayerIds(new Set())
     setRole(null)
     setSelectedTier(null)
-    setSelectedPhases(new Set())
+    setPlayoffsFilter('all')
   }, [defaultYearsRef])
 
   const buildParams = useCallback(() => {
@@ -115,9 +115,10 @@ export function useProStatsFilters(defaultYears?: Set<number>): ProStatsFilters 
     if (selectedPlayerIds.size > 0) params.playerIds = [...selectedPlayerIds].join(',')
     if (role) params.role = role
     if (selectedTier !== null) params.tier = String(selectedTier)
-    if (selectedPhases.size > 0) params.phases = [...selectedPhases].join(',')
+    if (playoffsFilter === 'playoffs') params.isPlayoffs = 'true'
+    else if (playoffsFilter === 'season') params.isPlayoffs = 'false'
     return params
-  }, [selectedYears, selectedLeagueIds, selectedTournamentIds, selectedTeamIds, selectedPlayerIds, role, selectedTier, selectedPhases])
+  }, [selectedYears, selectedLeagueIds, selectedTournamentIds, selectedTeamIds, selectedPlayerIds, role, selectedTier, playoffsFilter])
 
   return {
     selectedYears,
@@ -127,7 +128,7 @@ export function useProStatsFilters(defaultYears?: Set<number>): ProStatsFilters 
     selectedPlayerIds,
     role,
     selectedTier,
-    selectedPhases,
+    playoffsFilter,
     setSelectedYears,
     setSelectedLeagueIds,
     setSelectedTournamentIds,
@@ -135,7 +136,7 @@ export function useProStatsFilters(defaultYears?: Set<number>): ProStatsFilters 
     setSelectedPlayerIds,
     setRole,
     setSelectedTier,
-    setSelectedPhases,
+    setPlayoffsFilter,
     availableOptions,
     filterMapLoading,
     buildParams,

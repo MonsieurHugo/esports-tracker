@@ -37,7 +37,7 @@ export default class ProLeagueStatsController {
    * All-time records across leagues
    */
   async records(ctx: HttpContext) {
-    const { leagueId, year, role, years, leagueIds, teamIds, playerIds, tournamentIds, tier, isPlayoffs, phases, includeExcluded } = ctx.request.qs()
+    const { leagueId, year, role, years, leagueIds, teamIds, playerIds, tournamentIds, tier, isPlayoffs, includeExcluded } = ctx.request.qs()
     const validRoles = ['Top', 'Jungle', 'Mid', 'ADC', 'Support']
     const parsedRole = role && validRoles.includes(role) ? role : null
 
@@ -49,10 +49,9 @@ export default class ProLeagueStatsController {
     const parsedTournamentIds = this.parseIds(tournamentIds) ?? []
     const parsedTier = tier && Number.isFinite(Number(tier)) ? Number(tier) : null
     const parsedIsPlayoffs = isPlayoffs === 'true' ? true : isPlayoffs === 'false' ? false : null
-    const parsedPhases = this.parseStrings(phases)
     const parsedIncludeExcluded = includeExcluded === 'true'
 
-    const cacheKey = `pro:stats:records:l=${[...parsedLeagueIds].sort().join(',') || 'all'}:y=${[...parsedYears].sort().join(',') || 'all'}:t=${[...parsedTeamIds].sort().join(',') || 'all'}:p=${[...parsedPlayerIds].sort().join(',') || 'all'}:tn=${[...parsedTournamentIds].sort().join(',') || 'all'}:ti=${parsedTier ?? 'all'}:po=${parsedIsPlayoffs ?? 'all'}:ph=${[...parsedPhases].sort().join(',') || 'all'}:r=${parsedRole || 'all'}:ex=${parsedIncludeExcluded ? 1 : 0}`
+    const cacheKey = `pro:stats:records:l=${[...parsedLeagueIds].sort().join(',') || 'all'}:y=${[...parsedYears].sort().join(',') || 'all'}:t=${[...parsedTeamIds].sort().join(',') || 'all'}:p=${[...parsedPlayerIds].sort().join(',') || 'all'}:tn=${[...parsedTournamentIds].sort().join(',') || 'all'}:ti=${parsedTier ?? 'all'}:po=${parsedIsPlayoffs ?? 'all'}:r=${parsedRole || 'all'}:ex=${parsedIncludeExcluded ? 1 : 0}`
 
     const result = await cacheService.getOrSet(cacheKey, CACHE_TTL.LONG, async () => {
       const resolvedLeagueIds = await this.resolveLeagueIds(parsedLeagueIds)
@@ -92,12 +91,6 @@ export default class ProLeagueStatsController {
         playerBindings.push(parsedIsPlayoffs)
         teamClauses.push('AND tr.is_playoffs = ?')
         teamBindings.push(parsedIsPlayoffs)
-      }
-      if (parsedPhases.length > 0) {
-        playerClauses.push(`AND tr.phase IN (${parsedPhases.map(() => '?').join(',')})`)
-        playerBindings.push(...parsedPhases)
-        teamClauses.push(`AND tr.phase IN (${parsedPhases.map(() => '?').join(',')})`)
-        teamBindings.push(...parsedPhases)
       }
       if (!parsedIncludeExcluded) {
         playerClauses.push('AND tr.exclude_from_records = false')
@@ -142,10 +135,6 @@ export default class ProLeagueStatsController {
       if (parsedIsPlayoffs !== null) {
         questGapClauses.push('AND tr.is_playoffs = ?')
         questGapBindings.push(parsedIsPlayoffs)
-      }
-      if (parsedPhases.length > 0) {
-        questGapClauses.push(`AND tr.phase IN (${parsedPhases.map(() => '?').join(',')})`)
-        questGapBindings.push(...parsedPhases)
       }
       if (!parsedIncludeExcluded) {
         questGapClauses.push('AND tr.exclude_from_records = false')
@@ -431,6 +420,8 @@ export default class ProLeagueStatsController {
             ps2.quest_completed_at as slow_quest_time,
             COALESCE(t2.short_name, t2.current_name) as slow_team_name,
             t2.current_name as slow_team_full_name,
+            ps1.role as role,
+            (g.winner_team_id = ps1.team_id) as fast_win,
             g.game_number, COALESCE(g.started_at, m.started_at) as game_date, tr.name as tournament_name
           FROM pro_player_stats ps1
           JOIN pro_player_stats ps2 ON ps1.game_id = ps2.game_id
@@ -1276,7 +1267,6 @@ export default class ProLeagueStatsController {
       playerIds,
       tier,
       isPlayoffs,
-      phases,
       role,
       search,
       startDate,
@@ -1294,7 +1284,6 @@ export default class ProLeagueStatsController {
     const parsedPlayerIds = this.parseIds(playerIds) ?? []
     const parsedTier = tier && Number.isFinite(Number(tier)) ? Number(tier) : null
     const parsedIsPlayoffs = isPlayoffs === 'true' ? true : isPlayoffs === 'false' ? false : null
-    const parsedPhases = this.parseStrings(phases)
     const parsedMinGames = Math.max(1, Number(minGames) || 5)
     const pageNum = Math.max(1, Number(page))
     const perPageNum = Math.min(100, Math.max(1, Number(perPage)))
@@ -1378,10 +1367,6 @@ export default class ProLeagueStatsController {
       filterClauses.push('AND tr.is_playoffs = ?')
       filterBindings.push(parsedIsPlayoffs)
     }
-    if (parsedPhases.length > 0) {
-      filterClauses.push(`AND tr.phase IN (${parsedPhases.map(() => '?').join(',')})`)
-      filterBindings.push(...parsedPhases)
-    }
     if (parsedTeamIds.length > 0) {
       filterClauses.push(`AND ps.team_id IN (${parsedTeamIds.map(() => '?').join(',')})`)
       filterBindings.push(...parsedTeamIds)
@@ -1422,7 +1407,7 @@ export default class ProLeagueStatsController {
     const filterSql = filterClauses.join(' ')
     const needsLeagueJoin = parsedTier !== null
 
-    const cacheKey = `pro:stats:player-lb:l=${[...parsedLeagueIds].sort().join(',') || 'all'}:tn=${[...parsedTournamentIds].sort().join(',') || 'all'}:y=${[...parsedYears].sort().join(',') || 'all'}:t=${[...parsedTeamIds].sort().join(',') || 'all'}:p=${[...parsedPlayerIds].sort().join(',') || 'all'}:ti=${parsedTier ?? 'all'}:po=${parsedIsPlayoffs ?? 'all'}:ph=${[...parsedPhases].sort().join(',') || 'all'}:${parsedRoles.join(',') || 'all'}:${sanitizedSearch || 'all'}:${parsedMinGames}:sd=${parsedStartDate || 'all'}:ed=${parsedEndDate || 'all'}:${sortBy}:${pageNum}:${perPageNum}`
+    const cacheKey = `pro:stats:player-lb:l=${[...parsedLeagueIds].sort().join(',') || 'all'}:tn=${[...parsedTournamentIds].sort().join(',') || 'all'}:y=${[...parsedYears].sort().join(',') || 'all'}:t=${[...parsedTeamIds].sort().join(',') || 'all'}:p=${[...parsedPlayerIds].sort().join(',') || 'all'}:ti=${parsedTier ?? 'all'}:po=${parsedIsPlayoffs ?? 'all'}:${parsedRoles.join(',') || 'all'}:${sanitizedSearch || 'all'}:${parsedMinGames}:sd=${parsedStartDate || 'all'}:ed=${parsedEndDate || 'all'}:${sortBy}:${pageNum}:${perPageNum}`
 
     const result = await cacheService.getOrSet(cacheKey, CACHE_TTL.MEDIUM, async () => {
       // Base joins for querying per-game player stats
@@ -1683,7 +1668,6 @@ export default class ProLeagueStatsController {
       tournamentIds,
       tier,
       isPlayoffs,
-      phases,
       startDate,
       endDate,
       minGames = 3,
@@ -1697,7 +1681,6 @@ export default class ProLeagueStatsController {
     const parsedTournamentIds = this.parseIds(tournamentIds) ?? []
     const parsedTier = tier && Number.isFinite(Number(tier)) ? Number(tier) : null
     const parsedIsPlayoffs = isPlayoffs === 'true' ? true : isPlayoffs === 'false' ? false : null
-    const parsedPhases = this.parseStrings(phases)
     const parsedMinGames = Math.max(1, Number(minGames) || 3)
     const pageNum = Math.max(1, Number(page))
     const perPageNum = Math.min(100, Math.max(1, Number(perPage)))
@@ -1760,10 +1743,6 @@ export default class ProLeagueStatsController {
       filterClauses.push('AND tr.is_playoffs = ?')
       filterBindings.push(parsedIsPlayoffs)
     }
-    if (parsedPhases.length > 0) {
-      filterClauses.push(`AND tr.phase IN (${parsedPhases.map(() => '?').join(',')})`)
-      filterBindings.push(...parsedPhases)
-    }
 
     // Date filters
     const isoDateRegex = /^\d{4}-\d{2}-\d{2}$/
@@ -1783,7 +1762,7 @@ export default class ProLeagueStatsController {
     const filterSql = filterClauses.join(' ')
     const needsLeagueJoin = parsedTier !== null
 
-    const cacheKey = `pro:stats:team-lb:l=${[...parsedLeagueIds].sort().join(',') || 'all'}:y=${[...parsedYears].sort().join(',') || 'all'}:tn=${[...parsedTournamentIds].sort().join(',') || 'all'}:ti=${parsedTier ?? 'all'}:po=${parsedIsPlayoffs ?? 'all'}:ph=${[...parsedPhases].sort().join(',') || 'all'}:sd=${parsedStartDate || 'all'}:ed=${parsedEndDate || 'all'}:${parsedMinGames}:${sortBy}:${pageNum}:${perPageNum}`
+    const cacheKey = `pro:stats:team-lb:l=${[...parsedLeagueIds].sort().join(',') || 'all'}:y=${[...parsedYears].sort().join(',') || 'all'}:tn=${[...parsedTournamentIds].sort().join(',') || 'all'}:ti=${parsedTier ?? 'all'}:po=${parsedIsPlayoffs ?? 'all'}:sd=${parsedStartDate || 'all'}:ed=${parsedEndDate || 'all'}:${parsedMinGames}:${sortBy}:${pageNum}:${perPageNum}`
 
     const result = await cacheService.getOrSet(cacheKey, CACHE_TTL.MEDIUM, async () => {
       const leagueJoinSql = needsLeagueJoin ? 'LEFT JOIN pro_leagues pl ON tr.pro_league_id = pl.league_id' : ''
@@ -1973,15 +1952,14 @@ export default class ProLeagueStatsController {
    * Champion pick/ban stats aggregated across tournaments
    */
   async championStats(ctx: HttpContext) {
-    const { leagueId, leagueIds, years, tournamentIds, tier, isPlayoffs, phases } = ctx.request.qs()
+    const { leagueId, leagueIds, years, tournamentIds, tier, isPlayoffs } = ctx.request.qs()
     const parsedLeagueIds = this.parseIds(leagueIds) ?? (leagueId ? [Number(leagueId)] : [])
     const parsedYears = this.parseIds(years) ?? []
     const parsedTournamentIds = this.parseIds(tournamentIds) ?? []
     const parsedTier = tier && Number.isFinite(Number(tier)) ? Number(tier) : null
     const parsedIsPlayoffs = isPlayoffs === 'true' ? true : isPlayoffs === 'false' ? false : null
-    const parsedPhases = this.parseStrings(phases)
 
-    const cacheKey = `pro:stats:champion-stats:l=${[...parsedLeagueIds].sort().join(',') || 'all'}:y=${[...parsedYears].sort().join(',') || 'all'}:tn=${[...parsedTournamentIds].sort().join(',') || 'all'}:ti=${parsedTier ?? 'all'}:po=${parsedIsPlayoffs ?? 'all'}:ph=${[...parsedPhases].sort().join(',') || 'all'}`
+    const cacheKey = `pro:stats:champion-stats:l=${[...parsedLeagueIds].sort().join(',') || 'all'}:y=${[...parsedYears].sort().join(',') || 'all'}:tn=${[...parsedTournamentIds].sort().join(',') || 'all'}:ti=${parsedTier ?? 'all'}:po=${parsedIsPlayoffs ?? 'all'}`
 
     const result = await cacheService.getOrSet(cacheKey, CACHE_TTL.MEDIUM, async () => {
       const resolvedLeagueIds = await this.resolveLeagueIds(parsedLeagueIds)
@@ -2007,10 +1985,6 @@ export default class ProLeagueStatsController {
       if (parsedIsPlayoffs !== null) {
         filterClauses.push('AND t.is_playoffs = ?')
         filterBindings.push(parsedIsPlayoffs)
-      }
-      if (parsedPhases.length > 0) {
-        filterClauses.push(`AND t.phase IN (${parsedPhases.map(() => '?').join(',')})`)
-        filterBindings.push(...parsedPhases)
       }
 
       const filterSql = filterClauses.join(' ')
@@ -2087,14 +2061,13 @@ export default class ProLeagueStatsController {
    * Aggregated match/game counts per league
    */
   async leagueStats(ctx: HttpContext) {
-    const { leagueIds, years, tier, isPlayoffs, phases } = ctx.request.qs()
+    const { leagueIds, years, tier, isPlayoffs } = ctx.request.qs()
     const parsedLeagueIds = this.parseIds(leagueIds) ?? []
     const parsedYears = this.parseIds(years) ?? []
     const parsedTier = tier && Number.isFinite(Number(tier)) ? Number(tier) : null
     const parsedIsPlayoffs = isPlayoffs === 'true' ? true : isPlayoffs === 'false' ? false : null
-    const parsedPhases = this.parseStrings(phases)
 
-    const cacheKey = `pro:stats:league-stats:l=${[...parsedLeagueIds].sort().join(',') || 'all'}:y=${[...parsedYears].sort().join(',') || 'all'}:ti=${parsedTier ?? 'all'}:po=${parsedIsPlayoffs ?? 'all'}:ph=${[...parsedPhases].sort().join(',') || 'all'}`
+    const cacheKey = `pro:stats:league-stats:l=${[...parsedLeagueIds].sort().join(',') || 'all'}:y=${[...parsedYears].sort().join(',') || 'all'}:ti=${parsedTier ?? 'all'}:po=${parsedIsPlayoffs ?? 'all'}`
 
     const result = await cacheService.getOrSet(cacheKey, CACHE_TTL.MEDIUM, async () => {
       const resolvedLeagueIds = await this.resolveLeagueIds(parsedLeagueIds)
@@ -2116,10 +2089,6 @@ export default class ProLeagueStatsController {
       if (parsedIsPlayoffs !== null) {
         filterClauses.push('AND t.is_playoffs = ?')
         filterBindings.push(parsedIsPlayoffs)
-      }
-      if (parsedPhases.length > 0) {
-        filterClauses.push(`AND t.phase IN (${parsedPhases.map(() => '?').join(',')})`)
-        filterBindings.push(...parsedPhases)
       }
 
       const filterSql = filterClauses.join(' ')
@@ -2414,7 +2383,7 @@ export default class ProLeagueStatsController {
     const cacheKey = 'pro:stats:filter-map'
 
     const result = await cacheService.getOrSet(cacheKey, CACHE_TTL.LONG, async () => {
-      const [yearsResult, leaguesResult, teamsResult, playersResult, tournamentsResult, phasesResult] = await Promise.all([
+      const [yearsResult, leaguesResult, teamsResult, playersResult, tournamentsResult] = await Promise.all([
         // Years: distinct years from tournaments that have completed games
         db.rawQuery(`
           SELECT DISTINCT tr.year
@@ -2469,17 +2438,6 @@ export default class ProLeagueStatsController {
             AND t.year IS NOT NULL AND t.pro_league_id IS NOT NULL
           ORDER BY t.name
         `),
-
-        // Phases: distinct phases from tournaments that have completed games
-        db.rawQuery(`
-          SELECT DISTINCT tr.phase
-          FROM pro_tournaments tr
-          JOIN pro_matches m ON m.tournament_id = tr.tournament_id
-          JOIN pro_games g ON g.match_id = m.match_id
-          WHERE g.status IN ('completed', 'processed')
-            AND tr.phase IS NOT NULL
-          ORDER BY tr.phase
-        `),
       ])
 
       // Extract distinct tiers from leagues
@@ -2507,7 +2465,6 @@ export default class ProLeagueStatsController {
           tournamentId: Number(r.tournament_id),
           name: r.name as string,
         })),
-        phases: phasesResult.rows.map((r: Record<string, unknown>) => r.phase as string),
       }
     })
 
@@ -2540,16 +2497,6 @@ export default class ProLeagueStatsController {
       .filter((n) => Number.isFinite(n) && n > 0)
       .slice(0, max)
     return ids.length > 0 ? ids : null
-  }
-
-  private parseStrings(value: string | undefined, max = 20, maxLength = 100): string[] {
-    if (!value || typeof value !== 'string') return []
-    return value
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .slice(0, max)
-      .map((s) => s.slice(0, maxLength))
   }
 
   /**
@@ -2646,6 +2593,8 @@ export default class ProLeagueStatsController {
       slowQuestTime: Number(row.slow_quest_time),
       slowTeamName: row.slow_team_name ?? null,
       slowTeamFullName: row.slow_team_full_name ?? null,
+      role: row.role ?? null,
+      fastWin: row.fast_win ?? null,
       tournamentName: row.tournament_name,
       gameDate: row.game_date,
       gameNumber: row.game_number != null ? Number(row.game_number) : null,

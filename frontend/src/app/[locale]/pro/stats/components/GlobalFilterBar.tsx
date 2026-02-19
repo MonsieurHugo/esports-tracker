@@ -5,6 +5,7 @@ import Image from 'next/image'
 import MultiSelectDropdown from './MultiSelectDropdown'
 import type { ProStatsFilters } from '../hooks/useProStatsFilters'
 import { TIER_LABELS } from '../hooks/useProStatsFilters'
+import type { PlayoffsFilter } from '../hooks/useProStatsFilters'
 
 const ROLE_DISPLAY: { apiRole: string; icon: string; label: string }[] = [
   { apiRole: 'Top', icon: 'TOP', label: 'TOP' },
@@ -12,6 +13,12 @@ const ROLE_DISPLAY: { apiRole: string; icon: string; label: string }[] = [
   { apiRole: 'Mid', icon: 'MID', label: 'MID' },
   { apiRole: 'ADC', icon: 'ADC', label: 'ADC' },
   { apiRole: 'Support', icon: 'SUP', label: 'SUP' },
+]
+
+const PLAYOFFS_OPTIONS: { value: PlayoffsFilter; label: string }[] = [
+  { value: 'all', label: 'Tous' },
+  { value: 'season', label: 'Saison' },
+  { value: 'playoffs', label: 'Playoffs' },
 ]
 
 export default function GlobalFilterBar({ filters }: { filters: ProStatsFilters }) {
@@ -23,7 +30,7 @@ export default function GlobalFilterBar({ filters }: { filters: ProStatsFilters 
     selectedPlayerIds,
     role,
     selectedTier,
-    selectedPhases,
+    playoffsFilter,
     setSelectedYears,
     setSelectedLeagueIds,
     setSelectedTournamentIds,
@@ -31,7 +38,7 @@ export default function GlobalFilterBar({ filters }: { filters: ProStatsFilters 
     setSelectedPlayerIds,
     setRole,
     setSelectedTier,
-    setSelectedPhases,
+    setPlayoffsFilter,
     availableOptions,
     filterMapLoading,
     resetFilters,
@@ -40,11 +47,6 @@ export default function GlobalFilterBar({ filters }: { filters: ProStatsFilters 
   const yearItems = useMemo(
     () => availableOptions.years.map((y) => ({ id: y, label: String(y) })),
     [availableOptions.years]
-  )
-
-  const phaseItems = useMemo(
-    () => availableOptions.phases.map((p) => ({ id: p, label: p })),
-    [availableOptions.phases]
   )
 
   return (
@@ -97,15 +99,22 @@ export default function GlobalFilterBar({ filters }: { filters: ProStatsFilters 
         searchable
         isLoading={filterMapLoading}
       />
-      <MultiSelectDropdown
-        label="Phase"
-        items={phaseItems}
-        selected={selectedPhases}
-        onChange={setSelectedPhases}
-        getId={(i) => i.id}
-        getLabel={(i) => i.label}
-        isLoading={filterMapLoading}
-      />
+      {/* Phase filter (Playoffs toggle) */}
+      <div className="flex items-center gap-1.5 px-2 py-[6px] bg-(--bg-card) border border-(--border) rounded-md">
+        {PLAYOFFS_OPTIONS.map((opt) => (
+          <button
+            key={opt.value}
+            onClick={() => setPlayoffsFilter(opt.value)}
+            className={`px-2 py-0.5 text-[10px] font-semibold rounded transition-colors ${
+              playoffsFilter === opt.value
+                ? 'bg-(--accent) text-white'
+                : 'text-(--text-muted) hover:text-(--text-secondary) hover:bg-(--bg-hover)'
+            }`}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
 
       {/* Compact role icon filter */}
       <div className="flex items-center gap-1.5 px-2 py-[6px] bg-(--bg-card) border border-(--border) rounded-md">
