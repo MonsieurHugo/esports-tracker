@@ -142,32 +142,39 @@ class GridGraphQL:
         Returns:
             List of Tournament objects
         """
-        query = """
-        query GetTournaments($first: Int!, $after: String, $filter: TournamentFilter) {
-            tournaments(first: $first, after: $after, filter: $filter) {
+        # Include children (and grandchildren) inline to avoid extra API calls
+        # GRID hierarchy: split → phase → leaf group
+        tournament_fields = """
+            id
+            name
+            nameShortened
+            startDate
+            endDate
+            parent { id name }
+            titles { id }
+        """
+
+        query = f"""
+        query GetTournaments($first: Int!, $after: String, $filter: TournamentFilter) {{
+            tournaments(first: $first, after: $after, filter: $filter) {{
                 totalCount
-                pageInfo {
+                pageInfo {{
                     hasNextPage
                     endCursor
-                }
-                edges {
-                    node {
-                        id
-                        name
-                        nameShortened
-                        startDate
-                        endDate
-                        parent {
-                            id
-                            name
-                        }
-                        titles {
-                            id
-                        }
-                    }
-                }
-            }
-        }
+                }}
+                edges {{
+                    node {{
+                        {tournament_fields}
+                        children {{
+                            {tournament_fields}
+                            children {{
+                                {tournament_fields}
+                            }}
+                        }}
+                    }}
+                }}
+            }}
+        }}
         """
 
         # Build filter
@@ -186,6 +193,7 @@ class GridGraphQL:
             filter_obj["hasParent"] = {"equals": False}
 
         tournaments: list[Tournament] = []
+        seen_ids: set[str] = set()
         cursor: str | None = None
         has_next = True
         iteration = 0
@@ -212,21 +220,8 @@ class GridGraphQL:
 
                 for edge in result.get("edges", []):
                     node = edge.get("node", {})
-                    parent = node.get("parent")
-                    titles = node.get("titles", [])
-
-                    tournaments.append(
-                        Tournament(
-                            id=node.get("id", ""),
-                            name=node.get("name", ""),
-                            name_short=node.get("nameShortened"),
-                            start_date=self._parse_date(node.get("startDate")),
-                            end_date=self._parse_date(node.get("endDate")),
-                            parent_id=parent.get("id") if parent else None,
-                            parent_name=parent.get("name") if parent else None,
-                            titles=[t.get("id") for t in titles if t.get("id")],
-                        )
-                    )
+                    # Parse node and recursively flatten children
+                    self._parse_tournament_node(node, tournaments, seen_ids)
 
                 page_info = result.get("pageInfo", {})
                 has_next = page_info.get("hasNextPage", False)
@@ -297,66 +292,6 @@ class GridGraphQL:
         except GridClientError as e:
             logger.error("Failed to fetch tournament", tournament_id=tournament_id, error=str(e))
             return None
-
-    async def get_tournament_children(self, tournament_id: str) -> list[Tournament]:
-        """
-        Get direct children of a tournament via the children connection.
-
-        Args:
-            tournament_id: GRID tournament ID
-
-        Returns:
-            List of child Tournament objects
-        """
-        query = """
-        query GetTournamentChildren($id: ID!) {
-            tournament(id: $id) {
-                children {
-                    id
-                    name
-                    nameShortened
-                    startDate
-                    endDate
-                    parent {
-                        id
-                        name
-                    }
-                    titles {
-                        id
-                    }
-                }
-            }
-        }
-        """
-
-        try:
-            data = await self.client.graphql_central(query, {"id": tournament_id})
-            node = data.get("tournament")
-            if not node:
-                return []
-
-            children: list[Tournament] = []
-            for child in node.get("children", []):
-                parent = child.get("parent")
-                titles = child.get("titles", [])
-                children.append(
-                    Tournament(
-                        id=child.get("id", ""),
-                        name=child.get("name", ""),
-                        name_short=child.get("nameShortened"),
-                        start_date=self._parse_date(child.get("startDate")),
-                        end_date=self._parse_date(child.get("endDate")),
-                        parent_id=parent.get("id") if parent else None,
-                        parent_name=parent.get("name") if parent else None,
-                        titles=[t.get("id") for t in titles if t.get("id")],
-                    )
-                )
-
-            return children
-
-        except GridClientError as e:
-            logger.error("Failed to fetch tournament children", tournament_id=tournament_id, error=str(e))
-            return []
 
     # ==========================================
     # Series (allSeries)
@@ -633,6 +568,38 @@ class GridGraphQL:
         except GridClientError as e:
             logger.error("Failed to fetch series state", series_id=series_id, error=str(e))
             raise
+
+    # ==========================================
+    # Tournament Parsing Helpers
+    # ==========================================
+
+    def _parse_tournament_node(
+        self, node: dict, out: list[Tournament], seen: set[str]
+    ) -> None:
+        """Parse a tournament node and recursively flatten its children."""
+        tid = node.get("id", "")
+        if not tid or tid in seen:
+            return
+        seen.add(tid)
+
+        parent = node.get("parent")
+        titles = node.get("titles", [])
+        out.append(
+            Tournament(
+                id=tid,
+                name=node.get("name", ""),
+                name_short=node.get("nameShortened"),
+                start_date=self._parse_date(node.get("startDate")),
+                end_date=self._parse_date(node.get("endDate")),
+                parent_id=parent.get("id") if parent else None,
+                parent_name=parent.get("name") if parent else None,
+                titles=[t.get("id") for t in titles if t.get("id")],
+            )
+        )
+
+        # Recurse into children (phases, leaf groups)
+        for child in node.get("children", []):
+            self._parse_tournament_node(child, out, seen)
 
     # ==========================================
     # Helper Methods

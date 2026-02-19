@@ -4,7 +4,6 @@ Pro Data Sync Job
 Synchronizes esports data from GRID API to the database.
 """
 
-import asyncio
 import traceback
 from datetime import date, datetime
 from typing import Any
@@ -190,39 +189,13 @@ class SyncProDataJob:
                         logger.warning("Tournament not found", tournament_id=tid)
                 logger.info("Fetched specific tournaments", count=len(tournaments), requested=len(tournament_ids))
             else:
-                # Step 1: Fetch tournaments with dates in target year (gets splits / level 1)
+                # Fetch tournaments for the year — children are included inline in the query
+                # (up to 2 levels deep: split → phase → leaf group)
                 tournaments = await self.graphql.get_tournaments(
                     start_date=date(year, 1, 1),
                     end_date=date(year, 12, 31),
                 )
-                logger.info("Found date-filtered tournaments (splits)", count=len(tournaments), year=year)
-
-                # Brief pause to avoid rate limit after paginated fetch
-                await asyncio.sleep(3.0)
-
-                # Step 2: Recursively fetch child tournaments via children connection
-                # Children (phases, leaf nodes) often don't have dates so the date filter misses them
-                # Add delay between requests to respect GRID rate limits
-                all_ids = {t.id for t in tournaments}
-                current_parents = list(tournaments)
-                depth = 0
-                while current_parents and depth < 5:
-                    depth += 1
-                    new_children: list[Tournament] = []
-                    for parent_t in current_parents:
-                        await asyncio.sleep(1.0)  # Rate limit: ~1 req/sec
-                        children = await self.graphql.get_tournament_children(parent_t.id)
-                        for child in children:
-                            if child.id not in all_ids:
-                                new_children.append(child)
-                                all_ids.add(child.id)
-                    if not new_children:
-                        break
-                    logger.info("Found child tournaments", depth=depth, count=len(new_children))
-                    tournaments.extend(new_children)
-                    current_parents = new_children
-
-                logger.info("Total tournaments after child discovery", count=len(tournaments), year=year)
+                logger.info("Found tournaments (with children)", count=len(tournaments), year=year)
 
             # Sort so parents are processed before children
             tournaments = self._sort_parents_first(tournaments)
