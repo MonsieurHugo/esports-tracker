@@ -129,7 +129,6 @@ class GridGraphQL:
         end_date: date | None = None,
         title_id: str = LOL_TITLE_ID,
         include_children: bool = True,
-        parent_ids: list[str] | None = None,
     ) -> list[Tournament]:
         """
         Get tournaments with pagination.
@@ -185,9 +184,6 @@ class GridGraphQL:
 
         if not include_children:
             filter_obj["hasParent"] = {"equals": False}
-
-        if parent_ids:
-            filter_obj["parent"] = {"id": {"in": parent_ids}}
 
         tournaments: list[Tournament] = []
         cursor: str | None = None
