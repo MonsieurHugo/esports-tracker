@@ -6,8 +6,10 @@ import api from '@/lib/api'
 import { logError } from '@/lib/logger'
 import { Skeleton } from '@/components/ui/Skeleton'
 import TeamLogo from '@/components/ui/TeamLogo'
-import type { ProRecords, ProPlayerRecord, ProTeamRecord, ProBoRecord, ProStreakRecord, ProTournamentKillsRecord } from '@/lib/types'
-import { getChampionName, getChampionIconUrl } from '@/lib/champions'
+import { SocialCardModal } from '@/components/social-card/SocialCardModal'
+import type { SocialCardData, RecordCardType, FilterSummary } from '@/components/social-card/types'
+import type { ProRecords, ProPlayerRecord, ProTeamRecord, ProBoRecord, ProStreakRecord, ProTournamentKillsRecord, ProTournamentPlayerRecord } from '@/lib/types'
+import { getChampionName, getChampionIconUrlDDragon } from '@/lib/champions'
 import { getRoleImagePath, getRankTextClass } from '@/lib/utils'
 import type { ProStatsFilters } from '../hooks/useProStatsFilters'
 
@@ -68,17 +70,18 @@ function DetailRow({ children, colSpan }: { children: React.ReactNode; colSpan: 
   )
 }
 
-function PlayerTable({ title, records, formatValue }: {
+function PlayerTable({ title, records, formatValue, onExport }: {
   title: string
   records: ProPlayerRecord[]
   formatValue: (r: ProPlayerRecord) => string
+  onExport?: () => void
 }) {
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null)
   if (!records || records.length === 0) return null
   const colCount = 5
   return (
     <div className="bg-[var(--bg-secondary)] rounded-lg border border-[var(--border)] overflow-hidden">
-      <TableTitle title={title} />
+      <TableTitle title={title} onExport={onExport} />
       <div className="max-h-[420px] overflow-y-auto scrollbar-thin">
         <table className="w-full text-sm">
           <thead className="sticky top-0 z-10">
@@ -106,7 +109,7 @@ function PlayerTable({ title, records, formatValue }: {
                 </td>
                 <td className="py-1.5">
                   <div className="flex items-center gap-1">
-                    {r.teamName && <TeamLogo slug={r.teamName.toLowerCase()} shortName={r.teamName} size={16} />}
+                    {r.teamName && <TeamLogo slug={r.teamName.toLowerCase()} shortName={r.teamName} name={r.teamFullName} size={16} />}
                     {r.role && (
                       <Image
                         src={getRoleImagePath(r.role)}
@@ -116,9 +119,9 @@ function PlayerTable({ title, records, formatValue }: {
                         className="w-3.5 h-3.5 object-contain opacity-50"
                       />
                     )}
-                    {r.championId != null ? (
+                    {r.championId != null && r.championId !== 0 ? (
                       <Image
-                        src={getChampionIconUrl(r.championId)}
+                        src={getChampionIconUrlDDragon(r.championId)}
                         alt={getChampionName(r.championId)}
                         width={20}
                         height={20}
@@ -172,11 +175,14 @@ function PlayerTable({ title, records, formatValue }: {
   )
 }
 
-function TeamTable({ title, records, formatValue, valueLabel }: {
+function TeamTable({ title, records, formatValue, valueLabel, winnerLabel, loserLabel, onExport }: {
   title: string
   records: ProTeamRecord[]
   formatValue?: (r: ProTeamRecord) => string
   valueLabel?: string
+  winnerLabel?: string
+  loserLabel?: string
+  onExport?: () => void
 }) {
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null)
   if (!records || records.length === 0) return null
@@ -184,15 +190,15 @@ function TeamTable({ title, records, formatValue, valueLabel }: {
   const renderValue = formatValue ?? ((r: ProTeamRecord) => fmt(r.value))
   return (
     <div className="bg-[var(--bg-secondary)] rounded-lg border border-[var(--border)] overflow-hidden">
-      <TableTitle title={title} />
+      <TableTitle title={title} onExport={onExport} />
       <div className="max-h-[420px] overflow-y-auto scrollbar-thin">
         <table className="w-full text-sm">
           <thead className="sticky top-0 z-10">
             <tr className="text-left text-[10px] text-(--text-muted) uppercase tracking-wider bg-[var(--bg-card)] border-b border-[var(--border)]">
               <th className="py-2 px-2 w-8"></th>
               <th className="py-2">{valueLabel ?? 'Duree'}</th>
-              <th className="py-2">Vainqueur</th>
-              <th className="py-2">Perdant</th>
+              <th className="py-2">{winnerLabel ?? 'Vainqueur'}</th>
+              <th className="py-2">{loserLabel ?? 'Perdant'}</th>
             </tr>
           </thead>
           <tbody>
@@ -216,13 +222,13 @@ function TeamTable({ title, records, formatValue, valueLabel }: {
                 </td>
                 <td className="py-2">
                   <div className="flex items-center gap-1.5">
-                    {r.winnerName && <TeamLogo slug={r.winnerName.toLowerCase()} shortName={r.winnerName} size={20} />}
+                    {r.winnerName && <TeamLogo slug={r.winnerName.toLowerCase()} shortName={r.winnerName} name={r.winnerFullName} size={20} />}
                     <span className="text-xs font-medium text-(--text-primary)">{r.winnerName || '—'}</span>
                   </div>
                 </td>
                 <td className="py-2">
                   <div className="flex items-center gap-1.5">
-                    {r.loserName && <TeamLogo slug={r.loserName.toLowerCase()} shortName={r.loserName} size={20} />}
+                    {r.loserName && <TeamLogo slug={r.loserName.toLowerCase()} shortName={r.loserName} name={r.loserFullName} size={20} />}
                     <span className="text-xs text-(--text-secondary)">{r.loserName || '—'}</span>
                   </div>
                 </td>
@@ -248,16 +254,17 @@ function TeamTable({ title, records, formatValue, valueLabel }: {
   )
 }
 
-function BoTable({ title, records }: {
+function BoTable({ title, records, onExport }: {
   title: string
   records: ProBoRecord[]
+  onExport?: () => void
 }) {
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null)
   if (!records || records.length === 0) return null
   const colCount = 4
   return (
     <div className="bg-[var(--bg-secondary)] rounded-lg border border-[var(--border)] overflow-hidden">
-      <TableTitle title={title} />
+      <TableTitle title={title} onExport={onExport} />
       <div className="max-h-[420px] overflow-y-auto scrollbar-thin">
         <table className="w-full text-sm">
           <thead className="sticky top-0 z-10">
@@ -290,12 +297,12 @@ function BoTable({ title, records }: {
                 <td className="py-2">
                   <div className="flex items-center gap-2">
                     <div className="flex items-center gap-1">
-                      {r.team1Name && <TeamLogo slug={r.team1Name.toLowerCase()} shortName={r.team1Name} size={20} />}
+                      {r.team1Name && <TeamLogo slug={r.team1Name.toLowerCase()} shortName={r.team1Name} name={r.team1FullName} size={20} />}
                       <span className="text-xs font-medium text-(--text-primary) hidden sm:inline">{r.team1Name}</span>
                     </div>
                     <span className="text-[10px] text-(--text-muted) font-medium">vs</span>
                     <div className="flex items-center gap-1">
-                      {r.team2Name && <TeamLogo slug={r.team2Name.toLowerCase()} shortName={r.team2Name} size={20} />}
+                      {r.team2Name && <TeamLogo slug={r.team2Name.toLowerCase()} shortName={r.team2Name} name={r.team2FullName} size={20} />}
                       <span className="text-xs font-medium text-(--text-primary) hidden sm:inline">{r.team2Name}</span>
                     </div>
                   </div>
@@ -317,15 +324,16 @@ function BoTable({ title, records }: {
   )
 }
 
-function StreakTable({ title, records, unit }: {
+function StreakTable({ title, records, unit, onExport }: {
   title: string
   records: ProStreakRecord[]
   unit: string
+  onExport?: () => void
 }) {
   if (!records || records.length === 0) return null
   return (
     <div className="bg-[var(--bg-secondary)] rounded-lg border border-[var(--border)] overflow-hidden">
-      <TableTitle title={title} />
+      <TableTitle title={title} onExport={onExport} />
       <div className="max-h-[420px] overflow-y-auto scrollbar-thin">
         <table className="w-full text-sm">
           <thead className="sticky top-0 z-10">
@@ -368,14 +376,15 @@ function StreakTable({ title, records, unit }: {
   )
 }
 
-function TournamentKillsTable({ title, records }: {
+function TournamentKillsTable({ title, records, onExport }: {
   title: string
   records: ProTournamentKillsRecord[]
+  onExport?: () => void
 }) {
   if (!records || records.length === 0) return null
   return (
     <div className="bg-[var(--bg-secondary)] rounded-lg border border-[var(--border)] overflow-hidden">
-      <TableTitle title={title} />
+      <TableTitle title={title} onExport={onExport} />
       <div className="max-h-[420px] overflow-y-auto scrollbar-thin">
         <table className="w-full text-sm">
           <thead className="sticky top-0 z-10">
@@ -413,29 +422,190 @@ function TournamentKillsTable({ title, records }: {
   )
 }
 
-function TableTitle({ title }: { title: string }) {
+function TournamentPlayerTable({ title, records, formatValue, valueLabel, onExport }: {
+  title: string
+  records: ProTournamentPlayerRecord[]
+  formatValue: (r: ProTournamentPlayerRecord) => string
+  valueLabel?: string
+  onExport?: () => void
+}) {
+  const [expandedIndex, setExpandedIndex] = useState<number | null>(null)
+  if (!records || records.length === 0) return null
+  const colCount = 5
   return (
-    <div className="px-4 py-2.5 bg-[var(--bg-card)] border-b border-[var(--border)]">
-      <h3 className="text-xs font-semibold text-(--text-secondary) uppercase tracking-wider">{title}</h3>
+    <div className="bg-[var(--bg-secondary)] rounded-lg border border-[var(--border)] overflow-hidden">
+      <TableTitle title={title} onExport={onExport} />
+      <div className="max-h-[420px] overflow-y-auto scrollbar-thin">
+        <table className="w-full text-sm">
+          <thead className="sticky top-0 z-10">
+            <tr className="text-left text-[10px] text-(--text-muted) uppercase tracking-wider bg-[var(--bg-card)] border-b border-[var(--border)]">
+              <th className="py-1.5 px-2 w-6"></th>
+              <th className="py-1.5" colSpan={2}>Joueur</th>
+              <th className="py-1.5 text-right">{valueLabel ?? 'Val.'}</th>
+              <th className="py-1.5 text-right pr-3">GP</th>
+            </tr>
+          </thead>
+          <tbody>
+            {records.map((r, i) => {
+              const isExpanded = expandedIndex === i
+              return (
+              <React.Fragment key={i}>
+              <tr
+                onClick={() => setExpandedIndex(isExpanded ? null : i)}
+                className={`border-b border-[var(--border)]/30 transition-colors hover:bg-[var(--bg-hover)] cursor-pointer ${
+                  i === 0 ? 'bg-[var(--accent)]/5' : ''
+                }`}
+              >
+                <td className="py-1.5 px-2">
+                  <RankCell rank={i + 1} />
+                </td>
+                <td className="py-1.5">
+                  <div className="flex items-center gap-1">
+                    {r.teamName && <TeamLogo slug={r.teamName.toLowerCase()} shortName={r.teamName} name={r.teamFullName} size={16} />}
+                    {r.role && (
+                      <Image
+                        src={getRoleImagePath(r.role)}
+                        alt={r.role}
+                        width={14}
+                        height={14}
+                        className="w-3.5 h-3.5 object-contain opacity-50"
+                      />
+                    )}
+                  </div>
+                </td>
+                <td className={`py-1.5 text-xs font-medium ${i === 0 ? 'text-[var(--accent)]' : 'text-(--text-primary)'}`}>
+                  <div className="flex flex-col">
+                    <span>{r.playerName}</span>
+                    <span className="text-[10px] text-(--text-muted) font-normal" title={r.tournamentName}>
+                      {r.leagueShortName ? `${r.leagueShortName} · ` : ''}{shortenTournamentName(r.tournamentName)}
+                    </span>
+                  </div>
+                </td>
+                <td className={`py-1.5 text-right font-mono font-bold text-xs ${i === 0 ? 'text-[var(--accent)]' : 'text-(--text-primary)'}`}>
+                  {formatValue(r)}
+                </td>
+                <td className="py-1.5 text-right pr-3 font-mono text-xs text-(--text-muted)">
+                  {r.gamesPlayed}
+                </td>
+              </tr>
+              {isExpanded && (
+                <DetailRow colSpan={colCount}>
+                  {r.gamesWon != null && (
+                    <span className="font-mono">
+                      {r.gamesWon}W {r.gamesPlayed - r.gamesWon}L
+                    </span>
+                  )}
+                  {r.winRate != null && (
+                    <>
+                      <span className="text-(--text-muted)/50">·</span>
+                      <span className={`font-mono ${r.winRate >= 50 ? 'text-[var(--positive)]' : 'text-[var(--negative)]'}`}>
+                        {r.winRate.toFixed(1)}%
+                      </span>
+                    </>
+                  )}
+                  {r.kills != null && r.deaths != null && r.assists != null && (
+                    <>
+                      <span className="text-(--text-muted)/50">·</span>
+                      <span className="font-mono">{r.kills}/{r.deaths}/{r.assists}</span>
+                    </>
+                  )}
+                  <span className="text-(--text-muted)/50">·</span>
+                  <span>{r.tournamentName}</span>
+                </DetailRow>
+              )}
+              </React.Fragment>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }
 
-type RecordSubTab = 'players' | 'teams' | 'series'
+function TableTitle({ title, onExport }: { title: string; onExport?: () => void }) {
+  return (
+    <div className="px-4 py-2.5 bg-[var(--bg-card)] border-b border-[var(--border)] flex items-center justify-between">
+      <h3 className="text-xs font-semibold text-(--text-secondary) uppercase tracking-wider">{title}</h3>
+      {onExport && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            onExport()
+          }}
+          className="p-1 rounded hover:bg-[var(--bg-hover)] text-(--text-muted) hover:text-(--text-primary) transition-colors"
+          title="Export social card"
+        >
+          <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" y1="15" x2="12" y2="3" />
+          </svg>
+        </button>
+      )}
+    </div>
+  )
+}
+
+type RecordSubTab = 'players' | 'teams' | 'series' | 'tournament'
 
 const SUB_TABS: { key: RecordSubTab; label: string }[] = [
   { key: 'players', label: 'Joueurs' },
+  { key: 'tournament', label: 'Joueurs (Tournoi)' },
   { key: 'teams', label: 'Equipes' },
   { key: 'series', label: 'Series' },
 ]
 
 const SUB_TAB_STORAGE_KEY = 'records-sub-tab'
 
+function buildFilterSummary(filters: ProStatsFilters): FilterSummary {
+  const leagues: string[] = []
+  if (filters.selectedLeagueIds.size > 0) {
+    for (const opt of filters.availableOptions.leagues) {
+      if (filters.selectedLeagueIds.has(opt.leagueId)) {
+        leagues.push(opt.shortName || opt.name)
+      }
+    }
+  }
+  const teams: string[] = []
+  if (filters.selectedTeamIds.size > 0) {
+    for (const opt of filters.availableOptions.teams) {
+      if (filters.selectedTeamIds.has(opt.teamId)) {
+        teams.push(opt.shortName)
+      }
+    }
+  }
+  return {
+    leagues,
+    years: [...filters.selectedYears],
+    role: filters.role,
+    teams,
+  }
+}
+
 export default function RecordsSection({ filters }: { filters: ProStatsFilters }) {
   const [records, setRecords] = useState<ProRecords | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [subTab, setSubTab] = useState<RecordSubTab>('players')
   const [includeExcluded, setIncludeExcluded] = useState(false)
+  const [socialCardData, setSocialCardData] = useState<SocialCardData | null>(null)
+
+  const openSocialCard = useCallback((
+    title: string,
+    cardType: RecordCardType,
+    recordsArr: SocialCardData['records'],
+    formatValue: SocialCardData['formatValue'],
+    extra?: SocialCardData['extra']
+  ) => {
+    setSocialCardData({
+      title,
+      cardType,
+      records: recordsArr,
+      formatValue,
+      filters: buildFilterSummary(filters),
+      extra,
+    })
+  }, [filters])
 
   useEffect(() => {
     try {
@@ -550,58 +720,108 @@ export default function RecordsSection({ filters }: { filters: ProStatsFilters }
       {/* Player Records */}
       {subTab === 'players' && (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-          <PlayerTable title="Best KDA" records={playerRecords.bestKda} formatValue={(r) => `${r.value} (${r.kills}/${r.deaths}/${r.assists})`} />
-          <PlayerTable title="Most Kills" records={playerRecords.mostKills} formatValue={(r) => String(r.value)} />
-          <PlayerTable title="Most Deaths" records={playerRecords.mostDeaths} formatValue={(r) => String(r.value)} />
-          <PlayerTable title="Most Assists" records={playerRecords.mostAssists} formatValue={(r) => String(r.value)} />
-          <PlayerTable title="K+A (0 Deaths)" records={playerRecords.mostKillsAssistsZeroDeaths} formatValue={(r) => `${r.value} (${r.kills}/${r.assists})`} />
-          <PlayerTable title="Most K+A" records={playerRecords.mostKillsAssists} formatValue={(r) => `${r.value} (${r.kills}/${r.assists})`} />
-          <PlayerTable title="Highest DPM" records={playerRecords.highestDpm} formatValue={(r) => r.value.toLocaleString()} />
-          <PlayerTable title="Highest DMG%" records={playerRecords.highestDamageShare} formatValue={(r) => `${r.value}%`} />
-          <PlayerTable title="Highest CS/min" records={playerRecords.highestCsPerMin} formatValue={(r) => `${r.value}/min`} />
-          <PlayerTable title="Fastest Quest" records={playerRecords.fastestQuest} formatValue={(r) => fmt(r.value)} />
-          <PlayerTable title="Slowest Quest" records={playerRecords.slowestQuest} formatValue={(r) => fmt(r.value)} />
-          <PlayerTable title="Gold Diff @15 (Best)" records={playerRecords.highestGoldDiffAt15} formatValue={(r) => `+${r.value.toLocaleString()}`} />
-          <PlayerTable title="Gold Diff @15 (Worst)" records={playerRecords.lowestGoldDiffAt15} formatValue={(r) => `${r.value.toLocaleString()}`} />
-          <PlayerTable title="CS Diff @15 (Best)" records={playerRecords.highestCsDiffAt15} formatValue={(r) => `+${r.value}`} />
-          <PlayerTable title="XP Diff @15 (Best)" records={playerRecords.highestXpDiffAt15} formatValue={(r) => `+${r.value.toLocaleString()}`} />
-          <PlayerTable title="Gold Diff End (Best)" records={playerRecords.highestGoldDiffEnd} formatValue={(r) => `+${r.value.toLocaleString()}`} />
-          <PlayerTable title="CS Diff End (Best)" records={playerRecords.highestCsDiffEnd} formatValue={(r) => `+${r.value}`} />
+          {([
+            ['Best KDA', playerRecords.bestKda, (r: ProPlayerRecord) => `${r.value.toFixed(2)} (${r.kills}/${r.deaths}/${r.assists})`],
+            ['Most Kills', playerRecords.mostKills, (r: ProPlayerRecord) => String(r.value)],
+            ['Most Deaths', playerRecords.mostDeaths, (r: ProPlayerRecord) => String(r.value)],
+            ['Most Assists', playerRecords.mostAssists, (r: ProPlayerRecord) => String(r.value)],
+            ['K+A (0 Deaths)', playerRecords.mostKillsAssistsZeroDeaths, (r: ProPlayerRecord) => `${r.value} (${r.kills}/${r.deaths}/${r.assists})`],
+            ['Most K+A', playerRecords.mostKillsAssists, (r: ProPlayerRecord) => `${r.value} (${r.kills}/${r.deaths}/${r.assists})`],
+            ['Highest DPM', playerRecords.highestDpm, (r: ProPlayerRecord) => Math.round(r.value).toLocaleString()],
+            ['Highest DPM Post 15', playerRecords.highestDpmPost15, (r: ProPlayerRecord) => Math.round(r.value).toLocaleString()],
+            ['Highest DMG%', playerRecords.highestDamageShare, (r: ProPlayerRecord) => `${r.value.toFixed(1)}%`],
+            ['Highest CS/min', playerRecords.highestCsPerMin, (r: ProPlayerRecord) => r.value.toFixed(2)],
+            ['Fastest Quest', playerRecords.fastestQuest, (r: ProPlayerRecord) => fmt(r.value)],
+            ['Slowest Quest', playerRecords.slowestQuest, (r: ProPlayerRecord) => fmt(r.value)],
+            ['Gold Diff @15 (Best)', playerRecords.highestGoldDiffAt15, (r: ProPlayerRecord) => `+${Math.round(r.value).toLocaleString()}`],
+            ['Gold Diff @15 (Worst)', playerRecords.lowestGoldDiffAt15, (r: ProPlayerRecord) => Math.round(r.value).toLocaleString()],
+            ['CS Diff @15 (Best)', playerRecords.highestCsDiffAt15, (r: ProPlayerRecord) => `+${Math.round(r.value)}`],
+            ['XP Diff @15 (Best)', playerRecords.highestXpDiffAt15, (r: ProPlayerRecord) => `+${Math.round(r.value).toLocaleString()}`],
+            ['Gold Diff End (Best)', playerRecords.highestGoldDiffEnd, (r: ProPlayerRecord) => `+${Math.round(r.value).toLocaleString()}`],
+            ['CS Diff End (Best)', playerRecords.highestCsDiffEnd, (r: ProPlayerRecord) => `+${Math.round(r.value)}`],
+          ] as [string, ProPlayerRecord[], (r: ProPlayerRecord) => string][]).map(([title, recs, fv]) => (
+            <PlayerTable
+              key={title}
+              title={title}
+              records={recs}
+              formatValue={fv}
+              onExport={() => openSocialCard(title, 'player', recs, fv as SocialCardData['formatValue'])}
+            />
+          ))}
         </div>
       )}
 
       {/* Team Records */}
       {subTab === 'teams' && (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-          <TeamTable title="Victoire la plus rapide" records={teamRecords.fastestWin} />
-          <TeamTable title="Game la plus longue" records={teamRecords.longestGame} />
-          <TeamTable title="First Blood le plus rapide" records={teamRecords.fastestFirstBlood} />
-          <TeamTable title="First Blood le plus lent" records={teamRecords.slowestFirstBlood} />
-          <BoTable title="BO3 le plus rapide" records={teamRecords.fastestBo3} />
-          <BoTable title="BO3 le plus long" records={teamRecords.slowestBo3} />
-          <BoTable title="BO5 le plus rapide" records={teamRecords.fastestBo5} />
-          <BoTable title="BO5 le plus long" records={teamRecords.slowestBo5} />
-          <TeamTable title="Plus de kills (equipe)" records={teamRecords.mostTeamKills} valueLabel="Kills" formatValue={(r) => String(r.value)} />
-          <TeamTable title="Plus de kills (game)" records={teamRecords.mostGameKills} valueLabel="Kills" formatValue={(r) => String(r.value)} />
-          <TeamTable title="First Tower le plus rapide" records={teamRecords.fastestFirstTower} />
-          <TeamTable title="First Dragon le plus rapide" records={teamRecords.fastestFirstDragon} />
-          <TeamTable title="First Herald le plus rapide" records={teamRecords.fastestFirstHerald} />
-          <TeamTable title="First Baron le plus rapide" records={teamRecords.fastestFirstBaron} />
-          <TeamTable title="Plus de dragons (game)" records={teamRecords.mostDragons} valueLabel="Dragons" formatValue={(r) => String(r.value)} />
-          <TeamTable title="Plus d'Elder Dragons" records={teamRecords.mostElderDragons} valueLabel="Elders" formatValue={(r) => String(r.value)} />
-          <TeamTable title="Plus de Barons" records={teamRecords.mostBarons} valueLabel="Barons" formatValue={(r) => String(r.value)} />
-          <TournamentKillsTable title="Moyenne de kills par game" records={tournamentRecords.avgKillsPerGame} />
+          <TeamTable title="Victoire la plus rapide" records={teamRecords.fastestWin} onExport={() => openSocialCard('Victoire la plus rapide', 'team', teamRecords.fastestWin, ((r: ProTeamRecord) => fmt(r.value)) as SocialCardData['formatValue'])} />
+          <TeamTable title="Game la plus longue" records={teamRecords.longestGame} onExport={() => openSocialCard('Game la plus longue', 'team', teamRecords.longestGame, ((r: ProTeamRecord) => fmt(r.value)) as SocialCardData['formatValue'])} />
+          <TeamTable title="First Blood le plus rapide" records={teamRecords.fastestFirstBlood} winnerLabel="Auteur" loserLabel="Victime" onExport={() => openSocialCard('First Blood le plus rapide', 'team', teamRecords.fastestFirstBlood, ((r: ProTeamRecord) => fmt(r.value)) as SocialCardData['formatValue'], { winnerLabel: 'Auteur', loserLabel: 'Victime' })} />
+          <TeamTable title="First Blood le plus lent" records={teamRecords.slowestFirstBlood} winnerLabel="Auteur" loserLabel="Victime" onExport={() => openSocialCard('First Blood le plus lent', 'team', teamRecords.slowestFirstBlood, ((r: ProTeamRecord) => fmt(r.value)) as SocialCardData['formatValue'], { winnerLabel: 'Auteur', loserLabel: 'Victime' })} />
+          <BoTable title="BO3 le plus rapide" records={teamRecords.fastestBo3} onExport={() => openSocialCard('BO3 le plus rapide', 'bo', teamRecords.fastestBo3, (() => '') as SocialCardData['formatValue'])} />
+          <BoTable title="BO3 le plus long" records={teamRecords.slowestBo3} onExport={() => openSocialCard('BO3 le plus long', 'bo', teamRecords.slowestBo3, (() => '') as SocialCardData['formatValue'])} />
+          <BoTable title="BO5 le plus rapide" records={teamRecords.fastestBo5} onExport={() => openSocialCard('BO5 le plus rapide', 'bo', teamRecords.fastestBo5, (() => '') as SocialCardData['formatValue'])} />
+          <BoTable title="BO5 le plus long" records={teamRecords.slowestBo5} onExport={() => openSocialCard('BO5 le plus long', 'bo', teamRecords.slowestBo5, (() => '') as SocialCardData['formatValue'])} />
+          <TeamTable title="Plus de kills (equipe)" records={teamRecords.mostTeamKills} valueLabel="Kills" formatValue={(r) => String(r.value)} onExport={() => openSocialCard('Plus de kills (equipe)', 'team', teamRecords.mostTeamKills, ((r: ProTeamRecord) => String(r.value)) as SocialCardData['formatValue'], { valueLabel: 'Kills' })} />
+          <TeamTable title="Plus de kills (game)" records={teamRecords.mostGameKills} valueLabel="Kills" formatValue={(r) => String(r.value)} onExport={() => openSocialCard('Plus de kills (game)', 'team', teamRecords.mostGameKills, ((r: ProTeamRecord) => String(r.value)) as SocialCardData['formatValue'], { valueLabel: 'Kills' })} />
+          <TeamTable title="First Tower le plus rapide" records={teamRecords.fastestFirstTower} onExport={() => openSocialCard('First Tower le plus rapide', 'team', teamRecords.fastestFirstTower, ((r: ProTeamRecord) => fmt(r.value)) as SocialCardData['formatValue'])} />
+          <TeamTable title="First Dragon le plus rapide" records={teamRecords.fastestFirstDragon} onExport={() => openSocialCard('First Dragon le plus rapide', 'team', teamRecords.fastestFirstDragon, ((r: ProTeamRecord) => fmt(r.value)) as SocialCardData['formatValue'])} />
+          <TeamTable title="First Herald le plus rapide" records={teamRecords.fastestFirstHerald} onExport={() => openSocialCard('First Herald le plus rapide', 'team', teamRecords.fastestFirstHerald, ((r: ProTeamRecord) => fmt(r.value)) as SocialCardData['formatValue'])} />
+          <TeamTable title="First Baron le plus rapide" records={teamRecords.fastestFirstBaron} onExport={() => openSocialCard('First Baron le plus rapide', 'team', teamRecords.fastestFirstBaron, ((r: ProTeamRecord) => fmt(r.value)) as SocialCardData['formatValue'])} />
+          <TeamTable title="Plus de dragons (game)" records={teamRecords.mostDragons} valueLabel="Dragons" formatValue={(r) => String(r.value)} onExport={() => openSocialCard('Plus de dragons (game)', 'team', teamRecords.mostDragons, ((r: ProTeamRecord) => String(r.value)) as SocialCardData['formatValue'], { valueLabel: 'Dragons' })} />
+          <TeamTable title="Plus d'Elder Dragons" records={teamRecords.mostElderDragons} valueLabel="Elders" formatValue={(r) => String(r.value)} onExport={() => openSocialCard("Plus d'Elder Dragons", 'team', teamRecords.mostElderDragons, ((r: ProTeamRecord) => String(r.value)) as SocialCardData['formatValue'], { valueLabel: 'Elders' })} />
+          <TeamTable title="Plus de Barons" records={teamRecords.mostBarons} valueLabel="Barons" formatValue={(r) => String(r.value)} onExport={() => openSocialCard('Plus de Barons', 'team', teamRecords.mostBarons, ((r: ProTeamRecord) => String(r.value)) as SocialCardData['formatValue'], { valueLabel: 'Barons' })} />
+          <TournamentKillsTable title="Moyenne de kills par game" records={tournamentRecords.avgKillsPerGame} onExport={() => openSocialCard('Moyenne de kills par game', 'tournamentKills', tournamentRecords.avgKillsPerGame, (() => '') as SocialCardData['formatValue'])} />
         </div>
       )}
 
       {/* Streak Records */}
       {subTab === 'series' && (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-          <StreakTable title="Plus longue serie de victoires (games)" records={streakRecords.longestGameWinStreak} unit="games" />
-          <StreakTable title="Plus longue serie de defaites (games)" records={streakRecords.longestGameLossStreak} unit="games" />
-          <StreakTable title="Plus longue serie de victoires (matchs)" records={streakRecords.longestMatchWinStreak} unit="matchs" />
-          <StreakTable title="Plus longue serie de defaites (matchs)" records={streakRecords.longestMatchLossStreak} unit="matchs" />
+          <StreakTable title="Plus longue serie de victoires (games)" records={streakRecords.longestGameWinStreak} unit="games" onExport={() => openSocialCard('Plus longue serie de victoires (games)', 'streak', streakRecords.longestGameWinStreak, (() => '') as SocialCardData['formatValue'], { unit: 'games' })} />
+          <StreakTable title="Plus longue serie de defaites (games)" records={streakRecords.longestGameLossStreak} unit="games" onExport={() => openSocialCard('Plus longue serie de defaites (games)', 'streak', streakRecords.longestGameLossStreak, (() => '') as SocialCardData['formatValue'], { unit: 'games' })} />
+          <StreakTable title="Plus longue serie de victoires (matchs)" records={streakRecords.longestMatchWinStreak} unit="matchs" onExport={() => openSocialCard('Plus longue serie de victoires (matchs)', 'streak', streakRecords.longestMatchWinStreak, (() => '') as SocialCardData['formatValue'], { unit: 'matchs' })} />
+          <StreakTable title="Plus longue serie de defaites (matchs)" records={streakRecords.longestMatchLossStreak} unit="matchs" onExport={() => openSocialCard('Plus longue serie de defaites (matchs)', 'streak', streakRecords.longestMatchLossStreak, (() => '') as SocialCardData['formatValue'], { unit: 'matchs' })} />
         </div>
+      )}
+
+      {/* Tournament-aggregated Player Records */}
+      {subTab === 'tournament' && records.tournamentPlayerRecords && (() => {
+        const tpr = records.tournamentPlayerRecords!
+        return (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+            {([
+              ['Best KDA (Tournoi)', tpr.bestKda, (r: ProTournamentPlayerRecord) => r.kills != null ? `${r.value.toFixed(2)} (${r.kills}/${r.deaths}/${r.assists})` : r.value.toFixed(2)],
+              ['Most Kills (Tournoi)', tpr.mostKills, (r: ProTournamentPlayerRecord) => String(r.value)],
+              ['Most Assists (Tournoi)', tpr.mostAssists, (r: ProTournamentPlayerRecord) => String(r.value)],
+              ['Highest DPM (Tournoi)', tpr.highestDpm, (r: ProTournamentPlayerRecord) => Math.round(r.value).toLocaleString()],
+              ['Highest DPM Post 15 (Tournoi)', tpr.highestDpmPost15, (r: ProTournamentPlayerRecord) => Math.round(r.value).toLocaleString()],
+              ['Highest CS/min (Tournoi)', tpr.highestCsPerMin, (r: ProTournamentPlayerRecord) => r.value.toFixed(2)],
+              ['Best Win Rate (Tournoi)', tpr.bestWinRate, (r: ProTournamentPlayerRecord) => `${r.value.toFixed(1)}%`],
+              ['Highest KP (Tournoi)', tpr.highestKp, (r: ProTournamentPlayerRecord) => `${r.value.toFixed(1)}%`],
+              ['Avg Gold Diff @15 (Tournoi)', tpr.bestAvgGoldDiffAt15, (r: ProTournamentPlayerRecord) => r.value >= 0 ? `+${Math.round(r.value).toLocaleString()}` : Math.round(r.value).toLocaleString()],
+              ['Most Pentakills (Tournoi)', tpr.mostPentakills, (r: ProTournamentPlayerRecord) => String(r.value)],
+              ['Most Champions (Tournoi)', tpr.mostUniqueChampions, (r: ProTournamentPlayerRecord) => String(r.value)],
+            ] as [string, ProTournamentPlayerRecord[], (r: ProTournamentPlayerRecord) => string][]).map(([title, recs, fv]) => (
+              <TournamentPlayerTable
+                key={title}
+                title={title}
+                records={recs}
+                formatValue={fv}
+                onExport={() => openSocialCard(title, 'tournamentPlayer', recs, fv as SocialCardData['formatValue'])}
+              />
+            ))}
+          </div>
+        )
+      })()}
+
+      {/* Social Card Export Modal */}
+      {socialCardData && (
+        <SocialCardModal
+          isOpen={!!socialCardData}
+          onClose={() => setSocialCardData(null)}
+          data={socialCardData}
+        />
       )}
     </div>
   )

@@ -14,6 +14,7 @@ export interface AvailableOptions {
   teams: { teamId: number; name: string; shortName: string }[]
   players: { playerId: number; name: string }[]
   tiers: number[]
+  phases: string[]
 }
 
 export interface ProStatsFilters {
@@ -25,7 +26,7 @@ export interface ProStatsFilters {
   selectedPlayerIds: Set<number>
   role: string | null
   selectedTier: number | null
-  playoffsFilter: 'all' | 'season' | 'playoffs'
+  selectedPhases: Set<string>
 
   // Setters
   setSelectedYears: (v: Set<number>) => void
@@ -35,7 +36,7 @@ export interface ProStatsFilters {
   setSelectedPlayerIds: (v: Set<number>) => void
   setRole: (v: string | null) => void
   setSelectedTier: (v: number | null) => void
-  setPlayoffsFilter: (v: 'all' | 'season' | 'playoffs') => void
+  setSelectedPhases: (v: Set<string>) => void
 
   // Derived
   availableOptions: AvailableOptions
@@ -54,7 +55,7 @@ export function useProStatsFilters(defaultYears?: Set<number>): ProStatsFilters 
   const [selectedPlayerIds, setSelectedPlayerIds] = useState<Set<number>>(new Set())
   const [role, setRole] = useState<string | null>(null)
   const [selectedTier, setSelectedTier] = useState<number | null>(null)
-  const [playoffsFilter, setPlayoffsFilter] = useState<'all' | 'season' | 'playoffs'>('all')
+  const [selectedPhases, setSelectedPhases] = useState<Set<string>>(new Set())
 
   // Filter map data (loaded once at mount)
   const [filterMap, setFilterMap] = useState<FilterMapResponse | null>(null)
@@ -79,7 +80,7 @@ export function useProStatsFilters(defaultYears?: Set<number>): ProStatsFilters 
 
   // Independent filters: return all lists directly from the backend (no cascading)
   const availableOptions = useMemo<AvailableOptions>(() => {
-    if (!filterMap) return { years: [], leagues: [], tournaments: [], teams: [], players: [], tiers: [] }
+    if (!filterMap) return { years: [], leagues: [], tournaments: [], teams: [], players: [], tiers: [], phases: [] }
 
     return {
       years: filterMap.years,
@@ -88,6 +89,7 @@ export function useProStatsFilters(defaultYears?: Set<number>): ProStatsFilters 
       teams: [...filterMap.teams].sort((a, b) => a.shortName.localeCompare(b.shortName)),
       players: [...filterMap.players].sort((a, b) => a.name.localeCompare(b.name)),
       tiers: filterMap.tiers,
+      phases: filterMap.phases ?? [],
     }
   }, [filterMap])
 
@@ -101,7 +103,7 @@ export function useProStatsFilters(defaultYears?: Set<number>): ProStatsFilters 
     setSelectedPlayerIds(new Set())
     setRole(null)
     setSelectedTier(null)
-    setPlayoffsFilter('all')
+    setSelectedPhases(new Set())
   }, [defaultYearsRef])
 
   const buildParams = useCallback(() => {
@@ -113,9 +115,9 @@ export function useProStatsFilters(defaultYears?: Set<number>): ProStatsFilters 
     if (selectedPlayerIds.size > 0) params.playerIds = [...selectedPlayerIds].join(',')
     if (role) params.role = role
     if (selectedTier !== null) params.tier = String(selectedTier)
-    if (playoffsFilter !== 'all') params.isPlayoffs = playoffsFilter === 'playoffs' ? 'true' : 'false'
+    if (selectedPhases.size > 0) params.phases = [...selectedPhases].join(',')
     return params
-  }, [selectedYears, selectedLeagueIds, selectedTournamentIds, selectedTeamIds, selectedPlayerIds, role, selectedTier, playoffsFilter])
+  }, [selectedYears, selectedLeagueIds, selectedTournamentIds, selectedTeamIds, selectedPlayerIds, role, selectedTier, selectedPhases])
 
   return {
     selectedYears,
@@ -125,7 +127,7 @@ export function useProStatsFilters(defaultYears?: Set<number>): ProStatsFilters 
     selectedPlayerIds,
     role,
     selectedTier,
-    playoffsFilter,
+    selectedPhases,
     setSelectedYears,
     setSelectedLeagueIds,
     setSelectedTournamentIds,
@@ -133,7 +135,7 @@ export function useProStatsFilters(defaultYears?: Set<number>): ProStatsFilters 
     setSelectedPlayerIds,
     setRole,
     setSelectedTier,
-    setPlayoffsFilter,
+    setSelectedPhases,
     availableOptions,
     filterMapLoading,
     buildParams,

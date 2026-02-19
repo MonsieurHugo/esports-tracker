@@ -7,18 +7,21 @@ import { sanitizeSlug } from '@/lib/utils'
 interface TeamLogoProps {
   slug: string
   shortName: string
+  name?: string | null
   size?: number
   className?: string
 }
 
-function TeamLogo({ slug, shortName, size = 20, className = '' }: TeamLogoProps) {
-  const [error, setError] = useState(false)
+type Source = 'name' | 'short' | 'fallback'
+
+function TeamLogo({ slug, shortName, name, size = 20, className = '' }: TeamLogoProps) {
+  const [source, setSource] = useState<Source>(name ? 'name' : 'short')
 
   useEffect(() => {
-    setError(false)
-  }, [shortName])
+    setSource(name ? 'name' : 'short')
+  }, [name, shortName])
 
-  if (error || !shortName) {
+  if (source === 'fallback' || !shortName) {
     return (
       <div
         className={`bg-(--bg-secondary) rounded-sm shrink-0 flex items-center justify-center text-[7px] font-semibold text-(--text-muted) ${className}`}
@@ -29,15 +32,25 @@ function TeamLogo({ slug, shortName, size = 20, className = '' }: TeamLogoProps)
     )
   }
 
+  const src = source === 'name' && name
+    ? `/images/teams/${sanitizeSlug(name)}.png`
+    : `/images/teams/${sanitizeSlug(shortName)}.png`
+
   return (
     <Image
-      src={`/images/teams/${sanitizeSlug(shortName)}.png`}
+      src={src}
       alt={shortName}
       width={size}
       height={size}
       className={`object-contain shrink-0 ${className}`}
       style={{ width: size, height: size }}
-      onError={() => setError(true)}
+      onError={() => {
+        if (source === 'name') {
+          setSource('short')
+        } else {
+          setSource('fallback')
+        }
+      }}
     />
   )
 }

@@ -810,6 +810,7 @@ export interface ProPlayerRecord {
   championName: string | null
   value: number
   teamName: string | null
+  teamFullName?: string | null
   opponentName: string | null
   role: string | null
   tournamentName: string
@@ -825,7 +826,9 @@ export interface ProPlayerRecord {
 export interface ProTeamRecord {
   value: number
   winnerName: string | null
+  winnerFullName?: string | null
   loserName: string | null
+  loserFullName?: string | null
   tournamentName: string
   gameDate: string | null
   win?: boolean | null
@@ -836,7 +839,9 @@ export interface ProBoRecord {
   value: number
   format: string
   team1Name: string | null
+  team1FullName?: string | null
   team2Name: string | null
+  team2FullName?: string | null
   winnerName: string | null
   tournamentName: string
   gameDate: string | null
@@ -856,6 +861,22 @@ export interface ProTournamentKillsRecord {
   avgKillsPerGame: number
 }
 
+export interface ProTournamentPlayerRecord {
+  playerName: string
+  teamName: string | null
+  teamFullName?: string | null
+  role: string | null
+  tournamentName: string
+  leagueShortName: string | null
+  gamesPlayed: number
+  gamesWon?: number
+  winRate?: number
+  value: number
+  kills?: number
+  deaths?: number
+  assists?: number
+}
+
 export interface ProRecords {
   playerRecords: {
     bestKda: ProPlayerRecord[]
@@ -865,6 +886,7 @@ export interface ProRecords {
     mostKillsAssistsZeroDeaths: ProPlayerRecord[]
     mostKillsAssists: ProPlayerRecord[]
     highestDpm: ProPlayerRecord[]
+    highestDpmPost15: ProPlayerRecord[]
     highestDamageShare: ProPlayerRecord[]
     highestCsPerMin: ProPlayerRecord[]
     fastestQuest: ProPlayerRecord[]
@@ -903,6 +925,19 @@ export interface ProRecords {
   }
   tournamentRecords: {
     avgKillsPerGame: ProTournamentKillsRecord[]
+  }
+  tournamentPlayerRecords?: {
+    bestKda: ProTournamentPlayerRecord[]
+    mostKills: ProTournamentPlayerRecord[]
+    mostAssists: ProTournamentPlayerRecord[]
+    highestDpm: ProTournamentPlayerRecord[]
+    highestDpmPost15: ProTournamentPlayerRecord[]
+    highestCsPerMin: ProTournamentPlayerRecord[]
+    bestWinRate: ProTournamentPlayerRecord[]
+    highestKp: ProTournamentPlayerRecord[]
+    bestAvgGoldDiffAt15: ProTournamentPlayerRecord[]
+    mostPentakills: ProTournamentPlayerRecord[]
+    mostUniqueChampions: ProTournamentPlayerRecord[]
   }
 }
 
@@ -978,6 +1013,7 @@ export interface FilterMapResponse {
   teams: { teamId: number; name: string; shortName: string }[]
   players: { playerId: number; name: string }[]
   tournaments: { tournamentId: number; name: string }[]
+  phases: string[]
 }
 
 export interface ProTeamLeaderboardEntry {

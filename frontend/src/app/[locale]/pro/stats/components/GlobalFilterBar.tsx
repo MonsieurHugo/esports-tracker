@@ -14,12 +14,6 @@ const ROLE_DISPLAY: { apiRole: string; icon: string; label: string }[] = [
   { apiRole: 'Support', icon: 'SUP', label: 'SUP' },
 ]
 
-const PLAYOFFS_OPTIONS = [
-  { id: 'all' as const, label: 'Tous' },
-  { id: 'season' as const, label: 'Saison' },
-  { id: 'playoffs' as const, label: 'Playoffs' },
-]
-
 export default function GlobalFilterBar({ filters }: { filters: ProStatsFilters }) {
   const {
     selectedYears,
@@ -29,7 +23,7 @@ export default function GlobalFilterBar({ filters }: { filters: ProStatsFilters 
     selectedPlayerIds,
     role,
     selectedTier,
-    playoffsFilter,
+    selectedPhases,
     setSelectedYears,
     setSelectedLeagueIds,
     setSelectedTournamentIds,
@@ -37,7 +31,7 @@ export default function GlobalFilterBar({ filters }: { filters: ProStatsFilters 
     setSelectedPlayerIds,
     setRole,
     setSelectedTier,
-    setPlayoffsFilter,
+    setSelectedPhases,
     availableOptions,
     filterMapLoading,
     resetFilters,
@@ -46,6 +40,11 @@ export default function GlobalFilterBar({ filters }: { filters: ProStatsFilters 
   const yearItems = useMemo(
     () => availableOptions.years.map((y) => ({ id: y, label: String(y) })),
     [availableOptions.years]
+  )
+
+  const phaseItems = useMemo(
+    () => availableOptions.phases.map((p) => ({ id: p, label: p })),
+    [availableOptions.phases]
   )
 
   return (
@@ -96,6 +95,15 @@ export default function GlobalFilterBar({ filters }: { filters: ProStatsFilters 
         getId={(i) => i.playerId}
         getLabel={(i) => i.name}
         searchable
+        isLoading={filterMapLoading}
+      />
+      <MultiSelectDropdown
+        label="Phase"
+        items={phaseItems}
+        selected={selectedPhases}
+        onChange={setSelectedPhases}
+        getId={(i) => i.id}
+        getLabel={(i) => i.label}
         isLoading={filterMapLoading}
       />
 
@@ -162,23 +170,6 @@ export default function GlobalFilterBar({ filters }: { filters: ProStatsFilters 
             }`}
           >
             {TIER_LABELS[t] ?? `T${t}`}
-          </button>
-        ))}
-      </div>
-
-      {/* Playoffs filter */}
-      <div className="flex items-center gap-1.5 px-2 py-[6px] bg-(--bg-card) border border-(--border) rounded-md">
-        {PLAYOFFS_OPTIONS.map((o) => (
-          <button
-            key={o.id}
-            onClick={() => setPlayoffsFilter(o.id)}
-            className={`px-2 py-0.5 text-[10px] font-semibold rounded transition-colors ${
-              playoffsFilter === o.id
-                ? 'bg-(--accent) text-white'
-                : 'text-(--text-muted) hover:text-(--text-secondary) hover:bg-(--bg-hover)'
-            }`}
-          >
-            {o.label}
           </button>
         ))}
       </div>

@@ -30,12 +30,16 @@ class Tournament:
     start_date: date | None = None
     end_date: date | None = None
     parent_id: str | None = None
+    parent_name: str | None = None
     titles: list[str] = field(default_factory=list)  # Title IDs
     # Optional league info (may not always be available)
     league_id: str | None = None
     league_name: str | None = None
     region: str | None = None
     tier: int | None = None
+    # Annotated by SyncProDataJob._annotate_phase_and_split after fetching
+    phase: str | None = None
+    split_name: str | None = None
 
 
 @dataclass
@@ -155,6 +159,7 @@ class GridGraphQL:
                         endDate
                         parent {
                             id
+                            name
                         }
                         titles {
                             id
@@ -218,6 +223,7 @@ class GridGraphQL:
                             start_date=self._parse_date(node.get("startDate")),
                             end_date=self._parse_date(node.get("endDate")),
                             parent_id=parent.get("id") if parent else None,
+                            parent_name=parent.get("name") if parent else None,
                             titles=[t.get("id") for t in titles if t.get("id")],
                         )
                     )
@@ -258,6 +264,7 @@ class GridGraphQL:
                 endDate
                 parent {
                     id
+                    name
                 }
                 titles {
                     id
@@ -283,6 +290,7 @@ class GridGraphQL:
                 start_date=self._parse_date(node.get("startDate")),
                 end_date=self._parse_date(node.get("endDate")),
                 parent_id=parent.get("id") if parent else None,
+                parent_name=parent.get("name") if parent else None,
                 titles=[t.get("id") for t in titles if t.get("id")],
             )
 

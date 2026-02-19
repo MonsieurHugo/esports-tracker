@@ -79,6 +79,17 @@ ROLE_MAP = {
     "sup": "Support",
 }
 
+# Riot participant_id -> role (Riot enforces Top/Jungle/Mid/ADC/Support order)
+PARTICIPANT_ROLE_MAP = {
+    1: "Top", 2: "Jungle", 3: "Mid", 4: "ADC", 5: "Support",
+    6: "Top", 7: "Jungle", 8: "Mid", 9: "ADC", 10: "Support",
+}
+
+# CS/min thresholds for role-swap heuristic (games without Riot data)
+SUPPORT_CSPM_THRESHOLD = 2.5   # Support P90 = 1.55, Jungle P5 = 3.05
+LANER_CSPM_THRESHOLD = 3.5    # Minimum for a real laner
+MIN_DURATION_FOR_HEURISTIC = 300  # 5 minutes, skip remakes
+
 # Draft action order (standard 20-action fearless format)
 PICK_BAN_ORDER = [
     ("ban", "team1", 1), ("ban", "team2", 2), ("ban", "team1", 3),
@@ -1499,6 +1510,11 @@ def process_tournament(
             rp = riot_player_map.get(riot_key) if riot_key else None
 
             if rp:
+                # Override role from participant_id (Riot enforces Top/Jg/Mid/ADC/Sup order)
+                pid = rp.get("participant_id")
+                if pid and pid in PARTICIPANT_ROLE_MAP:
+                    role = PARTICIPANT_ROLE_MAP[pid]
+
                 # Override with Riot stats (more precise)
                 kills = rp.get("kills", 0)
                 deaths = rp.get("deaths", 0)
@@ -1588,6 +1604,39 @@ def process_tournament(
                 "plates": plates_data,
                 "timing_data": timing_data,
             })
+
+        # CS/min heuristic: detect role swaps (Riot teamPosition is unreliable in pro games)
+        if duration_seconds and duration_seconds > MIN_DURATION_FOR_HEURISTIC:
+            for side in ("blue", "red"):
+                side_players = [ps for ps in player_stats if ps.get("team_side") == side]
+                support_ps = [ps for ps in side_players if ps.get("role") == "Support"]
+                non_support_ps = [ps for ps in side_players if ps.get("role") and ps.get("role") != "Support"]
+
+                if len(support_ps) != 1 or not non_support_ps:
+                    continue
+
+                sup = support_ps[0]
+                sup_cs = (sup.get("cs") or 0)
+                sup_cspm = sup_cs * 60 / duration_seconds
+
+                # Find non-support player with lowest CS/min
+                for nsp in non_support_ps:
+                    nsp_cs = (nsp.get("cs") or 0)
+                    nsp_cspm = nsp_cs * 60 / duration_seconds
+
+                    if nsp_cspm < SUPPORT_CSPM_THRESHOLD and sup_cspm > LANER_CSPM_THRESHOLD:
+                        # Swap roles: this non-support is actually playing support
+                        logger.info(
+                            "CS/min role swap detected",
+                            game_id=game_id,
+                            side=side,
+                            player_to_support=nsp.get("player_id"),
+                            player_from_support=sup.get("player_id"),
+                            nsp_cspm=round(nsp_cspm, 2),
+                            sup_cspm=round(sup_cspm, 2),
+                        )
+                        nsp["role"], sup["role"] = sup["role"], nsp["role"]
+                        break  # Only swap once per side
 
         db.insert_player_stats_batch(game_db_id, player_stats)
 

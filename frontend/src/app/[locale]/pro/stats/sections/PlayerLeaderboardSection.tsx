@@ -1,11 +1,12 @@
 'use client'
 
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useRef, useState, useMemo } from 'react'
 import Image from 'next/image'
 import api from '@/lib/api'
 import { logError } from '@/lib/logger'
 import { Skeleton } from '@/components/ui/Skeleton'
 import TeamLogo from '@/components/ui/TeamLogo'
+import { ExportImageButton } from '@/components/ui/ExportImageButton'
 import { getRoleImagePath, sanitizeSlug } from '@/lib/utils'
 import {
   BarChart,
@@ -30,7 +31,7 @@ type SortField =
   | 'avgKills' | 'avgDeaths' | 'avgAssists' | 'kda'
   | 'kills' | 'deaths' | 'assists'
   | 'csPerMin' | 'goldPerMin' | 'goldShare' | 'goldDiffAt15'
-  | 'damagePerMin' | 'damageShare'
+  | 'damagePerMin' | 'dpmPost15' | 'damageShare'
   | 'csDiffAt15' | 'xpDiffAt15'
   | 'visionScore'
   | 'killParticipation' | 'firstBloodParticipations'
@@ -70,7 +71,7 @@ const TAB_SORT_FIELDS: Record<StatTab, SortField[]> = {
   kda: ['avgKills', 'avgDeaths', 'avgAssists', 'kda', 'kills', 'deaths', 'assists', 'uniqueChampions'],
   early: ['botlane2v2Kills', 'botlane2v2Deaths', 'goldDiffAt15', 'csDiffAt15', 'xpDiffAt15', 'plates', 'killsAt15', 'kpAt15', 'teamKillsAt15', 'deathsAt15'],
   economy: ['csPerMin', 'goldPerMin', 'goldShare', 'goldDiffAt15', 'csDiffAt15', 'xpDiffAt15'],
-  damage: ['damagePerMin', 'damageShare', 'killParticipation'],
+  damage: ['damagePerMin', 'dpmPost15', 'damageShare', 'killParticipation'],
   combat: ['visionScore', 'firstBloodParticipations', 'doubleKills', 'tripleKills', 'quadraKills', 'pentaKills'],
   proximity: ['proximityTop', 'proximityJungle', 'proximityMid', 'proximityAdc', 'proximitySupport', 'isolation'],
 }
@@ -100,6 +101,7 @@ export default function PlayerLeaderboardSection({ filters }: PlayerLeaderboardS
   const [statTab, setStatTab] = useState<StatTab>('general')
   const [proxRole, setProxRole] = useState<string>('Top')
   const [selectedPlayerId, setSelectedPlayerId] = useState<number | null>(null)
+  const tableRef = useRef<HTMLDivElement>(null)
 
   const buildParams = filters.buildParams
 
@@ -400,7 +402,7 @@ export default function PlayerLeaderboardSection({ filters }: PlayerLeaderboardS
           ) : (
             <>
               {/* Proximity table */}
-              <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl">
+              <div ref={tableRef} className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl">
                 <div className="py-2 px-3 border-b border-[var(--border)] flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Image
@@ -412,7 +414,10 @@ export default function PlayerLeaderboardSection({ filters }: PlayerLeaderboardS
                     />
                     <h4 className="text-sm font-medium text-(--text-primary)">{proxRole}</h4>
                   </div>
-                  <span className="text-[10px] text-(--text-muted)">{meta.total} joueurs</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-(--text-muted)">{meta.total} joueurs</span>
+                    <ExportImageButton tableRef={tableRef} filename={`player-leaderboard-proximity-${proxRole.toLowerCase()}`} />
+                  </div>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-max min-w-full text-xs">
@@ -453,7 +458,7 @@ export default function PlayerLeaderboardSection({ filters }: PlayerLeaderboardS
                           <td className="px-1.5 py-1.5 font-mono text-(--text-muted)">{(page - 1) * 25 + index + 1}</td>
                           <td className="px-1.5 py-1.5">
                             {p.teamShortName ? (
-                              <TeamLogo slug={p.teamShortName.toLowerCase()} shortName={p.teamShortName} size={16} />
+                              <TeamLogo slug={p.teamShortName.toLowerCase()} shortName={p.teamShortName} name={p.teamName} size={16} />
                             ) : <span className="text-(--text-muted)">&mdash;</span>}
                           </td>
                           <td className={`px-1.5 py-1.5 font-medium border-r border-[var(--border)] ${
@@ -601,10 +606,13 @@ export default function PlayerLeaderboardSection({ filters }: PlayerLeaderboardS
       {/* Normal table (non-proximity tabs) */}
       {statTab !== 'proximity' && (
       <div className={statTab === 'early' ? 'flex flex-col lg:flex-row gap-4' : ''}>
-      <div className={`bg-[var(--bg-card)] border border-[var(--border)] rounded-xl ${statTab === 'early' ? 'lg:flex-1 min-w-0' : ''}`}>
+      <div ref={tableRef} className={`bg-[var(--bg-card)] border border-[var(--border)] rounded-xl ${statTab === 'early' ? 'lg:flex-1 min-w-0' : ''}`}>
         <div className="py-2 px-3 border-b border-[var(--border)] flex items-center justify-between">
           <h3 className="text-sm font-medium text-(--text-primary)">Player Leaderboard</h3>
-          <span className="text-xs text-(--text-muted)">{meta.total} joueurs</span>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-(--text-muted)">{meta.total} joueurs</span>
+            <ExportImageButton tableRef={tableRef} filename={`player-leaderboard-${statTab}`} />
+          </div>
         </div>
 
         {isLoading ? (
@@ -698,6 +706,7 @@ export default function PlayerLeaderboardSection({ filters }: PlayerLeaderboardS
                     {statTab === 'damage' && (
                       <>
                         <SortableHeader field="damagePerMin" label="DPM" title="Damage per Minute" />
+                        <SortableHeader field="dpmPost15" label="DPM P15" title="Damage per Minute Post 15min" />
                         <SortableHeader field="damageShare" label="DMG%" title="Damage Share %" />
                         <SortableHeader field="killParticipation" label="KP%" title="Kill Participation %" />
                       </>
@@ -735,7 +744,7 @@ export default function PlayerLeaderboardSection({ filters }: PlayerLeaderboardS
                       </td>
                       <td className={`${stickyBase} left-8 px-1.5 py-1.5 group-hover:bg-[var(--bg-hover)]`}>
                         {p.teamShortName ? (
-                          <TeamLogo slug={p.teamShortName.toLowerCase()} shortName={p.teamShortName} size={18} />
+                          <TeamLogo slug={p.teamShortName.toLowerCase()} shortName={p.teamShortName} name={p.teamName} size={18} />
                         ) : <span className="text-(--text-muted)">&mdash;</span>}
                       </td>
                       <td className={`${stickyBase} left-[68px] px-1.5 py-1.5 group-hover:bg-[var(--bg-hover)]`}>
@@ -876,6 +885,7 @@ export default function PlayerLeaderboardSection({ filters }: PlayerLeaderboardS
                       {statTab === 'damage' && (
                         <>
                           <td className="px-1.5 py-1.5 font-mono text-(--text-secondary)">{p.avgDamagePerMin}</td>
+                          <td className="px-1.5 py-1.5 font-mono text-(--text-secondary)">{p.avgDpmPost15 ?? 0}</td>
                           <td className="px-1.5 py-1.5 font-mono text-(--text-secondary)">{p.avgDamageShare.toFixed(1)}%</td>
                           <td className="px-1.5 py-1.5">
                             <span className={`font-mono ${kpColor(p.avgKillParticipation)}`}>

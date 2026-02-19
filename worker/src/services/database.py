@@ -1294,10 +1294,11 @@ class DatabaseService:
             return team_id
 
         # 3. No match — insert new team
+        slug = f"pro-{external_id}"
         result = await self.fetchval(
             """
             INSERT INTO teams (external_id, current_name, short_name, logo_url, game_id, slug, is_active, updated_at)
-            VALUES ($1, $2, $3, $4, 1, 'pro-' || $1, false, NOW())
+            VALUES ($1, $2, $3, $4, 1, $5, false, NOW())
             ON CONFLICT (external_id)
             DO UPDATE SET
                 current_name = EXCLUDED.current_name,
@@ -1310,6 +1311,7 @@ class DatabaseService:
             name,
             short_name,
             logo_url,
+            slug,
         )
         source = "leaguepedia" if external_id.startswith("lp:") else "grid"
         await self.register_mapping("team", result, source, external_id)
@@ -1342,6 +1344,8 @@ class DatabaseService:
         start_date: date | datetime | None = None,
         end_date: date | datetime | None = None,
         year: int | None = None,
+        phase: str | None = None,
+        split_name: str | None = None,
         **kwargs,  # Accept but ignore extra args for compatibility
     ) -> int:
         """
@@ -1355,6 +1359,8 @@ class DatabaseService:
             start_date: Start date
             end_date: End date
             year: Year
+            phase: Tournament phase (e.g. "Regular Season", "Playoffs")
+            split_name: Parent split name (e.g. "LEC - Winter 2025")
 
         Returns:
             Tournament ID
@@ -1373,8 +1379,10 @@ class DatabaseService:
                     start_date = COALESCE($4, start_date),
                     end_date = COALESCE($5, end_date),
                     year = COALESCE($6, year),
+                    phase = COALESCE($7, phase),
+                    split_name = COALESCE($8, split_name),
                     updated_at = NOW()
-                WHERE tournament_id = $7
+                WHERE tournament_id = $9
                 """,
                 name,
                 slug,
@@ -1382,6 +1390,8 @@ class DatabaseService:
                 start_date,
                 end_date,
                 year,
+                phase,
+                split_name,
                 mapped_id,
             )
             return mapped_id
@@ -1390,9 +1400,10 @@ class DatabaseService:
         result = await self.fetchval(
             """
             INSERT INTO pro_tournaments (
-                external_id, name, slug, pro_league_id, start_date, end_date, year, updated_at
+                external_id, name, slug, pro_league_id, start_date, end_date, year,
+                phase, split_name, updated_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
             ON CONFLICT (external_id)
             DO UPDATE SET
                 name = EXCLUDED.name,
@@ -1401,6 +1412,8 @@ class DatabaseService:
                 start_date = COALESCE(EXCLUDED.start_date, pro_tournaments.start_date),
                 end_date = COALESCE(EXCLUDED.end_date, pro_tournaments.end_date),
                 year = COALESCE(EXCLUDED.year, pro_tournaments.year),
+                phase = COALESCE(EXCLUDED.phase, pro_tournaments.phase),
+                split_name = COALESCE(EXCLUDED.split_name, pro_tournaments.split_name),
                 updated_at = NOW()
             RETURNING tournament_id
             """,
@@ -1411,6 +1424,8 @@ class DatabaseService:
             start_date,
             end_date,
             year,
+            phase,
+            split_name,
         )
 
         # 3. Register mapping

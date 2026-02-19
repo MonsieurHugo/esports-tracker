@@ -2,19 +2,19 @@
 
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 
-interface MultiSelectDropdownProps<T> {
+interface MultiSelectDropdownProps<T, ID extends number | string = number> {
   label: string
   items: T[]
-  selected: Set<number>
-  onChange: (selected: Set<number>) => void
-  getId: (item: T) => number
+  selected: Set<ID>
+  onChange: (selected: Set<ID>) => void
+  getId: (item: T) => ID
   getLabel: (item: T) => string
   getSecondary?: (item: T) => string | null
   searchable?: boolean
   isLoading?: boolean
 }
 
-export default function MultiSelectDropdown<T>({
+export default function MultiSelectDropdown<T, ID extends number | string = number>({
   label,
   items,
   selected,
@@ -24,7 +24,7 @@ export default function MultiSelectDropdown<T>({
   getSecondary,
   searchable = false,
   isLoading = false,
-}: MultiSelectDropdownProps<T>) {
+}: MultiSelectDropdownProps<T, ID>) {
   const [isOpen, setIsOpen] = useState(false)
   const [search, setSearch] = useState('')
   const ref = useRef<HTMLDivElement>(null)
@@ -63,13 +63,13 @@ export default function MultiSelectDropdown<T>({
   const toggleAll = useCallback(() => {
     if (selected.size === 0) {
       // Select all visible items
-      onChange(new Set(filtered.map(getId)))
+      onChange(new Set(filtered.map(getId)) as Set<ID>)
     } else {
-      onChange(new Set())
+      onChange(new Set() as Set<ID>)
     }
   }, [selected.size, filtered, getId, onChange])
 
-  const toggleItem = useCallback((id: number) => {
+  const toggleItem = useCallback((id: ID) => {
     const next = new Set(selected)
     if (next.has(id)) {
       next.delete(id)

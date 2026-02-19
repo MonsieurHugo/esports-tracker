@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import api from '@/lib/api'
 import { logError } from '@/lib/logger'
 import { Skeleton } from '@/components/ui/Skeleton'
+import TeamLogo from '@/components/ui/TeamLogo'
 import type { ProTeamLeaderboardEntry, PaginatedResponse } from '@/lib/types'
 import type { ProStatsFilters } from '../hooks/useProStatsFilters'
 
@@ -68,6 +69,8 @@ export default function TeamLeaderboardSection({ filters }: TeamLeaderboardSecti
   const [meta, setMeta] = useState({ total: 0, lastPage: 1, currentPage: 1 })
   const [minGames, setMinGames] = useState(3)
   const [category, setCategory] = useState<Category>('general')
+  const [startDate, setStartDate] = useState('')
+  const [endDate, setEndDate] = useState('')
 
   const buildParams = filters.buildParams
 
@@ -83,6 +86,8 @@ export default function TeamLeaderboardSection({ filters }: TeamLeaderboardSecti
           perPage: 25,
           minGames,
         }
+        if (startDate) params.startDate = startDate
+        if (endDate) params.endDate = endDate
 
         const response = await api.get<PaginatedResponse<ProTeamLeaderboardEntry>>(
           '/pro/stats/team-leaderboards',
@@ -101,11 +106,11 @@ export default function TeamLeaderboardSection({ filters }: TeamLeaderboardSecti
     }
     run()
     return () => controller.abort()
-  }, [buildParams, sortBy, page, minGames])
+  }, [buildParams, sortBy, page, minGames, startDate, endDate])
 
   useEffect(() => {
     setPage(1)
-  }, [buildParams, sortBy, minGames])
+  }, [buildParams, sortBy, minGames, startDate, endDate])
 
   const handleSort = (field: SortField) => {
     setSortBy(field)
@@ -340,6 +345,33 @@ export default function TeamLeaderboardSection({ filters }: TeamLeaderboardSecti
           ))}
         </div>
 
+        {/* Date filter */}
+        <div className="flex items-center gap-2 text-xs text-(--text-muted)">
+          <span>Du</span>
+          <input
+            type="date"
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+            className="px-2 py-1 bg-[var(--bg-card)] border border-[var(--border)] rounded text-xs text-(--text-secondary) font-mono focus:outline-none focus:border-[var(--accent)] transition-colors"
+          />
+          <span>au</span>
+          <input
+            type="date"
+            value={endDate}
+            onChange={(e) => setEndDate(e.target.value)}
+            className="px-2 py-1 bg-[var(--bg-card)] border border-[var(--border)] rounded text-xs text-(--text-secondary) font-mono focus:outline-none focus:border-[var(--accent)] transition-colors"
+          />
+          {(startDate || endDate) && (
+            <button
+              onClick={() => { setStartDate(''); setEndDate('') }}
+              className="px-1.5 py-0.5 text-[10px] bg-[var(--bg-hover)] border border-[var(--border)] rounded hover:border-[var(--accent)] text-(--text-muted) hover:text-(--text-primary) transition-colors"
+              title="Effacer les dates"
+            >
+              &times;
+            </button>
+          )}
+        </div>
+
         {/* Min games filter */}
         <div className="flex items-center gap-2 text-xs text-(--text-muted) ml-auto">
           <span>Min</span>
@@ -386,7 +418,10 @@ export default function TeamLeaderboardSection({ filters }: TeamLeaderboardSecti
                         {(page - 1) * 25 + index + 1}
                       </td>
                       <td className="px-2 py-1.5 font-medium text-(--text-primary) sticky left-8 bg-[var(--bg-card)] whitespace-nowrap">
-                        {team.shortName || team.teamName || `T${team.teamId}`}
+                        <div className="flex items-center gap-1.5">
+                          <TeamLogo slug={(team.shortName || '').toLowerCase()} shortName={team.shortName || ''} name={team.teamName} size={18} />
+                          {team.shortName || team.teamName || `T${team.teamId}`}
+                        </div>
                       </td>
                       {renderCategoryCells(team)}
                     </tr>

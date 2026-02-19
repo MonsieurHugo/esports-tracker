@@ -4,6 +4,7 @@ Pro Data Sync Job
 Synchronizes esports data from GRID API to the database.
 """
 
+import traceback
 from datetime import date, datetime
 from typing import Any
 
@@ -81,6 +82,36 @@ class SyncProDataJob:
 
         return result
 
+    @staticmethod
+    def _annotate_phase_and_split(tournaments: list[Tournament]) -> None:
+        """Annotate each tournament with split_name and phase.
+
+        GRID hierarchy:
+          Level 0: Root league (LEC, LCK...)       — not in our set (no parent_id match)
+          Level 1: Split/Event (LEC - Winter 2025)  — "split" = ancestor whose parent is NOT in our set
+          Level 2: Phase (Regular Season, Playoffs)  — direct child of split
+          Level 3+: Leaf (Group A, Playoffs: ...)    — matches live here
+        """
+        by_id = {t.id: t for t in tournaments}
+
+        for t in tournaments:
+            # Walk up the ancestor chain within our set
+            ancestor = t
+            ancestors_chain = [t]
+            while ancestor.parent_id and ancestor.parent_id in by_id:
+                ancestor = by_id[ancestor.parent_id]
+                ancestors_chain.append(ancestor)
+
+            # ancestor = the split (topmost in our set, level 1)
+            t.split_name = ancestor.name  
+            if len(ancestors_chain) == 1:
+                # This IS the split itself → no phase
+                t.phase = None              elif len(ancestors_chain) == 2:
+                # Direct child of split → it IS a phase
+                t.phase = t.name_short or t.name              else:
+                # Deeper level → phase is the ancestor at level 2 (second from top)
+                phase_ancestor = ancestors_chain[-2]
+                t.phase = phase_ancestor.name_short or phase_ancestor.name  
     @staticmethod
     def _calculate_match_status(state: SeriesState) -> str:
         """
@@ -164,6 +195,9 @@ class SyncProDataJob:
             # Sort so parents are processed before children
             tournaments = self._sort_parents_first(tournaments)
 
+            # Annotate each tournament with phase and split_name
+            self._annotate_phase_and_split(tournaments)
+
             # 2. Process each tournament
             for tournament in tournaments:
                 await self._process_tournament(tournament)
@@ -180,7 +214,7 @@ class SyncProDataJob:
             )
 
         except Exception as e:
-            logger.error("Pro data sync failed", error=str(e))
+            logger.error("Pro data sync failed", error=str(e), traceback=traceback.format_exc())
             self._errors += 1
             raise
 
@@ -262,6 +296,8 @@ class SyncProDataJob:
                 end_date=end_date,
                 tier=getattr(tournament, 'tier', None),
                 year=start_date.year if start_date else None,
+                phase=tournament.phase,
+                split_name=tournament.split_name,
             )
 
             # Link to parent tournament if GRID provides a parent_id

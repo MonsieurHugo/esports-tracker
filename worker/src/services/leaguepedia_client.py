@@ -387,6 +387,8 @@ class LeaguepediaClient:
                 # Summoner spells
                 "summoner1_id": p.get("spell1Id", 0),
                 "summoner2_id": p.get("spell2Id", 0),
+                # In-game role (TOP, JUNGLE, MIDDLE, BOTTOM, UTILITY)
+                "team_position": p.get("teamPosition", ""),
             })
 
         # Parse team objectives
