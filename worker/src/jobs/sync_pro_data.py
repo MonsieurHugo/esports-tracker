@@ -30,11 +30,43 @@ _FORMAT_MAP = {
 }
 
 
-def _normalize_format(raw: str | None) -> str:
-    """Normalize GRID format (e.g. 'best-of-3') to DB format ('bo3')."""
-    if not raw:
+def _normalize_format(
+    raw: str | None,
+    team1_score: int = 0,
+    team2_score: int = 0,
+    num_games: int = 0,
+) -> str:
+    """Normalize GRID format (e.g. 'best-of-3') to DB format ('bo3').
+
+    When *raw* is missing, infer from the best available signal:
+    1. Winning score: 1→bo1, 2→bo3, 3→bo5
+    2. Number of games played: 1→bo1, 2-3→bo3, 4-5→bo5
+    Falls back to 'bo3' only when nothing else is available.
+    """
+    if raw:
+        return _FORMAT_MAP.get(raw.lower(), raw.lower())
+
+    # --- Infer from scores (most reliable) ---
+    _SCORE_TO_FORMAT = {1: "bo1", 2: "bo3", 3: "bo5"}
+    win_score = max(team1_score or 0, team2_score or 0)
+    if win_score in _SCORE_TO_FORMAT:
+        inferred = _SCORE_TO_FORMAT[win_score]
+        logger.warning("Format missing from GRID, inferred from scores", inferred_format=inferred, team1_score=team1_score, team2_score=team2_score)
+        return inferred
+
+    # --- Infer from game count (fallback) ---
+    if num_games >= 4:
+        logger.warning("Format missing from GRID, inferred bo5 from game count", num_games=num_games)
+        return "bo5"
+    if num_games >= 2:
+        logger.warning("Format missing from GRID, inferred bo3 from game count", num_games=num_games)
         return "bo3"
-    return _FORMAT_MAP.get(raw.lower(), raw.lower())
+    if num_games == 1:
+        logger.warning("Format missing from GRID, inferred bo1 from game count", num_games=num_games)
+        return "bo1"
+
+    logger.warning("Format missing from GRID and cannot infer, defaulting to bo3", team1_score=team1_score, team2_score=team2_score, num_games=num_games)
+    return "bo3"
 
 
 class SyncProDataJob:
@@ -470,7 +502,8 @@ class SyncProDataJob:
 
             # Duplicate detection: check if another series already covers this match
             series_started_at = state.started_at or series.start_time
-            series_format = _normalize_format(state.format or series.format)
+            num_games = len(state.games)
+            series_format = _normalize_format(state.format or series.format, team1_score, team2_score, num_games)
             duplicate = await self.db.find_duplicate_pro_match(
                 external_id=series.id,
                 tournament_id=tournament_db_id,
@@ -584,7 +617,7 @@ class SyncProDataJob:
                 team2_external_id=team2_external_id,
                 team1_score=team1_score,
                 team2_score=team2_score,
-                format=_normalize_format(state.format or series.format),
+                format=_normalize_format(state.format or series.format, team1_score, team2_score, num_games),
                 status=status,
                 started_at=state.started_at or series.start_time,
             )
@@ -716,6 +749,18 @@ class SyncProDataJob:
             logger.debug(
                 "Game already processed, skipping",
                 game_id=game_external_id,
+            )
+            self._games_skipped += 1
+            return
+
+        # Check if game already exists for this (match_id, game_number) under a different external_id
+        # (GRID sometimes creates duplicate series with different IDs for the same match)
+        if await self.db.is_pro_game_exists(match_id, game_number):
+            logger.debug(
+                "Game already exists for match+game_number, skipping duplicate series",
+                game_id=game_external_id,
+                match_id=match_id,
+                game_number=game_number,
             )
             self._games_skipped += 1
             return

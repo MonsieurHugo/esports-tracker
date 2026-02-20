@@ -1920,6 +1920,14 @@ class DatabaseService:
         )
         return result or False
 
+    async def is_pro_game_exists(self, match_id: int, game_number: int) -> bool:
+        """Check if a game already exists for this match+game_number (any external_id)."""
+        result = await self.fetchval(
+            "SELECT EXISTS(SELECT 1 FROM pro_games WHERE match_id = $1 AND game_number = $2)",
+            match_id, game_number,
+        )
+        return result or False
+
     async def mark_pro_game_processed(self, game_id: int) -> None:
         """Mark a pro game as fully processed."""
         await self.execute(
@@ -2782,3 +2790,34 @@ class DatabaseService:
             """
         )
         return [row["external_id"] for row in rows]
+
+    async def get_active_pro_matches(self) -> list[asyncpg.Record]:
+        """Get matches that need live polling (live or completed but not fully processed)."""
+        return await self.fetch(
+            """
+            SELECT match_id, external_id, tournament_id, format, status, started_at
+            FROM pro_matches
+            WHERE status IN ('live', 'completed')
+            ORDER BY CASE status WHEN 'live' THEN 0 ELSE 1 END,
+                     started_at DESC NULLS LAST
+            """
+        )
+
+    async def mark_pro_tournament_complete(self, tournament_id: int) -> None:
+        """Mark a tournament as complete (all series processed)."""
+        await self.execute(
+            "UPDATE pro_tournaments SET is_complete = TRUE WHERE tournament_id = $1",
+            tournament_id,
+        )
+
+    async def count_unfinished_matches_in_tournament(self, tournament_id: int) -> int:
+        """Count matches in a tournament that are not yet fully done."""
+        result = await self.fetchval(
+            """
+            SELECT COUNT(*) FROM pro_matches
+            WHERE tournament_id = $1
+              AND status NOT IN ('processed', 'cancelled', 'forfeited')
+            """,
+            tournament_id,
+        )
+        return result or 0
