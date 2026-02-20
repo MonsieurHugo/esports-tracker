@@ -178,6 +178,12 @@ class ProWorker:
         if not self._running:
             return
 
+        # Wait briefly for any concurrent live poll to finish.
+        # Both intervals are synchronized (30min = 40×45s) so they always fire
+        # at the same instant; this sleep lets the live poll complete first.
+        if self._syncing_live:
+            await asyncio.sleep(5)
+
         if self._syncing_discovery or self._syncing_live:
             logger.warning("Sync in progress, deferring discovery")
             return

@@ -102,8 +102,14 @@ export default class ProDataController {
     let query = db
       .from('pro_matches as m')
       .leftJoin('pro_tournaments as t', 'm.tournament_id', 't.tournament_id')
-      .leftJoin('teams as t1', 'm.team1_external_id', 't1.external_id')
-      .leftJoin('teams as t2', 'm.team2_external_id', 't2.external_id')
+      .leftJoin('pro_entity_mappings as em1', (join) => {
+        join.on('em1.source_id', 'm.team1_external_id').andOnVal('em1.entity_type', 'team')
+      })
+      .leftJoin('teams as t1', 't1.team_id', 'em1.entity_id')
+      .leftJoin('pro_entity_mappings as em2', (join) => {
+        join.on('em2.source_id', 'm.team2_external_id').andOnVal('em2.entity_type', 'team')
+      })
+      .leftJoin('teams as t2', 't2.team_id', 'em2.entity_id')
       .leftJoin('pro_games as g', 'm.match_id', 'g.match_id')
       .select(
         'm.match_id',
@@ -162,8 +168,14 @@ export default class ProDataController {
     let countQuery = db
       .from('pro_matches as m')
       .leftJoin('pro_tournaments as t', 'm.tournament_id', 't.tournament_id')
-      .leftJoin('teams as t1', 'm.team1_external_id', 't1.external_id')
-      .leftJoin('teams as t2', 'm.team2_external_id', 't2.external_id')
+      .leftJoin('pro_entity_mappings as em1', (join) => {
+        join.on('em1.source_id', 'm.team1_external_id').andOnVal('em1.entity_type', 'team')
+      })
+      .leftJoin('teams as t1', 't1.team_id', 'em1.entity_id')
+      .leftJoin('pro_entity_mappings as em2', (join) => {
+        join.on('em2.source_id', 'm.team2_external_id').andOnVal('em2.entity_type', 'team')
+      })
+      .leftJoin('teams as t2', 't2.team_id', 'em2.entity_id')
 
     if (status && status !== 'all') {
       countQuery = countQuery.where('m.status', status)
