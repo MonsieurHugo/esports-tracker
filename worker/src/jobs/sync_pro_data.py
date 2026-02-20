@@ -2,10 +2,12 @@
 Pro Data Sync Job
 
 Synchronizes esports data from GRID API to the database.
+Series-first (bottom-up) architecture: discovers recent series via get_all_series,
+then lazily resolves tournaments on demand.
 """
 
 import traceback
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 import structlog
@@ -48,6 +50,9 @@ class SyncProDataJob:
         # Chronobreak fragment tracking: game external IDs consumed as supplements
         self._consumed_fragment_ids: set[str] = set()
 
+        # Tournament lazy resolution cache (cleared each cycle)
+        self._tournament_cache: dict[str, int | None] = {}
+
         # Stats tracking
         self._tournaments_processed = 0
         self._series_processed = 0
@@ -56,65 +61,6 @@ class SyncProDataJob:
         self._games_skipped = 0
         self._errors = 0
         self._duplicates_replaced = 0
-
-    @staticmethod
-    def _sort_parents_first(tournaments: list[Tournament]) -> list[Tournament]:
-        """Sort tournaments so parents come before children.
-
-        Uses the parent_id field from GRID to build a dependency order.
-        Tournaments without parent_id come first, then children after their parents.
-        """
-        by_id = {t.id: t for t in tournaments}
-        result: list[Tournament] = []
-        visited: set[str] = set()
-
-        def visit(t: Tournament) -> None:
-            if t.id in visited:
-                return
-            visited.add(t.id)
-            # Process parent first if it's in this batch
-            if t.parent_id and t.parent_id in by_id:
-                visit(by_id[t.parent_id])
-            result.append(t)
-
-        for t in tournaments:
-            visit(t)
-
-        return result
-
-    @staticmethod
-    def _annotate_phase_and_split(tournaments: list[Tournament]) -> None:
-        """Annotate each tournament with split_name and phase.
-
-        GRID hierarchy:
-          Level 0: Root league (LEC, LCK...)       — not in our set (no parent_id match)
-          Level 1: Split/Event (LEC - Winter 2025)  — "split" = ancestor whose parent is NOT in our set
-          Level 2: Phase (Regular Season, Playoffs)  — direct child of split
-          Level 3+: Leaf (Group A, Playoffs: ...)    — matches live here
-        """
-        by_id = {t.id: t for t in tournaments}
-
-        for t in tournaments:
-            # Walk up the ancestor chain within our set
-            ancestor = t
-            ancestors_chain = [t]
-            while ancestor.parent_id and ancestor.parent_id in by_id:
-                ancestor = by_id[ancestor.parent_id]
-                ancestors_chain.append(ancestor)
-
-            # ancestor = the split (topmost in our set, level 1)
-            t.split_name = ancestor.name
-
-            if len(ancestors_chain) == 1:
-                # This IS the split itself → no phase
-                t.phase = None
-            elif len(ancestors_chain) == 2:
-                # Direct child of split → it IS a phase
-                t.phase = t.name_short or t.name
-            else:
-                # Deeper level → phase is the ancestor at level 2 (second from top)
-                phase_ancestor = ancestors_chain[-2]
-                t.phase = phase_ancestor.name_short or phase_ancestor.name
 
     @staticmethod
     def _calculate_match_status(state: SeriesState) -> str:
@@ -148,26 +94,8 @@ class SyncProDataJob:
             return "live"
         return "scheduled"
 
-    async def run(
-        self,
-        year: int | None = None,
-        tournament_ids: list[str] | None = None,
-    ) -> dict[str, int]:
-        """
-        Run full sync for a year or specific tournaments.
-
-        Args:
-            year: Year to sync (defaults to settings.pro_tournament_year)
-            tournament_ids: If provided, only sync these specific tournament IDs (GRID external IDs)
-
-        Returns:
-            Stats dictionary with counts
-        """
-        year = year or settings.pro_tournament_year
-
-        logger.info("Starting pro data sync", year=year, tournament_ids=tournament_ids)
-
-        # Reset stats
+    def _reset_stats(self) -> None:
+        """Reset all stats counters for a new cycle."""
         self._tournaments_processed = 0
         self._series_processed = 0
         self._series_skipped = 0
@@ -176,53 +104,10 @@ class SyncProDataJob:
         self._errors = 0
         self._duplicates_replaced = 0
         self._consumed_fragment_ids.clear()
+        self._tournament_cache.clear()
 
-        try:
-            if tournament_ids:
-                # Fetch specific tournaments by ID
-                tournaments: list[Tournament] = []
-                for tid in tournament_ids:
-                    t = await self.graphql.get_tournament_by_id(tid)
-                    if t:
-                        tournaments.append(t)
-                    else:
-                        logger.warning("Tournament not found", tournament_id=tid)
-                logger.info("Fetched specific tournaments", count=len(tournaments), requested=len(tournament_ids))
-            else:
-                # Fetch tournaments for the year — children are included inline in the query
-                # (up to 2 levels deep: split → phase → leaf group)
-                tournaments = await self.graphql.get_tournaments(
-                    start_date=date(year, 1, 1),
-                    end_date=date(year, 12, 31),
-                )
-                logger.info("Found tournaments (with children)", count=len(tournaments), year=year)
-
-            # Sort so parents are processed before children
-            tournaments = self._sort_parents_first(tournaments)
-
-            # Annotate each tournament with phase and split_name
-            self._annotate_phase_and_split(tournaments)
-
-            # 2. Process each tournament
-            for tournament in tournaments:
-                await self._process_tournament(tournament)
-
-            logger.info(
-                "Pro data sync completed",
-                tournaments=self._tournaments_processed,
-                series=self._series_processed,
-                series_skipped=self._series_skipped,
-                games=self._games_processed,
-                games_skipped=self._games_skipped,
-                duplicates_replaced=self._duplicates_replaced,
-                errors=self._errors,
-            )
-
-        except Exception as e:
-            logger.error("Pro data sync failed", error=str(e), traceback=traceback.format_exc())
-            self._errors += 1
-            raise
-
+    def _stats_dict(self) -> dict[str, int]:
+        """Return current stats as a dictionary."""
         return {
             "tournaments_processed": self._tournaments_processed,
             "series_processed": self._series_processed,
@@ -233,112 +118,280 @@ class SyncProDataJob:
             "errors": self._errors,
         }
 
-    async def _get_tournament_dates(self, tournament: Tournament) -> tuple[date | None, date | None]:
+    async def run_discovery(
+        self,
+        window_hours: int | None = None,
+    ) -> dict[str, int]:
         """
-        Get dates for a tournament, traversing up to parent if needed.
+        Series-first discovery sync.
 
-        Child tournaments often don't have dates directly - they inherit from parent.
+        Queries recent series via get_all_series(start_time_gte=now-window),
+        then lazily resolves tournaments on demand. Much faster than the old
+        tournament-first approach (~50-200 API calls vs ~14,000+).
+
+        Args:
+            window_hours: How far back to look (defaults to settings.pro_discovery_window_hours)
+
+        Returns:
+            Stats dictionary with counts
         """
-        # If tournament has dates, use them
-        if tournament.start_date and tournament.end_date:
-            return tournament.start_date, tournament.end_date
+        window = window_hours or settings.pro_discovery_window_hours
+        now = datetime.now(timezone.utc)
+        cutoff = now - timedelta(hours=window)
 
-        # Otherwise traverse up to find dates
-        current = tournament
-        max_depth = 5  # Prevent infinite loops
+        logger.info("Starting discovery sync", window_hours=window, cutoff=cutoff.isoformat())
 
-        for _ in range(max_depth):
-            if not current.parent_id:
-                break
-
-            parent = await self.graphql.get_tournament_by_id(current.parent_id)
-            if not parent:
-                break
-
-            if parent.start_date and parent.end_date:
-                logger.debug(
-                    "Inherited dates from parent",
-                    tournament_id=tournament.id,
-                    parent_id=parent.id,
-                    start_date=parent.start_date,
-                    end_date=parent.end_date,
-                )
-                return parent.start_date, parent.end_date
-
-            current = parent
-
-        return tournament.start_date, tournament.end_date
-
-    async def _process_tournament(self, tournament: Tournament) -> None:
-        """Process a single tournament."""
-        logger.info(
-            "Processing tournament",
-            tournament_id=tournament.id,
-            name=tournament.name,
-        )
+        self._reset_stats()
 
         try:
-            # Get dates (may inherit from parent)
-            start_date, end_date = await self._get_tournament_dates(tournament)
-
-            # Upsert league if available
-            pro_league_id = None
-            league_name = getattr(tournament, 'league_name', None)
-            if league_name:
-                pro_league_id = await self.db.upsert_pro_league(
-                    name=league_name,
-                    external_id=getattr(tournament, 'league_id', None),
-                    region=getattr(tournament, 'region', None),
-                )
-
-            # Upsert tournament
-            tournament_id = await self.db.upsert_pro_tournament(
-                external_id=tournament.id,
-                name=tournament.name,
-                pro_league_id=pro_league_id,
-                region=getattr(tournament, 'region', None),
-                start_date=start_date,
-                end_date=end_date,
-                tier=getattr(tournament, 'tier', None),
-                year=start_date.year if start_date else None,
-                phase=tournament.phase,
-                split_name=tournament.split_name,
+            # Fetch recent series (paginated, ~100-300 typically)
+            series_list = await self.graphql.get_all_series(
+                start_time_gte=cutoff,
+                types=["ESPORTS"],
             )
+            logger.info("Discovery found series", count=len(series_list))
 
-            # Link to parent tournament if GRID provides a parent_id
-            if tournament.parent_id:
-                parent_db_id = await self.db.resolve_tournament_id(tournament.parent_id)
-                if parent_db_id:
-                    await self.db.set_tournament_parent(tournament_id, parent_db_id)
-                else:
-                    logger.debug(
-                        "Parent tournament not found (may not be synced yet)",
-                        tournament_id=tournament.id,
-                        parent_id=tournament.parent_id,
-                    )
-
-            # Get series for tournament
-            series_list = await self.graphql.get_series_for_tournament(tournament.id)
-            logger.info(
-                "Found series for tournament",
-                tournament_id=tournament.id,
-                count=len(series_list),
-            )
-
-            # Process each series
             for series in series_list:
-                series.tournament_id = tournament.id
-                await self._process_series(series, tournament_id)
+                try:
+                    # Skip future/unstarted series
+                    start = series.start_time
+                    if start and start.tzinfo is None:
+                        start = start.replace(tzinfo=timezone.utc)
+                    if start and start > now:
+                        self._series_skipped += 1
+                        continue
 
-            self._tournaments_processed += 1
+                    # Skip already processed
+                    if await self.db.is_pro_match_processed(series.id):
+                        self._series_skipped += 1
+                        continue
 
-        except GridClientError as e:
-            logger.error(
-                "Failed to process tournament",
-                tournament_id=tournament.id,
-                error=str(e),
-            )
+                    # Lazy-resolve tournament
+                    tournament_db_id = await self._resolve_tournament_lazy(series.tournament_id)
+
+                    await self._process_series(series, tournament_db_id=tournament_db_id)
+
+                except Exception as e:
+                    logger.error(
+                        "Failed to process series in discovery",
+                        series_id=series.id,
+                        error=str(e),
+                    )
+                    self._errors += 1
+
+            logger.info("Discovery sync completed", **self._stats_dict())
+
+        except Exception as e:
+            logger.error("Discovery sync failed", error=str(e), traceback=traceback.format_exc())
             self._errors += 1
+            raise
+
+        return self._stats_dict()
+
+    async def run(
+        self,
+        tournament_ids: list[str] | None = None,
+    ) -> dict[str, int]:
+        """
+        One-shot sync for specific tournaments (used by --tournaments CLI flag).
+
+        Args:
+            tournament_ids: GRID external IDs to sync
+
+        Returns:
+            Stats dictionary with counts
+        """
+        if not tournament_ids:
+            logger.warning("run() called without tournament_ids, use run_discovery() for scheduled sync")
+            return await self.run_discovery()
+
+        logger.info("Starting one-shot tournament sync", tournament_ids=tournament_ids)
+
+        self._reset_stats()
+
+        try:
+            for tid in tournament_ids:
+                tournament = await self.graphql.get_tournament_by_id(tid)
+                if not tournament:
+                    logger.warning("Tournament not found", tournament_id=tid)
+                    continue
+
+                # Upsert tournament
+                tournament_db_id = await self._upsert_tournament_from_grid(tournament)
+
+                # Fetch series for this tournament
+                series_list = await self.graphql.get_series_for_tournament(tid)
+                logger.info("Found series for tournament", tournament_id=tid, count=len(series_list))
+
+                now = datetime.now(timezone.utc)
+                for series in series_list:
+                    start = series.start_time
+                    if start and start.tzinfo is None:
+                        start = start.replace(tzinfo=timezone.utc)
+                    if start and start > now:
+                        self._series_skipped += 1
+                        continue
+                    series.tournament_id = tid
+                    await self._process_series(series, tournament_db_id)
+
+                self._tournaments_processed += 1
+
+            logger.info("One-shot sync completed", **self._stats_dict())
+
+        except Exception as e:
+            logger.error("One-shot sync failed", error=str(e), traceback=traceback.format_exc())
+            self._errors += 1
+            raise
+
+        return self._stats_dict()
+
+    async def run_live_poll(self) -> dict[str, int]:
+        """Poll active matches (live/completed) for updates.
+
+        This is the fast path — only re-processes matches that are known to be
+        in progress or recently completed but not yet fully processed.
+        No tournament discovery, no GraphQL tournament queries.
+
+        Returns:
+            Stats dictionary with counts
+        """
+        logger.info("Starting live poll")
+
+        # Reset stats for this poll cycle
+        self._series_processed = 0
+        self._series_skipped = 0
+        self._games_processed = 0
+        self._games_skipped = 0
+        self._errors = 0
+        self._duplicates_replaced = 0
+        self._consumed_fragment_ids.clear()
+
+        try:
+            active_matches = await self.db.get_active_pro_matches()
+            if not active_matches:
+                logger.debug("No active matches to poll")
+                return {
+                    "series_processed": 0,
+                    "games_processed": 0,
+                    "errors": 0,
+                }
+
+            logger.info("Polling active matches", count=len(active_matches))
+
+            for match in active_matches:
+                # Build a minimal Series object for _process_series
+                series = Series(
+                    id=match["external_id"],
+                    tournament_id="",  # Not needed — tournament_db_id is passed directly
+                    start_time=match["started_at"],
+                    format=match["format"],
+                )
+                await self._process_series(series, tournament_db_id=match["tournament_id"])
+
+            logger.info(
+                "Live poll completed",
+                series=self._series_processed,
+                series_skipped=self._series_skipped,
+                games=self._games_processed,
+                games_skipped=self._games_skipped,
+                errors=self._errors,
+            )
+
+        except Exception as e:
+            logger.error("Live poll failed", error=str(e), traceback=traceback.format_exc())
+            self._errors += 1
+
+        return {
+            "series_processed": self._series_processed,
+            "games_processed": self._games_processed,
+            "games_skipped": self._games_skipped,
+            "errors": self._errors,
+        }
+
+    async def _resolve_tournament_lazy(self, grid_tournament_id: str) -> int | None:
+        """Resolve tournament DB ID, fetching from GRID if needed.
+
+        Uses a 3-tier lookup:
+          1. In-memory cache (per cycle)
+          2. DB lookup
+          3. Fetch from GRID API + upsert + walk parent chain
+        """
+        if not grid_tournament_id:
+            return None
+
+        # 1. Memory cache
+        if grid_tournament_id in self._tournament_cache:
+            return self._tournament_cache[grid_tournament_id]
+
+        # 2. DB lookup
+        existing = await self.db.get_pro_tournament_by_external_id(grid_tournament_id)
+        if existing:
+            db_id = existing["tournament_id"]
+            self._tournament_cache[grid_tournament_id] = db_id
+            return db_id
+
+        # 3. Fetch from GRID + upsert
+        tournament = await self.graphql.get_tournament_by_id(grid_tournament_id)
+        if not tournament:
+            logger.warning("Tournament not found on GRID", tournament_id=grid_tournament_id)
+            self._tournament_cache[grid_tournament_id] = None
+            return None
+
+        db_id = await self._upsert_tournament_from_grid(tournament)
+        self._tournament_cache[grid_tournament_id] = db_id
+        self._tournaments_processed += 1
+
+        logger.info(
+            "Lazily resolved tournament",
+            grid_id=grid_tournament_id,
+            name=tournament.name,
+            db_id=db_id,
+        )
+        return db_id
+
+    async def _upsert_tournament_from_grid(self, tournament: Tournament) -> int:
+        """Upsert a tournament fetched from GRID, resolving parent chain for dates/hierarchy."""
+        start_date = tournament.start_date
+        end_date = tournament.end_date
+        split_name = tournament.split_name or tournament.name
+
+        # Walk parent chain for dates and split_name if missing
+        if (not start_date or not end_date) and tournament.parent_id:
+            parent = await self.graphql.get_tournament_by_id(tournament.parent_id)
+            if parent:
+                if not start_date:
+                    start_date = parent.start_date
+                if not end_date:
+                    end_date = parent.end_date
+                split_name = parent.name  # Parent is likely the split
+
+        # Upsert league if info available
+        pro_league_id = None
+        league_name = getattr(tournament, 'league_name', None)
+        if league_name:
+            pro_league_id = await self.db.upsert_pro_league(
+                name=league_name,
+                external_id=getattr(tournament, 'league_id', None),
+                region=getattr(tournament, 'region', None),
+            )
+
+        tournament_db_id = await self.db.upsert_pro_tournament(
+            external_id=tournament.id,
+            name=tournament.name,
+            pro_league_id=pro_league_id,
+            start_date=start_date,
+            end_date=end_date,
+            year=start_date.year if start_date else None,
+            split_name=split_name,
+        )
+
+        # Link to parent if it exists in DB
+        if tournament.parent_id:
+            parent_db_id = await self.db.resolve_tournament_id(tournament.parent_id)
+            if parent_db_id:
+                await self.db.set_tournament_parent(tournament_db_id, parent_db_id)
+
+        return tournament_db_id
 
     async def _process_series(
         self,

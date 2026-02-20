@@ -96,7 +96,11 @@ class Settings(BaseSettings):
     # Pro Worker Settings
     pro_tournament_year: int = 2026
     pro_max_concurrent_games: int = 2
-    pro_sync_interval_minutes: int = 5  # Sync tournaments every 5 minutes
+    pro_sync_interval_minutes: int = 5  # Sync tournaments every 5 minutes (legacy, kept for compat)
+    pro_live_poll_interval_seconds: int = 45  # Fast poll for live matches
+    pro_full_sync_interval_hours: int = 6  # Legacy full sync interval (kept for one-shot compat)
+    pro_discovery_interval_minutes: int = 30  # Series-first discovery cycle
+    pro_discovery_window_hours: int = 48  # How far back to look for new series
     pro_api_port: int = 8000  # HTTP API port for pro worker
     pro_api_host: str = "0.0.0.0"  # HTTP API host
     # Leaguepedia sync settings
