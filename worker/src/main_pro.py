@@ -51,8 +51,7 @@ class ProWorker:
         self.aggregate_job: AggregateChampionStatsJob | None = None
         self._shutdown_event = asyncio.Event()
         self._running = False
-        self._syncing_live = False
-        self._syncing_discovery = False
+        self._sync_lock = asyncio.Lock()
         self._web_runner: web.AppRunner | None = None
 
     async def setup(self) -> None:
@@ -129,13 +128,12 @@ class ProWorker:
         if not self._running:
             return
 
-        # Skip if either loop is already running (mutual exclusion)
-        if self._syncing_live or self._syncing_discovery:
+        # Skip if another sync is already running (mutual exclusion)
+        if self._sync_lock.locked():
             logger.debug("Skipping live poll (sync in progress)")
             return
 
-        self._syncing_live = True
-        try:
+        async with self._sync_lock:
             try:
                 await self.db.update_pro_worker_task("Live poll")
                 stats = await self.sync_job.run_live_poll()
@@ -170,8 +168,6 @@ class ProWorker:
                 await self.db.update_pro_worker_task(None)
             except Exception:
                 pass
-        finally:
-            self._syncing_live = False
 
     async def _discovery_loop(self) -> None:
         """Discovery sync: find recent series via get_all_series (~30min cycle)."""
@@ -181,15 +177,14 @@ class ProWorker:
         # Wait briefly for any concurrent live poll to finish.
         # Both intervals are synchronized (30min = 40×45s) so they always fire
         # at the same instant; this sleep lets the live poll complete first.
-        if self._syncing_live:
+        if self._sync_lock.locked():
             await asyncio.sleep(5)
 
-        if self._syncing_discovery or self._syncing_live:
+        if self._sync_lock.locked():
             logger.warning("Sync in progress, deferring discovery")
             return
 
-        self._syncing_discovery = True
-        try:
+        async with self._sync_lock:
             try:
                 await self.db.update_pro_worker_task("Discovery sync")
                 stats = await self.sync_job.run_discovery()
@@ -209,8 +204,6 @@ class ProWorker:
                     await self.db.increment_pro_worker_stats(errors=1)
                 except Exception:
                     pass
-        finally:
-            self._syncing_discovery = False
 
         # Aggregate after releasing lock so live polls can resume during aggregation
         try:

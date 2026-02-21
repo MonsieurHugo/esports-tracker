@@ -59,6 +59,7 @@ export interface SocialCardData {
   title: string
   cardType: RecordCardType
   formatValue: (r: never) => string
+  formatDetail?: (r: never) => string | null
   records:
     | ProPlayerRecord[]
     | ProTeamRecord[]

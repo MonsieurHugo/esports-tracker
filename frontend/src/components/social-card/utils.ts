@@ -1,3 +1,10 @@
+import type { SocialCardFormat } from './types'
+
+/** Pick value by format: twitter / instagram / tiktok */
+export function sz(format: SocialCardFormat, twitter: number, insta: number, tiktok: number) {
+  return format === 'twitter' ? twitter : format === 'tiktok' ? tiktok : insta
+}
+
 export function fmtSeconds(seconds: number): string {
   const m = Math.floor(seconds / 60)
   const s = seconds % 60

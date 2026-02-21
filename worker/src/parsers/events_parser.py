@@ -209,6 +209,7 @@ class ParsedGameData:
     game_events: list[ProGameEvent]
     participant_names_by_side: dict[str, list[str]] = field(default_factory=dict)
     # {"blue": ["LR Baus", "LR Nemesis", ...], "red": ["KC Canna", "KC Yike", ...]}
+    data_quality_flags: list[dict] = field(default_factory=list)
 
 
 class EventsParser:
@@ -310,6 +311,9 @@ class EventsParser:
         self._final_champ_select: dict | None = None
         self._role_selected_events: list[dict] = []
 
+        # Data quality flags (collected during parsing, returned in ParsedGameData)
+        self._data_quality_flags: list[dict] = []
+
     def parse(self) -> ParsedGameData:
         """
         Parse all available data sources and return structured data.
@@ -331,11 +335,17 @@ class EventsParser:
 
         if not has_events and not has_summary and not has_details:
             logger.warning("No data sources available to parse")
+            self._data_quality_flags.append({
+                "flag_type": "no_data_sources",
+                "severity": "error",
+                "context": {"reason": "No events, summary, or details available"},
+            })
             return ParsedGameData(
                 game=self._game_info,
                 player_stats=[],
                 draft_actions=[],
                 game_events=[],
+                data_quality_flags=self._data_quality_flags,
             )
 
         # Phase 1: METADATA from events JSONL
@@ -386,6 +396,7 @@ class EventsParser:
             draft_actions=self._draft_actions,
             game_events=self._game_events,
             participant_names_by_side=names_by_side,
+            data_quality_flags=self._data_quality_flags,
         )
 
     # ─── Phase 1: METADATA from events JSONL ───────────────────────────
@@ -1686,6 +1697,12 @@ class EventsParser:
 
         # Track nexus destruction as fallback for winner detection
         if building_type.lower() == "nexus":
+            if not self._game_info.winner_team_side:
+                self._data_quality_flags.append({
+                    "flag_type": "winner_inferred",
+                    "severity": "info",
+                    "context": {"source": "nexus_destroyed", "winner_side": destroyer_side},
+                })
             self._game_info.winner_team_side = destroyer_side
             if not self._game_info.duration:
                 duration = game_time // 1000 if game_time > 100000 else game_time
@@ -1846,6 +1863,19 @@ class EventsParser:
             name = self._participant_id_to_name.get(participant_id, f"Player_{participant_id}")
             team_id = self._participant_id_to_team.get(participant_id, 0)
             team_side = "blue" if team_id == self.BLUE_TEAM_ID else "red"
+
+            if participant_id not in self._participant_id_to_name:
+                self._data_quality_flags.append({
+                    "flag_type": "player_name_unknown",
+                    "severity": "warning",
+                    "context": {"participant_id": participant_id, "defaulted_name": name},
+                })
+            if participant_id not in self._participant_id_to_team:
+                self._data_quality_flags.append({
+                    "flag_type": "player_side_inferred",
+                    "severity": "warning",
+                    "context": {"participant_id": participant_id, "defaulted_team_id": team_id, "inferred_side": team_side},
+                })
 
             self._player_stats[participant_id] = ProPlayerStats(
                 player_name=name,
@@ -2149,14 +2179,21 @@ class EventsParser:
         return False
 
     def _is_2v2_botlane_kill(self, event: dict) -> bool:
-        """Check if a champion_kill event is a pure 2v2 botlane kill."""
+        """Check if a champion_kill event is a 2v2 botlane kill.
+
+        A bot duo (ADC+Support) kills an enemy bot laner whose bot partner
+        is alive and nearby. No location or isolation requirement.
+        """
         killer_pid = event.get("killer")
         victim_pid = event.get("victim")
         assistants = event.get("assistants", [])
-        position = event.get("position", {})
         game_time = event.get("gameTime", 0)
 
         if not isinstance(killer_pid, int) or not isinstance(victim_pid, int):
+            return False
+
+        # Only count 2v2 kills before 15 minutes
+        if game_time > 900_000:
             return False
 
         if len(assistants) != 1:
@@ -2179,17 +2216,7 @@ class EventsParser:
         if killer_team != assistant_team or killer_team == victim_team:
             return False
 
-        kill_x = position.get("x", 0)
-        kill_y = position.get("y") or position.get("z", 0)
-
-        if not kill_x or not kill_y:
-            return False
-
-        if not self._is_in_botlane(kill_x, kill_y):
-            return False
-
-        respawn_time_ms = 40000
-
+        # Check victim's bot partner is alive and nearby
         victim_partner_pid = None
         for pid, role in self._participant_id_to_role.items():
             if pid == victim_pid:
@@ -2201,6 +2228,7 @@ class EventsParser:
         if victim_partner_pid is None:
             return False
 
+        respawn_time_ms = 40000
         trade_window_ms = 10_000
         partner_death_time = self._player_death_times.get(victim_partner_pid, 0)
         if partner_death_time > 0:
@@ -2212,25 +2240,17 @@ class EventsParser:
         if not partner_pos:
             return False
 
+        position = event.get("position", {})
+        kill_x = position.get("x", 0)
+        kill_y = position.get("y") or position.get("z", 0)
+
+        if not kill_x or not kill_y:
+            return False
+
         dx = partner_pos[0] - kill_x
         dy = partner_pos[1] - kill_y
         if (dx * dx + dy * dy) ** 0.5 > 2000:
             return False
-
-        involved_pids = {killer_pid, victim_pid, assistant_pid, victim_partner_pid}
-
-        for pid, pos in self._player_positions.items():
-            if pid in involved_pids:
-                continue
-
-            death_time = self._player_death_times.get(pid, 0)
-            if death_time > 0 and game_time - death_time < respawn_time_ms:
-                continue
-
-            dx = pos[0] - kill_x
-            dy = pos[1] - kill_y
-            if (dx * dx + dy * dy) ** 0.5 <= 2000:
-                return False
 
         return True
 

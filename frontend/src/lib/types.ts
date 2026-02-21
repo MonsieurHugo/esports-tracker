@@ -833,6 +833,9 @@ export interface ProTeamRecord {
   gameDate: string | null
   win?: boolean | null
   gameNumber?: number | null
+  winnerComp?: number[]
+  loserComp?: number[]
+  winnerSide?: 'blue' | 'red' | null
 }
 
 export interface ProBoRecord {

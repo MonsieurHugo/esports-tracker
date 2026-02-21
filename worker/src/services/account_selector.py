@@ -119,6 +119,12 @@ class AccountSelector:
 
         for acc in accounts:
             region = acc["region"] or "EUW"
+            if not acc["region"]:
+                await self.db.create_data_quality_flag(
+                    flag_type="region_defaulted", severity="warning",
+                    entity_type="account", entity_id=acc["account_id"],
+                    context={"puuid": acc.get("puuid"), "defaulted_to": "EUW"},
+                )
 
             # Initialize region queue if needed
             if region not in self.queues:

@@ -14,7 +14,7 @@ export function CardTeamIcon({ name, fullName, size }: { name: string; fullName?
       alt={name}
       width={size}
       height={size}
-      style={{ borderRadius: 4, objectFit: 'contain' }}
+      style={{ width: '100%', height: '100%', borderRadius: 4, objectFit: 'contain' }}
       onError={(e) => {
         if (fallbackSrc && !e.currentTarget.dataset.fallback) {
           e.currentTarget.dataset.fallback = '1'

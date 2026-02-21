@@ -146,6 +146,7 @@ router
         router.get('/games-by-match/:matchId', [ProDataController, 'gamesByMatch'])
         // Data quality & health
         router.get('/data-quality', [ProStatsController, 'dataQuality'])
+        router.get('/data-quality-flags', [ProStatsController, 'dataQualityFlags'])
 
         // Analytics
         router.get('/teams/rankings', [ProDataController, 'teamRankings'])
@@ -184,6 +185,10 @@ router
         router.post('/proposals/batch', [ProMappingController, 'batchUpdateProposals'])
         router.post('/mappings', [ProMappingController, 'createMapping'])
         router.delete('/mappings/:id', [ProMappingController, 'deleteMapping'])
+
+        // Data quality flags management
+        router.post('/data-quality-flags/:id/resolve', [ProStatsController, 'resolveFlag'])
+        router.post('/data-quality-flags/resolve-bulk', [ProStatsController, 'resolveFlagsBulk'])
       })
       .prefix('/pro/monitoring')
       .use(middleware.rateLimit({ type: 'api' }))

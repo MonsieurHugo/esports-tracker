@@ -2821,3 +2821,54 @@ class DatabaseService:
             tournament_id,
         )
         return result or 0
+
+    # ─── Data Quality Flags ──────────────────────────────────────────────
+
+    async def create_data_quality_flag(
+        self,
+        flag_type: str,
+        severity: str = "warning",
+        entity_type: str | None = None,
+        entity_id: int | None = None,
+        external_id: str | None = None,
+        context: dict | None = None,
+    ) -> int | None:
+        """Insert a data quality flag. Returns flag_id."""
+        return await self.fetchval(
+            """
+            INSERT INTO data_quality_flags (flag_type, severity, entity_type, entity_id, external_id, context)
+            VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+            RETURNING flag_id
+            """,
+            flag_type,
+            severity,
+            entity_type,
+            entity_id,
+            external_id,
+            json.dumps(context or {}),
+        )
+
+    async def batch_create_data_quality_flags(
+        self, flags: list[dict],
+    ) -> None:
+        """Insert multiple data quality flags at once."""
+        if not flags:
+            return
+        async with self.connection() as conn:
+            await conn.executemany(
+                """
+                INSERT INTO data_quality_flags (flag_type, severity, entity_type, entity_id, external_id, context)
+                VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+                """,
+                [
+                    (
+                        f["flag_type"],
+                        f.get("severity", "warning"),
+                        f.get("entity_type"),
+                        f.get("entity_id"),
+                        f.get("external_id"),
+                        json.dumps(f.get("context", {})),
+                    )
+                    for f in flags
+                ],
+            )

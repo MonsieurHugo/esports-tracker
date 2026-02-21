@@ -733,7 +733,8 @@ export default function RecordsSection({ filters }: { filters: ProStatsFilters }
     cardType: RecordCardType,
     recordsArr: SocialCardData['records'],
     formatValue: SocialCardData['formatValue'],
-    extra?: SocialCardData['extra']
+    extra?: SocialCardData['extra'],
+    formatDetail?: SocialCardData['formatDetail']
   ) => {
     setSocialCardData({
       title,
@@ -742,6 +743,7 @@ export default function RecordsSection({ filters }: { filters: ProStatsFilters }
       formatValue,
       filters: buildFilterSummary(filters),
       extra,
+      formatDetail,
     })
   }, [filters])
 
@@ -860,23 +862,23 @@ export default function RecordsSection({ filters }: { filters: ProStatsFilters }
         <div className="space-y-2">
           <CollapsibleCategory title="KDA & Combat">
             {([
-              ['Best KDA', playerRecords.bestKda, (r: ProPlayerRecord) => `${r.value.toFixed(2)} (${r.kills}/${r.deaths}/${r.assists})`],
+              ['Best KDA', playerRecords.bestKda, (r: ProPlayerRecord) => `${r.value.toFixed(2)} (${r.kills}/${r.deaths}/${r.assists})`, (r: ProPlayerRecord) => r.value.toFixed(2), (r: ProPlayerRecord) => `${r.kills}/${r.deaths}/${r.assists}`],
               ['Most Kills', playerRecords.mostKills, (r: ProPlayerRecord) => String(r.value)],
               ['Most Deaths', playerRecords.mostDeaths, (r: ProPlayerRecord) => String(r.value)],
               ['Most Assists', playerRecords.mostAssists, (r: ProPlayerRecord) => String(r.value)],
-              ['K+A (0 Deaths)', playerRecords.mostKillsAssistsZeroDeaths, (r: ProPlayerRecord) => `${r.value} (${r.kills}/${r.deaths}/${r.assists})`],
-              ['Most K+A', playerRecords.mostKillsAssists, (r: ProPlayerRecord) => `${r.value} (${r.kills}/${r.deaths}/${r.assists})`],
+              ['K+A (0 Deaths)', playerRecords.mostKillsAssistsZeroDeaths, (r: ProPlayerRecord) => `${r.value} (${r.kills}/${r.deaths}/${r.assists})`, (r: ProPlayerRecord) => String(r.value), (r: ProPlayerRecord) => `${r.kills}/${r.deaths}/${r.assists}`],
+              ['Most K+A', playerRecords.mostKillsAssists, (r: ProPlayerRecord) => `${r.value} (${r.kills}/${r.deaths}/${r.assists})`, (r: ProPlayerRecord) => String(r.value), (r: ProPlayerRecord) => `${r.kills}/${r.deaths}/${r.assists}`],
               ['Solo Kills', playerRecords.mostSoloKills, (r: ProPlayerRecord) => String(r.value)],
               ['Solo Deaths', playerRecords.mostSoloDeaths, (r: ProPlayerRecord) => String(r.value)],
               ['Gold Diff End (Best)', playerRecords.highestGoldDiffEnd, (r: ProPlayerRecord) => `+${Math.round(r.value).toLocaleString()}`],
               ['CS Diff End (Best)', playerRecords.highestCsDiffEnd, (r: ProPlayerRecord) => `+${Math.round(r.value)}`],
-            ] as [string, ProPlayerRecord[], (r: ProPlayerRecord) => string][]).map(([title, recs, fv]) => (
+            ] as [string, ProPlayerRecord[], (r: ProPlayerRecord) => string, ((r: ProPlayerRecord) => string)?, ((r: ProPlayerRecord) => string)?][]).map(([title, recs, fv, fvCard, fd]) => (
               <PlayerTable
                 key={title}
                 title={title}
                 records={recs}
                 formatValue={fv}
-                onExport={() => openSocialCard(title, 'player', recs, fv as SocialCardData['formatValue'])}
+                onExport={() => openSocialCard(title, 'player', recs, (fvCard || fv) as SocialCardData['formatValue'], undefined, fd as SocialCardData['formatDetail'])}
               />
             ))}
           </CollapsibleCategory>

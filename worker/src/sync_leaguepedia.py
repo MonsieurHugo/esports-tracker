@@ -297,7 +297,6 @@ class DB:
                     raise
                 wait = 2 ** attempt
                 logger.warning("Database connection failed, retrying", attempt=attempt, wait=wait, error=str(e))
-                import time
                 time.sleep(wait)
 
     def close(self):
@@ -305,6 +304,28 @@ class DB:
 
     def commit(self):
         self.conn.commit()
+
+    # --- Data Quality Flags ---
+
+    def create_data_quality_flag(
+        self,
+        flag_type: str,
+        severity: str = "warning",
+        entity_type: str | None = None,
+        entity_id: int | None = None,
+        external_id: str | None = None,
+        context: dict | None = None,
+    ) -> None:
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute(
+                    """INSERT INTO data_quality_flags (flag_type, severity, entity_type, entity_id, external_id, context)
+                       VALUES (%s, %s, %s, %s, %s, %s::jsonb)""",
+                    (flag_type, severity, entity_type, entity_id, external_id, json.dumps(context or {})),
+                )
+        except Exception as e:
+            logger.warning("Failed to create data quality flag", flag_type=flag_type, error=str(e))
+            self.conn.rollback()
 
     # --- Pro Leagues ---
 
@@ -803,6 +824,7 @@ class DB:
         is_official: bool = True,
         region: str | None = None,
         end_date: datetime | None = None,
+        phase: str | None = None,
     ) -> int:
         # 1. Check mapping table first
         mapped_id = self.find_by_source_id("tournament", external_id)
@@ -821,13 +843,14 @@ class DB:
                         tournament_level = COALESCE(%s, tournament_level),
                         is_playoffs = %s, is_qualifier = %s, is_official = %s,
                         region = COALESCE(%s, region),
+                        phase = COALESCE(%s, phase),
                         updated_at = NOW()
                     WHERE tournament_id = %s
                     """,
                     (
                         name, slug, pro_league_id, start_date, end_date, year,
                         split, split_number, tournament_level,
-                        is_playoffs, is_qualifier, is_official, region,
+                        is_playoffs, is_qualifier, is_official, region, phase,
                         mapped_id,
                     ),
                 )
@@ -840,10 +863,10 @@ class DB:
                 INSERT INTO pro_tournaments (
                     external_id, name, slug, pro_league_id, start_date, end_date, year,
                     split, split_number, tournament_level,
-                    is_playoffs, is_qualifier, is_official, region,
+                    is_playoffs, is_qualifier, is_official, region, phase,
                     updated_at
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
                 ON CONFLICT (external_id) DO UPDATE SET
                     name = EXCLUDED.name,
                     slug = EXCLUDED.slug,
@@ -858,13 +881,14 @@ class DB:
                     is_qualifier = EXCLUDED.is_qualifier,
                     is_official = EXCLUDED.is_official,
                     region = COALESCE(EXCLUDED.region, pro_tournaments.region),
+                    phase = COALESCE(EXCLUDED.phase, pro_tournaments.phase),
                     updated_at = NOW()
                 RETURNING tournament_id
                 """,
                 (
                     external_id, name, slug, pro_league_id, start_date, end_date, year,
                     split, split_number, tournament_level,
-                    is_playoffs, is_qualifier, is_official, region,
+                    is_playoffs, is_qualifier, is_official, region, phase,
                 ),
             )
             tournament_id = cur.fetchone()[0]
@@ -926,7 +950,7 @@ class DB:
         self, external_id: str, tournament_id: int,
         team1_external_id: str, team2_external_id: str,
         team1_score: int = 0, team2_score: int = 0,
-        format_str: str = "bo3", status: str = "completed",
+        format_str: str = "bo3", status: str = "processed",
         started_at: datetime | None = None,
     ) -> int:
         with self.conn.cursor() as cur:
@@ -979,7 +1003,7 @@ class DB:
                     blue_team_id, red_team_id, winner_team_id,
                     duration, status, patch, started_at, updated_at
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, 'completed', %s, %s, NOW())
+                VALUES (%s, %s, %s, %s, %s, %s, %s, 'processed', %s, %s, NOW())
                 ON CONFLICT (external_id) DO UPDATE SET
                     match_id = EXCLUDED.match_id,
                     game_number = EXCLUDED.game_number,
@@ -987,10 +1011,7 @@ class DB:
                     red_team_id = COALESCE(EXCLUDED.red_team_id, pro_games.red_team_id),
                     winner_team_id = EXCLUDED.winner_team_id,
                     duration = COALESCE(EXCLUDED.duration, pro_games.duration),
-                    status = CASE
-                        WHEN pro_games.status = 'processed' THEN 'processed'
-                        ELSE 'completed'
-                    END,
+                    status = 'processed',
                     patch = COALESCE(EXCLUDED.patch, pro_games.patch),
                     started_at = COALESCE(EXCLUDED.started_at, pro_games.started_at),
                     updated_at = NOW()
@@ -1087,6 +1108,132 @@ class DB:
                     for a in actions
                 ],
             )
+
+    def upsert_pro_drafts(self, game_id: int, actions: list[dict]) -> None:
+        """Upsert denormalized draft data into pro_drafts table from draft actions."""
+        if not actions:
+            return
+
+        side_map = {"blue": "team1", "red": "team2"}
+
+        team1_picks: list[dict] = []
+        team2_picks: list[dict] = []
+        team1_bans: list[int | None] = []
+        team2_bans: list[int | None] = []
+
+        sorted_actions = sorted(actions, key=lambda x: x.get("action_order", 0))
+
+        team1_picked_roles: dict[str, int] = {}
+        team2_picked_roles: dict[str, int] = {}
+
+        for a in sorted_actions:
+            raw_side = a.get("team_side", "team1")
+            team = side_map.get(raw_side, raw_side)
+            action_type = a.get("action_type", "pick")
+            champion_id = a.get("champion_id", 0)
+            role = a.get("role")
+            action_order = a.get("action_order", 0)
+
+            if action_type == "pick":
+                is_counter = False
+                if role:
+                    opponent_roles = team2_picked_roles if team == "team1" else team1_picked_roles
+                    if role in opponent_roles and opponent_roles[role] < action_order:
+                        is_counter = True
+                    if team == "team1":
+                        team1_picked_roles[role] = action_order
+                    else:
+                        team2_picked_roles[role] = action_order
+
+                pick_data = {"champion_id": champion_id, "role": role, "is_counter": is_counter}
+                if team == "team1":
+                    team1_picks.append(pick_data)
+                else:
+                    team2_picks.append(pick_data)
+            elif action_type == "ban":
+                if team == "team1":
+                    team1_bans.append(champion_id)
+                else:
+                    team2_bans.append(champion_id)
+
+        empty = {"champion_id": None, "role": None, "is_counter": False}
+        team1_picks = (team1_picks + [empty] * 5)[:5]
+        team2_picks = (team2_picks + [empty] * 5)[:5]
+        team1_bans = (team1_bans + [None] * 5)[:5]
+        team2_bans = (team2_bans + [None] * 5)[:5]
+
+        with self.conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO pro_drafts (
+                    game_id,
+                    team1_pick_1, team1_pick_2, team1_pick_3, team1_pick_4, team1_pick_5,
+                    team2_pick_1, team2_pick_2, team2_pick_3, team2_pick_4, team2_pick_5,
+                    team1_ban_1, team1_ban_2, team1_ban_3, team1_ban_4, team1_ban_5,
+                    team2_ban_1, team2_ban_2, team2_ban_3, team2_ban_4, team2_ban_5,
+                    team1_role_1, team1_role_2, team1_role_3, team1_role_4, team1_role_5,
+                    team2_role_1, team2_role_2, team2_role_3, team2_role_4, team2_role_5,
+                    team1_counter_1, team1_counter_2, team1_counter_3, team1_counter_4, team1_counter_5,
+                    team2_counter_1, team2_counter_2, team2_counter_3, team2_counter_4, team2_counter_5
+                ) VALUES (
+                    %s,
+                    %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s
+                )
+                ON CONFLICT (game_id) DO UPDATE SET
+                    team1_pick_1 = EXCLUDED.team1_pick_1, team1_pick_2 = EXCLUDED.team1_pick_2,
+                    team1_pick_3 = EXCLUDED.team1_pick_3, team1_pick_4 = EXCLUDED.team1_pick_4,
+                    team1_pick_5 = EXCLUDED.team1_pick_5,
+                    team2_pick_1 = EXCLUDED.team2_pick_1, team2_pick_2 = EXCLUDED.team2_pick_2,
+                    team2_pick_3 = EXCLUDED.team2_pick_3, team2_pick_4 = EXCLUDED.team2_pick_4,
+                    team2_pick_5 = EXCLUDED.team2_pick_5,
+                    team1_ban_1 = EXCLUDED.team1_ban_1, team1_ban_2 = EXCLUDED.team1_ban_2,
+                    team1_ban_3 = EXCLUDED.team1_ban_3, team1_ban_4 = EXCLUDED.team1_ban_4,
+                    team1_ban_5 = EXCLUDED.team1_ban_5,
+                    team2_ban_1 = EXCLUDED.team2_ban_1, team2_ban_2 = EXCLUDED.team2_ban_2,
+                    team2_ban_3 = EXCLUDED.team2_ban_3, team2_ban_4 = EXCLUDED.team2_ban_4,
+                    team2_ban_5 = EXCLUDED.team2_ban_5,
+                    team1_role_1 = EXCLUDED.team1_role_1, team1_role_2 = EXCLUDED.team1_role_2,
+                    team1_role_3 = EXCLUDED.team1_role_3, team1_role_4 = EXCLUDED.team1_role_4,
+                    team1_role_5 = EXCLUDED.team1_role_5,
+                    team2_role_1 = EXCLUDED.team2_role_1, team2_role_2 = EXCLUDED.team2_role_2,
+                    team2_role_3 = EXCLUDED.team2_role_3, team2_role_4 = EXCLUDED.team2_role_4,
+                    team2_role_5 = EXCLUDED.team2_role_5,
+                    team1_counter_1 = EXCLUDED.team1_counter_1, team1_counter_2 = EXCLUDED.team1_counter_2,
+                    team1_counter_3 = EXCLUDED.team1_counter_3, team1_counter_4 = EXCLUDED.team1_counter_4,
+                    team1_counter_5 = EXCLUDED.team1_counter_5,
+                    team2_counter_1 = EXCLUDED.team2_counter_1, team2_counter_2 = EXCLUDED.team2_counter_2,
+                    team2_counter_3 = EXCLUDED.team2_counter_3, team2_counter_4 = EXCLUDED.team2_counter_4,
+                    team2_counter_5 = EXCLUDED.team2_counter_5,
+                    updated_at = NOW()
+            """, (
+                game_id,
+                team1_picks[0]["champion_id"], team1_picks[1]["champion_id"],
+                team1_picks[2]["champion_id"], team1_picks[3]["champion_id"],
+                team1_picks[4]["champion_id"],
+                team2_picks[0]["champion_id"], team2_picks[1]["champion_id"],
+                team2_picks[2]["champion_id"], team2_picks[3]["champion_id"],
+                team2_picks[4]["champion_id"],
+                *team1_bans,
+                *team2_bans,
+                team1_picks[0]["role"], team1_picks[1]["role"],
+                team1_picks[2]["role"], team1_picks[3]["role"],
+                team1_picks[4]["role"],
+                team2_picks[0]["role"], team2_picks[1]["role"],
+                team2_picks[2]["role"], team2_picks[3]["role"],
+                team2_picks[4]["role"],
+                team1_picks[0]["is_counter"], team1_picks[1]["is_counter"],
+                team1_picks[2]["is_counter"], team1_picks[3]["is_counter"],
+                team1_picks[4]["is_counter"],
+                team2_picks[0]["is_counter"], team2_picks[1]["is_counter"],
+                team2_picks[2]["is_counter"], team2_picks[3]["is_counter"],
+                team2_picks[4]["is_counter"],
+            ))
 
     def upsert_team_game_stats(
         self,
@@ -1216,6 +1363,109 @@ class DB:
                     stats["mid_picks"], stats["adc_picks"], stats["support_picks"],
                 ),
             )
+
+    def backfill_drafts_from_stats(self, game_id: int) -> bool:
+        """Create pro_drafts picks from pro_player_stats when no draft exists.
+
+        Used for older tournaments (e.g. EU LCS 2015-2016) where Leaguepedia
+        PicksAndBansS7 data is unavailable but player stats have champion_id.
+        """
+        with self.conn.cursor() as cur:
+            # Skip if draft already exists
+            cur.execute("SELECT 1 FROM pro_drafts WHERE game_id = %s", (game_id,))
+            if cur.fetchone():
+                return False
+
+            # Get blue/red team IDs from the game
+            cur.execute(
+                "SELECT blue_team_id, red_team_id FROM pro_games WHERE game_id = %s",
+                (game_id,),
+            )
+            game = cur.fetchone()
+            if not game or not game[0] or not game[1]:
+                return False
+            blue_team_id, red_team_id = game
+
+            # Get player stats with champion info, ordered by role
+            cur.execute("""
+                SELECT team_id, champion_id, role
+                FROM pro_player_stats
+                WHERE game_id = %s AND champion_id IS NOT NULL AND champion_id != 0
+                ORDER BY team_id,
+                    CASE role
+                        WHEN 'Top' THEN 1 WHEN 'Jungle' THEN 2
+                        WHEN 'Mid' THEN 3 WHEN 'ADC' THEN 4
+                        WHEN 'Support' THEN 5 ELSE 6
+                    END
+            """, (game_id,))
+            rows = cur.fetchall()
+
+            team1_picks: list[dict] = []
+            team2_picks: list[dict] = []
+            for team_id, champion_id, role in rows:
+                pick = {"champion_id": champion_id, "role": role, "is_counter": False}
+                if team_id == blue_team_id:
+                    team1_picks.append(pick)
+                elif team_id == red_team_id:
+                    team2_picks.append(pick)
+
+            if not team1_picks and not team2_picks:
+                return False
+
+            # Pad to exactly 5 picks per team
+            empty = {"champion_id": None, "role": None, "is_counter": False}
+            team1_picks = (team1_picks + [empty] * 5)[:5]
+            team2_picks = (team2_picks + [empty] * 5)[:5]
+            team1_bans = [None] * 5
+            team2_bans = [None] * 5
+
+            cur.execute("""
+                INSERT INTO pro_drafts (
+                    game_id,
+                    team1_pick_1, team1_pick_2, team1_pick_3, team1_pick_4, team1_pick_5,
+                    team2_pick_1, team2_pick_2, team2_pick_3, team2_pick_4, team2_pick_5,
+                    team1_ban_1, team1_ban_2, team1_ban_3, team1_ban_4, team1_ban_5,
+                    team2_ban_1, team2_ban_2, team2_ban_3, team2_ban_4, team2_ban_5,
+                    team1_role_1, team1_role_2, team1_role_3, team1_role_4, team1_role_5,
+                    team2_role_1, team2_role_2, team2_role_3, team2_role_4, team2_role_5,
+                    team1_counter_1, team1_counter_2, team1_counter_3, team1_counter_4, team1_counter_5,
+                    team2_counter_1, team2_counter_2, team2_counter_3, team2_counter_4, team2_counter_5
+                ) VALUES (
+                    %s,
+                    %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s
+                )
+                ON CONFLICT (game_id) DO NOTHING
+            """, (
+                game_id,
+                team1_picks[0]["champion_id"], team1_picks[1]["champion_id"],
+                team1_picks[2]["champion_id"], team1_picks[3]["champion_id"],
+                team1_picks[4]["champion_id"],
+                team2_picks[0]["champion_id"], team2_picks[1]["champion_id"],
+                team2_picks[2]["champion_id"], team2_picks[3]["champion_id"],
+                team2_picks[4]["champion_id"],
+                *team1_bans,
+                *team2_bans,
+                team1_picks[0]["role"], team1_picks[1]["role"],
+                team1_picks[2]["role"], team1_picks[3]["role"],
+                team1_picks[4]["role"],
+                team2_picks[0]["role"], team2_picks[1]["role"],
+                team2_picks[2]["role"], team2_picks[3]["role"],
+                team2_picks[4]["role"],
+                team1_picks[0]["is_counter"], team1_picks[1]["is_counter"],
+                team1_picks[2]["is_counter"], team1_picks[3]["is_counter"],
+                team1_picks[4]["is_counter"],
+                team2_picks[0]["is_counter"], team2_picks[1]["is_counter"],
+                team2_picks[2]["is_counter"], team2_picks[3]["is_counter"],
+                team2_picks[4]["is_counter"],
+            ))
+            return True
 
 
 # ==========================================
@@ -1392,8 +1642,15 @@ def process_tournament(
 
         # Upsert match
         match_meta = match_map.get(match_id_str, {})
-        best_of = to_int(match_meta.get("BestOf"), 1)
+        raw_best_of = match_meta.get("BestOf")
+        best_of = to_int(raw_best_of, 1)
         format_str = f"bo{best_of}" if best_of > 0 else "bo1"
+        if raw_best_of is None or raw_best_of == "":
+            db.create_data_quality_flag(
+                flag_type="format_inferred", severity="info",
+                entity_type="match", external_id=f"lp:{match_id_str}" if match_id_str else f"lp:{game_id}_match",
+                context={"source": "leaguepedia_bestof_missing", "defaulted_to": format_str, "game_id": game_id},
+            )
 
         t1_ext = f"lp:{team1_name}" if team1_name else None
         t2_ext = f"lp:{team2_name}" if team2_name else None
@@ -1413,7 +1670,7 @@ def process_tournament(
             team1_score=team1_score,
             team2_score=team2_score,
             format_str=format_str,
-            status="completed",
+            status="processed",
             started_at=game_datetime,
         )
 
@@ -1433,6 +1690,7 @@ def process_tournament(
 
         # Insert player stats
         player_stats = []
+        _used_scoreboard_fallback = False
         for p in players:
             link = (p.get("Link") or p.get("Name") or "").strip()
             if not link:
@@ -1563,14 +1821,14 @@ def process_tournament(
                 tl = rp.get("timeline", {})
                 timing_data = {str(k): v for k, v in tl.items()} if tl else {}
             else:
-                # Fallback: scoreboard stats
+                # Fallback: scoreboard stats (no Riot API details available)
                 kills = to_int(p.get("Kills"))
                 deaths = to_int(p.get("Deaths"))
                 assists = to_int(p.get("Assists"))
                 cs = to_int(p.get("CS"))
                 gold_earned = to_int(p.get("Gold"))
                 damage_dealt = to_int(p.get("DamageToChampions"))
-                damage_taken = 0
+                damage_taken = 0  # Not available from scoreboard
                 vision_score = to_int(p.get("VisionScore"))
                 vision_data = {"score": vision_score} if vision_score else {}
                 first_blood = None
@@ -1581,6 +1839,7 @@ def process_tournament(
                 plates_data = {}
                 stats_at_15 = {}
                 timing_data = {}
+                _used_scoreboard_fallback = True
 
             player_stats.append({
                 "player_id": player_id,
@@ -1605,38 +1864,85 @@ def process_tournament(
                 "timing_data": timing_data,
             })
 
-        # CS/min heuristic: detect role swaps (Riot teamPosition is unreliable in pro games)
-        if duration_seconds and duration_seconds > MIN_DURATION_FOR_HEURISTIC:
+        # CS/min heuristic: detect role swaps (games without Riot participant_id)
+        if not riot_player_map and duration_seconds and duration_seconds > MIN_DURATION_FOR_HEURISTIC:
             for side in ("blue", "red"):
                 side_players = [ps for ps in player_stats if ps.get("team_side") == side]
+                if len(side_players) != 5:
+                    continue
+
+                # Compute CS/min for all players
+                for ps in side_players:
+                    ps["_cspm"] = (ps.get("cs") or 0) * 60 / duration_seconds
+
                 support_ps = [ps for ps in side_players if ps.get("role") == "Support"]
                 non_support_ps = [ps for ps in side_players if ps.get("role") and ps.get("role") != "Support"]
 
                 if len(support_ps) != 1 or not non_support_ps:
+                    # Cleanup temp field before skipping
+                    for ps in side_players:
+                        ps.pop("_cspm", None)
                     continue
 
                 sup = support_ps[0]
-                sup_cs = (sup.get("cs") or 0)
-                sup_cspm = sup_cs * 60 / duration_seconds
 
-                # Find non-support player with lowest CS/min
+                # Auto-swap: any non-support with very low CS AND support with high CS
                 for nsp in non_support_ps:
-                    nsp_cs = (nsp.get("cs") or 0)
-                    nsp_cspm = nsp_cs * 60 / duration_seconds
-
-                    if nsp_cspm < SUPPORT_CSPM_THRESHOLD and sup_cspm > LANER_CSPM_THRESHOLD:
-                        # Swap roles: this non-support is actually playing support
+                    if nsp["_cspm"] < SUPPORT_CSPM_THRESHOLD and sup["_cspm"] > LANER_CSPM_THRESHOLD:
                         logger.info(
                             "CS/min role swap detected",
                             game_id=game_id,
                             side=side,
                             player_to_support=nsp.get("player_id"),
                             player_from_support=sup.get("player_id"),
-                            nsp_cspm=round(nsp_cspm, 2),
-                            sup_cspm=round(sup_cspm, 2),
+                            old_roles=f"{nsp['role']}<->{sup['role']}",
+                            nsp_cspm=round(nsp["_cspm"], 2),
+                            sup_cspm=round(sup["_cspm"], 2),
+                        )
+                        db.create_data_quality_flag(
+                            flag_type="role_swapped", severity="warning",
+                            entity_type="game", entity_id=game_db_id, external_id=f"lp:{game_id}",
+                            context={
+                                "side": side,
+                                "swapped_player": nsp.get("player_id"),
+                                "support_player": sup.get("player_id"),
+                                "old_roles": f"{nsp['role']}<->{sup['role']}",
+                                "nsp_cspm": round(nsp["_cspm"], 2),
+                                "sup_cspm": round(sup["_cspm"], 2),
+                            },
                         )
                         nsp["role"], sup["role"] = sup["role"], nsp["role"]
-                        break  # Only swap once per side
+                        # Update sup reference since roles changed
+                        sup = nsp  # nsp is now the Support
+                        break
+
+                # Flag remaining suspicious cases
+                for ps in side_players:
+                    cspm = ps["_cspm"]
+                    role = ps.get("role")
+                    if role == "Support" and cspm > 3.0:
+                        logger.warning(
+                            "Suspicious role: Support with high CS/min",
+                            game_id=game_id, side=side,
+                            player_id=ps.get("player_id"), cspm=round(cspm, 2),
+                        )
+                    elif role and role != "Support" and cspm < 2.0 and cspm > 0:
+                        logger.warning(
+                            "Suspicious role: non-Support with low CS/min",
+                            game_id=game_id, side=side,
+                            player_id=ps.get("player_id"), role=role, cspm=round(cspm, 2),
+                        )
+
+                # Cleanup temp field
+                for ps in side_players:
+                    ps.pop("_cspm", None)
+
+        if _used_scoreboard_fallback:
+            db.create_data_quality_flag(
+                flag_type="data_defaulted", severity="info",
+                entity_type="game", entity_id=game_db_id, external_id=f"lp:{game_id}",
+                context={"source": "scoreboard_fallback", "missing_fields": ["damage_taken", "first_blood", "items", "runes", "stats_at_15"]},
+            )
 
         db.insert_player_stats_batch(game_db_id, player_stats)
 
@@ -1735,7 +2041,27 @@ def process_tournament(
 
         if actions:
             db.insert_draft_actions_batch(game_db_id, actions)
+            db.upsert_pro_drafts(game_db_id, actions)
             stats["drafts"] += 1
+
+    # 5b. Backfill drafts from player stats for games missing PicksAndBans data
+    with db.conn.cursor() as cur:
+        cur.execute("""
+            SELECT g.game_id FROM pro_games g
+            JOIN pro_matches m ON g.match_id = m.match_id
+            WHERE m.tournament_id = %s
+              AND NOT EXISTS (SELECT 1 FROM pro_drafts d WHERE d.game_id = g.game_id)
+        """, (tournament_id,))
+        missing_draft_games = [r[0] for r in cur.fetchall()]
+
+    backfilled = 0
+    for gid in missing_draft_games:
+        if db.backfill_drafts_from_stats(gid):
+            stats["drafts"] += 1
+            backfilled += 1
+
+    if backfilled:
+        logger.info("Backfilled drafts from player stats", count=backfilled, tournament=tournament_name)
 
     db.commit()
 
@@ -1986,6 +2312,7 @@ def sync_league(lp: LeaguepediaClient, db: DB, league_name: str, force: bool = F
 
         # Upsert tournament
         start_dt = parse_datetime(date_start)
+        phase = "Playoffs" if is_playoffs else "Regular Season"
         tournament_id = db.upsert_pro_tournament(
             external_id=t_ext,
             name=name,
@@ -2001,6 +2328,7 @@ def sync_league(lp: LeaguepediaClient, db: DB, league_name: str, force: bool = F
             is_official=is_official,
             region=t_region,
             end_date=end_date,
+            phase=phase,
         )
         db.commit()
 
@@ -2020,8 +2348,8 @@ def sync_league(lp: LeaguepediaClient, db: DB, league_name: str, force: bool = F
                     db.mark_tournament_complete(tournament_id)
                     db.commit()
                     logger.info("Tournament marked complete", tournament=name)
-            except Exception:
-                pass  # Non-critical
+            except Exception as e:
+                logger.warning("Failed to check tournament completeness", tournament=name, error=str(e))
 
         except Exception as e:
             logger.error(

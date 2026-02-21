@@ -1,8 +1,9 @@
 import type { ProQuestGapRecord } from '@/lib/types'
 import { getChampionName, getChampionIconUrl } from '@/lib/champions'
 import { getRoleImagePath } from '@/lib/utils'
-import { CardRankBadge } from '../CardRankBadge'
 import { CardTeamIcon } from '../CardTeamIcon'
+import { CardRowList } from '../CardRowList'
+import { sz } from '../utils'
 import { CARD_COLORS } from '../types'
 import type { SocialCardFormat } from '../types'
 
@@ -10,10 +11,6 @@ interface QuestGapRecordCardProps {
   records: ProQuestGapRecord[]
   formatValue: (r: ProQuestGapRecord) => string
   format: SocialCardFormat
-}
-
-function sz(format: SocialCardFormat, twitter: number, insta: number, tiktok: number) {
-  return format === 'twitter' ? twitter : format === 'tiktok' ? tiktok : insta
 }
 
 function fmtTime(seconds: number): string {
@@ -38,180 +35,155 @@ export function QuestGapRecordCard({ records, formatValue, format }: QuestGapRec
   const vsDateFontSize = sz(format, 24, 16, 19)
   const borderW        = sz(format, 8, 5, 6)
 
-  const top10 = records.slice(0, 10)
-
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
-      {top10.map((r, i) => {
-        const isFirst = i === 0
-        const bgColor = isFirst
-          ? CARD_COLORS.accent + '14'
-          : i % 2 === 0
-            ? CARD_COLORS.bgRow
-            : CARD_COLORS.bgRowAlt
-
-        const leftBorder = r.fastWin != null
-          ? `${borderW}px solid ${r.fastWin ? '#00dc82' : '#ff4757'}60`
-          : 'none'
-
-        return (
-          <div
-            key={i}
+    <CardRowList<ProQuestGapRecord>
+      records={records}
+      rowPadH={rowPadR}
+      rowPadL={rowPadL}
+      rowGap={rowGap}
+      badgeSize={badgeSize}
+      leftBorder={(r) => r.fastWin != null ? `${borderW}px solid ${r.fastWin ? '#00dc82' : '#ff4757'}60` : undefined}
+      renderRow={(r, _i, isFirst) => (
+        <>
+          {/* Gap value */}
+          <span
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              flex: 1,
-              padding: `0 ${rowPadR}px`,
-              paddingLeft: rowPadL,
-              backgroundColor: bgColor,
-              borderBottom: i < top10.length - 1 ? `1px solid ${CARD_COLORS.border}40` : 'none',
-              borderLeft: leftBorder,
-              gap: rowGap,
+              display: 'inline-block',
+              fontFamily: 'JetBrains Mono, monospace',
+              fontSize: valueSize,
+              fontWeight: 700,
+              color: isFirst ? CARD_COLORS.accent : CARD_COLORS.text,
+              textAlign: 'center',
+              width: valueWidth,
+              flexShrink: 0,
             }}
           >
-            {/* Rank */}
-            <CardRankBadge rank={i + 1} size={badgeSize} />
+            {formatValue(r)}
+          </span>
 
-            {/* Gap value */}
-            <span
-              style={{
-                display: 'inline-block',
-                fontFamily: 'JetBrains Mono, monospace',
-                fontSize: valueSize,
-                fontWeight: 700,
-                color: isFirst ? CARD_COLORS.accent : CARD_COLORS.text,
-                textAlign: 'center',
-                width: valueWidth,
-                flexShrink: 0,
-              }}
-            >
-              {formatValue(r)}
-            </span>
+          {/* Role icon */}
+          <div style={{ width: roleSize, height: roleSize, flexShrink: 0 }}>
+            {r.role ? (
+              <img
+                src={getRoleImagePath(r.role)}
+                alt={r.role}
+                width={roleSize}
+                height={roleSize}
+                style={{ objectFit: 'contain', opacity: 0.75 }}
+              />
+            ) : (
+              <div style={{ width: roleSize, height: roleSize }} />
+            )}
+          </div>
 
-            {/* Role icon */}
-            <div style={{ width: roleSize, height: roleSize, flexShrink: 0 }}>
-              {r.role ? (
+          {/* Fast player: champ + name + time */}
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: rowGap, minWidth: 0 }}>
+            <div style={{ width: champSize, height: champSize, flexShrink: 0 }}>
+              {r.fastChampionId != null && r.fastChampionId !== 0 ? (
                 <img
-                  src={getRoleImagePath(r.role)}
-                  alt={r.role}
-                  width={roleSize}
-                  height={roleSize}
-                  style={{ objectFit: 'contain', opacity: 0.75 }}
+                  src={getChampionIconUrl(r.fastChampionId)}
+                  alt={getChampionName(r.fastChampionId)}
+                  width={champSize}
+                  height={champSize}
+                  style={{ borderRadius: 6, objectFit: 'cover' }}
                 />
               ) : (
-                <div style={{ width: roleSize, height: roleSize }} />
+                <div style={{ width: champSize, height: champSize, borderRadius: 6, backgroundColor: CARD_COLORS.border }} />
               )}
             </div>
-
-            {/* Fast player: champ + name + time */}
-            <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: rowGap, minWidth: 0 }}>
-              <div style={{ width: champSize, height: champSize, flexShrink: 0 }}>
-                {r.fastChampionId != null && r.fastChampionId !== 0 ? (
-                  <img
-                    src={getChampionIconUrl(r.fastChampionId)}
-                    alt={getChampionName(r.fastChampionId)}
-                    width={champSize}
-                    height={champSize}
-                    style={{ borderRadius: 6, objectFit: 'cover' }}
-                  />
-                ) : (
-                  <div style={{ width: champSize, height: champSize, borderRadius: 6, backgroundColor: CARD_COLORS.border }} />
-                )}
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
-                <span style={{
-                  fontFamily: 'Inter, sans-serif',
-                  fontSize: nameSize,
-                  fontWeight: 700,
-                  color: isFirst ? CARD_COLORS.accent : CARD_COLORS.text,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}>
-                  {r.fastPlayerName}
-                </span>
-                <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: timeSize, color: CARD_COLORS.accent }}>
-                  {fmtTime(r.fastQuestTime)}
-                </span>
-              </div>
-            </div>
-
-            {/* Slow player: champ + name + time */}
-            <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: rowGap, minWidth: 0 }}>
-              <div style={{ width: champSize, height: champSize, flexShrink: 0 }}>
-                {r.slowChampionId != null && r.slowChampionId !== 0 ? (
-                  <img
-                    src={getChampionIconUrl(r.slowChampionId)}
-                    alt={getChampionName(r.slowChampionId)}
-                    width={champSize}
-                    height={champSize}
-                    style={{ borderRadius: 6, objectFit: 'cover' }}
-                  />
-                ) : (
-                  <div style={{ width: champSize, height: champSize, borderRadius: 6, backgroundColor: CARD_COLORS.border }} />
-                )}
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
-                <span style={{
-                  fontFamily: 'Inter, sans-serif',
-                  fontSize: nameSize,
-                  fontWeight: 700,
-                  color: CARD_COLORS.textSecondary,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}>
-                  {r.slowPlayerName}
-                </span>
-                <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: timeSize, color: CARD_COLORS.textMuted }}>
-                  {fmtTime(r.slowQuestTime)}
-                </span>
-              </div>
-            </div>
-
-            {/* Match (team logos) + Date */}
-            <div
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: 2,
-                width: matchColWidth,
-                flexShrink: 0,
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                {r.fastTeamName && <CardTeamIcon name={r.fastTeamName} fullName={r.fastTeamFullName} size={teamLogoSize} />}
-                <span style={{
-                  fontFamily: 'Inter, sans-serif',
-                  fontSize: vsDateFontSize - 4,
-                  color: CARD_COLORS.textMuted,
-                  textTransform: 'uppercase' as const,
-                  letterSpacing: '0.05em',
-                }}>
-                  vs
-                </span>
-                {r.slowTeamName && <CardTeamIcon name={r.slowTeamName} fullName={r.slowTeamFullName} size={teamLogoSize} />}
-              </div>
-              <span
-                style={{
-                  fontFamily: 'JetBrains Mono, monospace',
-                  fontSize: vsDateFontSize - 4,
-                  color: CARD_COLORS.textMuted,
-                }}
-              >
-                {r.gameDate
-                  ? new Date(r.gameDate).toLocaleDateString('fr-FR', {
-                      day: '2-digit',
-                      month: '2-digit',
-                      year: '2-digit',
-                    })
-                  : ''}
+            <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
+              <span style={{
+                fontFamily: 'Inter, sans-serif',
+                fontSize: nameSize,
+                fontWeight: 700,
+                color: isFirst ? CARD_COLORS.accent : CARD_COLORS.text,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}>
+                {r.fastPlayerName}
+              </span>
+              <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: timeSize, color: CARD_COLORS.accent }}>
+                {fmtTime(r.fastQuestTime)}
               </span>
             </div>
           </div>
-        )
-      })}
-    </div>
+
+          {/* Slow player: champ + name + time */}
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: rowGap, minWidth: 0 }}>
+            <div style={{ width: champSize, height: champSize, flexShrink: 0 }}>
+              {r.slowChampionId != null && r.slowChampionId !== 0 ? (
+                <img
+                  src={getChampionIconUrl(r.slowChampionId)}
+                  alt={getChampionName(r.slowChampionId)}
+                  width={champSize}
+                  height={champSize}
+                  style={{ borderRadius: 6, objectFit: 'cover' }}
+                />
+              ) : (
+                <div style={{ width: champSize, height: champSize, borderRadius: 6, backgroundColor: CARD_COLORS.border }} />
+              )}
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
+              <span style={{
+                fontFamily: 'Inter, sans-serif',
+                fontSize: nameSize,
+                fontWeight: 700,
+                color: CARD_COLORS.textSecondary,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}>
+                {r.slowPlayerName}
+              </span>
+              <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: timeSize, color: CARD_COLORS.textMuted }}>
+                {fmtTime(r.slowQuestTime)}
+              </span>
+            </div>
+          </div>
+
+          {/* Match (team logos) + Date */}
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 2,
+              width: matchColWidth,
+              flexShrink: 0,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              {r.fastTeamName && <CardTeamIcon name={r.fastTeamName} fullName={r.fastTeamFullName} size={teamLogoSize} />}
+              <span style={{
+                fontFamily: 'Inter, sans-serif',
+                fontSize: vsDateFontSize - 4,
+                color: CARD_COLORS.textMuted,
+                textTransform: 'uppercase' as const,
+                letterSpacing: '0.05em',
+              }}>
+                vs
+              </span>
+              {r.slowTeamName && <CardTeamIcon name={r.slowTeamName} fullName={r.slowTeamFullName} size={teamLogoSize} />}
+            </div>
+            <span
+              style={{
+                fontFamily: 'JetBrains Mono, monospace',
+                fontSize: vsDateFontSize - 4,
+                color: CARD_COLORS.textMuted,
+              }}
+            >
+              {r.gameDate
+                ? new Date(r.gameDate).toLocaleDateString('fr-FR', {
+                    day: '2-digit',
+                    month: '2-digit',
+                    year: '2-digit',
+                  })
+                : ''}
+            </span>
+          </div>
+        </>
+      )}
+    />
   )
 }

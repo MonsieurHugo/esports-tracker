@@ -244,4 +244,96 @@ export default class ProStatsController {
     })
   }
 
+  /**
+   * GET /api/v1/pro/monitoring/data-quality-flags
+   * List data quality flags with filtering and pagination
+   */
+  async dataQualityFlags(ctx: HttpContext) {
+    const page = Math.max(1, Number(ctx.request.input('page', 1)))
+    const perPage = Math.min(100, Math.max(1, Number(ctx.request.input('perPage', 50))))
+    const flagType = ctx.request.input('flagType') as string | undefined
+    const severity = ctx.request.input('severity') as string | undefined
+    const resolved = ctx.request.input('resolved') as string | undefined
+    const entityType = ctx.request.input('entityType') as string | undefined
+
+    let query = db.from('data_quality_flags').orderBy('created_at', 'desc')
+
+    if (flagType) query = query.where('flag_type', flagType)
+    if (severity) query = query.where('severity', severity)
+    if (resolved !== undefined && resolved !== '') query = query.where('resolved', resolved === 'true')
+    if (entityType) query = query.where('entity_type', entityType)
+
+    const results = await query.paginate(page, perPage)
+
+    // Summary counts
+    const summaryRows = await db
+      .from('data_quality_flags')
+      .where('resolved', false)
+      .select('flag_type', 'severity')
+      .count('* as count')
+      .groupBy('flag_type', 'severity')
+      .orderBy('count', 'desc')
+
+    const summary = summaryRows.map((r: Record<string, unknown>) => ({
+      flagType: r.flag_type,
+      severity: r.severity,
+      count: Number(r.count),
+    }))
+
+    return ctx.response.ok({
+      data: results.all().map((row: Record<string, unknown>) => ({
+        flagId: row.flag_id,
+        flagType: row.flag_type,
+        severity: row.severity,
+        entityType: row.entity_type,
+        entityId: row.entity_id,
+        externalId: row.external_id,
+        context: row.context,
+        resolved: row.resolved,
+        resolvedAt: row.resolved_at,
+        resolvedBy: row.resolved_by,
+        createdAt: row.created_at,
+      })),
+      meta: results.getMeta(),
+      summary,
+    })
+  }
+
+  /**
+   * POST /api/v1/pro/monitoring/data-quality-flags/:id/resolve
+   * Mark a flag as resolved
+   */
+  async resolveFlag(ctx: HttpContext) {
+    const flagId = ctx.params.id
+    const resolvedBy = ctx.request.input('resolvedBy', 'admin')
+
+    await db
+      .from('data_quality_flags')
+      .where('flag_id', flagId)
+      .update({ resolved: true, resolved_at: new Date(), resolved_by: resolvedBy })
+
+    return ctx.response.ok({ success: true })
+  }
+
+  /**
+   * POST /api/v1/pro/monitoring/data-quality-flags/resolve-bulk
+   * Bulk resolve flags by type
+   */
+  async resolveFlagsBulk(ctx: HttpContext) {
+    const flagType = ctx.request.input('flagType') as string
+    const severity = ctx.request.input('severity') as string | undefined
+    const resolvedBy = ctx.request.input('resolvedBy', 'admin')
+
+    if (!flagType) {
+      return ctx.response.badRequest({ error: 'flagType is required' })
+    }
+
+    let query = db.from('data_quality_flags').where('flag_type', flagType).where('resolved', false)
+    if (severity) query = query.where('severity', severity)
+
+    const result = await query.update({ resolved: true, resolved_at: new Date(), resolved_by: resolvedBy })
+
+    return ctx.response.ok({ success: true, resolved: result[0] ?? 0 })
+  }
+
 }

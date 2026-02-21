@@ -47,6 +47,7 @@ export const SocialCardCanvas = forwardRef<HTMLDivElement, SocialCardCanvasProps
             <PlayerRecordCard
               records={data.records as ProPlayerRecord[]}
               formatValue={data.formatValue as (r: ProPlayerRecord) => string}
+              formatDetail={data.formatDetail as ((r: ProPlayerRecord) => string | null) | undefined}
               format={format}
             />
           )}

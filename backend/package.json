@@ -30,39 +30,36 @@
   },
   "devDependencies": {
     "@adonisjs/assembler": "^7.8.2",
-    "@adonisjs/eslint-config": "^2.0.0-beta.7",
+    "@adonisjs/eslint-config": "^2.1.2",
     "@adonisjs/prettier-config": "^1.4.0",
     "@adonisjs/tsconfig": "^1.4.0",
     "@japa/api-client": "^3.2.1",
     "@japa/assert": "^4.2.0",
     "@japa/plugin-adonisjs": "^3.0.1",
     "@japa/runner": "^3.1.4",
-    "@swc/core": "^1.7.26",
+    "@swc/core": "^1.11.0",
     "@types/luxon": "^3.4.2",
-    "@types/node": "^22.7.5",
+    "@types/node": "^22.15.0",
     "eslint": "^9.12.0",
     "pino-pretty": "^11.2.2",
     "prettier": "^3.3.3",
     "ts-node": "^10.9.2",
-    "tsx": "^4.19.0",
-    "typescript": "~5.6.3"
+    "tsx": "^4.21.0",
+    "typescript": "~5.9.0"
   },
   "dependencies": {
-    "@adonisjs/auth": "^9.5.1",
+    "@adonisjs/auth": "^9.6.0",
     "@adonisjs/core": "^6.14.1",
     "@adonisjs/cors": "^2.2.1",
-    "@adonisjs/lucid": "^21.3.0",
+    "@adonisjs/lucid": "^21.8.0",
     "@adonisjs/redis": "^9.2.0",
     "@adonisjs/session": "^7.7.1",
-    "@vinejs/vine": "^2.1.0",
+    "@vinejs/vine": "^4.3.0",
     "luxon": "^3.5.0",
-    "pg": "^8.13.0",
+    "pg": "^8.18.0",
     "reflect-metadata": "^0.2.2",
     "yaml": "^2.8.2"
   },
   "prettier": "@adonisjs/prettier-config",
-  "eslintConfig": {
-    "extends": "@adonisjs/eslint-config/app"
-  },
   "packageManager": "npm"
 }

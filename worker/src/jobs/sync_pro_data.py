@@ -35,38 +35,38 @@ def _normalize_format(
     team1_score: int = 0,
     team2_score: int = 0,
     num_games: int = 0,
-) -> str:
+) -> tuple[str, dict | None]:
     """Normalize GRID format (e.g. 'best-of-3') to DB format ('bo3').
 
-    When *raw* is missing, infer from the best available signal:
-    1. Winning score: 1→bo1, 2→bo3, 3→bo5
-    2. Number of games played: 1→bo1, 2-3→bo3, 4-5→bo5
-    Falls back to 'bo3' only when nothing else is available.
+    Returns (format, flag_or_none). When format is inferred, a data quality
+    flag dict is returned so the caller can persist it.
     """
     if raw:
-        return _FORMAT_MAP.get(raw.lower(), raw.lower())
+        return _FORMAT_MAP.get(raw.lower(), raw.lower()), None
+
+    ctx = {"raw": raw, "team1_score": team1_score, "team2_score": team2_score, "num_games": num_games}
 
     # --- Infer from scores (most reliable) ---
     _SCORE_TO_FORMAT = {1: "bo1", 2: "bo3", 3: "bo5"}
     win_score = max(team1_score or 0, team2_score or 0)
     if win_score in _SCORE_TO_FORMAT:
         inferred = _SCORE_TO_FORMAT[win_score]
-        logger.warning("Format missing from GRID, inferred from scores", inferred_format=inferred, team1_score=team1_score, team2_score=team2_score)
-        return inferred
+        logger.warning("Format missing from GRID, inferred from scores", inferred_format=inferred, **ctx)
+        return inferred, {"flag_type": "format_inferred", "severity": "warning", "context": {**ctx, "source": "scores", "inferred": inferred}}
 
     # --- Infer from game count (fallback) ---
     if num_games >= 4:
-        logger.warning("Format missing from GRID, inferred bo5 from game count", num_games=num_games)
-        return "bo5"
+        logger.warning("Format missing from GRID, inferred bo5 from game count", **ctx)
+        return "bo5", {"flag_type": "format_inferred", "severity": "warning", "context": {**ctx, "source": "game_count", "inferred": "bo5"}}
     if num_games >= 2:
-        logger.warning("Format missing from GRID, inferred bo3 from game count", num_games=num_games)
-        return "bo3"
+        logger.warning("Format missing from GRID, inferred bo3 from game count", **ctx)
+        return "bo3", {"flag_type": "format_inferred", "severity": "warning", "context": {**ctx, "source": "game_count", "inferred": "bo3"}}
     if num_games == 1:
-        logger.warning("Format missing from GRID, inferred bo1 from game count", num_games=num_games)
-        return "bo1"
+        logger.warning("Format missing from GRID, inferred bo1 from game count", **ctx)
+        return "bo1", {"flag_type": "format_inferred", "severity": "warning", "context": {**ctx, "source": "game_count", "inferred": "bo1"}}
 
-    logger.warning("Format missing from GRID and cannot infer, defaulting to bo3", team1_score=team1_score, team2_score=team2_score, num_games=num_games)
-    return "bo3"
+    logger.warning("Format missing from GRID and cannot infer, defaulting to bo3", **ctx)
+    return "bo3", {"flag_type": "format_inferred", "severity": "error", "context": {**ctx, "source": "default", "inferred": "bo3"}}
 
 
 class SyncProDataJob:
@@ -480,18 +480,32 @@ class SyncProDataJob:
             if len(state.teams) >= 1:
                 team1 = state.teams[0]
                 team1_external_id = team1.id
+                team1_name = team1.name or "Unknown"
                 team1_db_id = await self.db.upsert_pro_team(
                     external_id=team1.id,
-                    name=team1.name or "Unknown",
+                    name=team1_name,
                 )
+                if not team1.name:
+                    await self.db.create_data_quality_flag(
+                        flag_type="team_name_defaulted", severity="warning",
+                        entity_type="team", entity_id=team1_db_id, external_id=team1.id,
+                        context={"defaulted_to": "Unknown", "series_id": series.id},
+                    )
 
             if len(state.teams) >= 2:
                 team2 = state.teams[1]
                 team2_external_id = team2.id
+                team2_name = team2.name or "Unknown"
                 team2_db_id = await self.db.upsert_pro_team(
                     external_id=team2.id,
-                    name=team2.name or "Unknown",
+                    name=team2_name,
                 )
+                if not team2.name:
+                    await self.db.create_data_quality_flag(
+                        flag_type="team_name_defaulted", severity="warning",
+                        entity_type="team", entity_id=team2_db_id, external_id=team2.id,
+                        context={"defaulted_to": "Unknown", "series_id": series.id},
+                    )
 
             # Get scores and winner from SeriesState
             team1_score = state.teams[0].score if len(state.teams) >= 1 else 0
@@ -503,7 +517,7 @@ class SyncProDataJob:
             # Duplicate detection: check if another series already covers this match
             series_started_at = state.started_at or series.start_time
             num_games = len(state.games)
-            series_format = _normalize_format(state.format or series.format, team1_score, team2_score, num_games)
+            series_format, format_flag = _normalize_format(state.format or series.format, team1_score, team2_score, num_games)
             duplicate = await self.db.find_duplicate_pro_match(
                 external_id=series.id,
                 tournament_id=tournament_db_id,
@@ -515,6 +529,18 @@ class SyncProDataJob:
             if duplicate:
                 primary_match_id = duplicate["match_id"]
                 primary_external_id = duplicate["external_id"]
+
+                await self.db.create_data_quality_flag(
+                    flag_type="duplicate_merged", severity="warning",
+                    entity_type="match", entity_id=primary_match_id, external_id=series.id,
+                    context={
+                        "new_series_id": series.id,
+                        "primary_external_id": primary_external_id,
+                        "primary_match_id": primary_match_id,
+                        "primary_status": duplicate["status"],
+                        "time_window": "3h" if duplicate["status"] != "cancelled" else "1d",
+                    },
+                )
 
                 logger.warning(
                     "Duplicate GRID series detected — merging directly into primary",
@@ -617,10 +643,17 @@ class SyncProDataJob:
                 team2_external_id=team2_external_id,
                 team1_score=team1_score,
                 team2_score=team2_score,
-                format=_normalize_format(state.format or series.format, team1_score, team2_score, num_games),
+                format=series_format,
                 status=status,
                 started_at=state.started_at or series.start_time,
             )
+
+            # Persist data quality flags
+            if format_flag:
+                format_flag["entity_type"] = "match"
+                format_flag["entity_id"] = match_id
+                format_flag["external_id"] = series.id
+                await self.db.create_data_quality_flag(**format_flag)
 
             # Process finished games (even if series is still live)
             finished_games = [g for g in state.games if g.finished]
@@ -825,6 +858,21 @@ class SyncProDataJob:
                     except GridClientError:
                         continue
 
+            # Flag missing data files
+            missing_sources = []
+            if not events:
+                missing_sources.append("events")
+            if not summary or not summary.get("participants"):
+                missing_sources.append("summary")
+            if not details:
+                missing_sources.append("details")
+            if missing_sources:
+                await self.db.create_data_quality_flag(
+                    flag_type="file_not_found", severity="warning" if len(missing_sources) < 3 else "error",
+                    entity_type="game", external_id=game_external_id,
+                    context={"series_id": series_id, "game_number": game_number, "missing": missing_sources},
+                )
+
             # Unified parser: handles all combinations of available sources
             parser = EventsParser(events or [], summary, details)
             parsed = parser.parse()
@@ -973,6 +1021,10 @@ class SyncProDataJob:
 
         # Fallback to existing team1_side if roster matching failed
         if blue_team_db_id is None:
+            side_flag_ctx = {
+                "game_external_id": game_external_id,
+                "team1_side": game.team1_side,
+            }
             if team1_state and team2_state:
                 logger.warning(
                     "Roster matching failed, falling back to team1_side",
@@ -981,12 +1033,15 @@ class SyncProDataJob:
                     team1_players=[p.get("name") for p in team1_state.players],
                     blue_participants=parsed.participant_names_by_side.get("blue", []),
                 )
+                side_flag_ctx["source"] = "team1_side_fallback"
             if game.team1_side == "blue":
                 blue_team_db_id = team1_db_id
                 red_team_db_id = team2_db_id
+                side_flag_ctx["resolution"] = "team1_side=blue"
             elif game.team1_side == "red":
                 blue_team_db_id = team2_db_id
                 red_team_db_id = team1_db_id
+                side_flag_ctx["resolution"] = "team1_side=red"
             else:
                 logger.error(
                     "Cannot determine team sides, defaulting team1=blue",
@@ -994,6 +1049,15 @@ class SyncProDataJob:
                 )
                 blue_team_db_id = team1_db_id
                 red_team_db_id = team2_db_id
+                side_flag_ctx["source"] = "hard_default"
+                side_flag_ctx["resolution"] = "team1=blue (guessed)"
+            parsed.data_quality_flags.append({
+                "flag_type": "side_defaulted",
+                "severity": "error" if "hard_default" in side_flag_ctx.get("source", "") else "warning",
+                "entity_type": "game",
+                "external_id": game_external_id,
+                "context": side_flag_ctx,
+            })
 
         # Determine winner team ID based on winner_team_side
         winner_team_db_id = None
@@ -1181,5 +1245,13 @@ class SyncProDataJob:
 
         if event_dicts:
             await self.db.insert_pro_game_events_batch(game_id, event_dicts, connection=conn)
+
+        # Persist parser data quality flags
+        if parsed.data_quality_flags:
+            for f in parsed.data_quality_flags:
+                f.setdefault("entity_type", "game")
+                f.setdefault("entity_id", game_id)
+                f.setdefault("external_id", game_external_id)
+            await self.db.batch_create_data_quality_flags(parsed.data_quality_flags)
 
         return game_id

@@ -1,7 +1,8 @@
 import type { ProTeamRecord } from '@/lib/types'
-import { CardRankBadge } from '../CardRankBadge'
+import { getChampionIconUrl, getChampionName } from '@/lib/champions'
 import { CardTeamIcon } from '../CardTeamIcon'
-import { fmtSeconds } from '../utils'
+import { CardRowList } from '../CardRowList'
+import { sz, fmtSeconds } from '../utils'
 import { CARD_COLORS } from '../types'
 import type { SocialCardFormat } from '../types'
 
@@ -13,144 +14,190 @@ interface TeamRecordCardProps {
   loserLabel?: string
 }
 
+const SIDE_COLORS = {
+  blue: '#3b82f6',
+  red: '#ef4444',
+}
+
+function SideBar({ side, height, width, format }: { side: 'blue' | 'red'; height: number; width: number; format: SocialCardFormat }) {
+  const radius = sz(format, 3, 2, 2)
+  return (
+    <div
+      style={{
+        width,
+        height,
+        borderRadius: radius,
+        backgroundColor: SIDE_COLORS[side],
+        flexShrink: 0,
+        opacity: 0.85,
+      }}
+    />
+  )
+}
+
+function ChampIcons({
+  comp,
+  size,
+  format,
+  side,
+  reverse,
+}: {
+  comp: number[]
+  size: number
+  format: SocialCardFormat
+  side?: 'blue' | 'red' | null
+  reverse?: boolean
+}) {
+  const gap = sz(format, 3, 2, 2)
+  const barWidth = sz(format, 5, 3, 4)
+  const barHeight = size
+  if (comp.length === 0 && !side) return null
+
+  const icons = comp.map((id, i) => (
+    <img
+      key={i}
+      src={getChampionIconUrl(id)}
+      alt={getChampionName(id)}
+      width={size}
+      height={size}
+      style={{ borderRadius: size * 0.2, objectFit: 'cover' }}
+    />
+  ))
+
+  const bar = side && comp.length > 0 ? <SideBar side={side} height={barHeight} width={barWidth} format={format} /> : null
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap, flexShrink: 0 }}>
+      {reverse ? (
+        <>
+          {bar}
+          {icons}
+        </>
+      ) : (
+        <>
+          {icons}
+          {bar}
+        </>
+      )}
+    </div>
+  )
+}
+
 export function TeamRecordCard({ records, formatValue, format, winnerLabel, loserLabel }: TeamRecordCardProps) {
-  const isInsta = format === 'instagram'
-  const rowHeight = isInsta ? 72 : 48
-  const fontSize = isInsta ? 14 : 12
-  const iconSize = isInsta ? 28 : 22
-  const top10 = records.slice(0, 10)
+  const badgeSize    = sz(format, 56, 34, 42)
+  const iconSize     = sz(format, 68, 44, 54)
+  const champSize    = sz(format, 64, 42, 50)
+  const valueSize    = sz(format, 46, 28, 34)
+  const dateSize     = sz(format, 22, 14, 17)
+  const rowPadH      = sz(format, 16, 10, 12)
+  const rowGap       = sz(format, 8, 5, 6)
+  const vsSize       = sz(format, 22, 14, 17)
+  const teamGap      = sz(format, 4, 2, 3)
+
   const renderValue = formatValue ?? ((r: ProTeamRecord) => fmtSeconds(r.value))
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
-      {/* Column headers */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          height: isInsta ? 36 : 28,
-          padding: '0 24px',
-          backgroundColor: CARD_COLORS.bgRowAlt,
-          borderBottom: `1px solid ${CARD_COLORS.border}`,
-          gap: 12,
-        }}
-      >
-        <div style={{ width: 24 }} />
-        <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 9, color: CARD_COLORS.textMuted, textTransform: 'uppercase' as const, letterSpacing: '0.05em', width: isInsta ? 90 : 70, textAlign: 'center' }}>Valeur</span>
-        <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 9, color: CARD_COLORS.textMuted, textTransform: 'uppercase' as const, letterSpacing: '0.05em', flex: 1 }}>{winnerLabel || 'Vainqueur'}</span>
-        <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 9, color: CARD_COLORS.textMuted, textTransform: 'uppercase' as const, letterSpacing: '0.05em', flex: 1 }}>{loserLabel || 'Perdant'}</span>
-        <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 9, color: CARD_COLORS.textMuted, textTransform: 'uppercase' as const, letterSpacing: '0.05em', width: 60, textAlign: 'right' }}>Date</span>
-      </div>
-
-      {top10.map((r, i) => {
-        const isFirst = i === 0
-        const bgColor = isFirst
-          ? CARD_COLORS.accent + '14'
-          : i % 2 === 0
-            ? CARD_COLORS.bgRow
-            : CARD_COLORS.bgRowAlt
+    <CardRowList<ProTeamRecord>
+      records={records}
+      rowPadH={rowPadH}
+      rowGap={rowGap}
+      badgeSize={badgeSize}
+      renderRow={(r, _i, isFirst) => {
+        const winnerComp = r.winnerComp ?? []
+        const loserComp = r.loserComp ?? []
+        const winnerSide = r.winnerSide ?? null
+        const loserSide = winnerSide === 'blue' ? 'red' : winnerSide === 'red' ? 'blue' : null
 
         return (
-          <div
-            key={i}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              height: rowHeight,
-              padding: '0 24px',
-              backgroundColor: bgColor,
-              borderBottom: i < top10.length - 1 ? `1px solid ${CARD_COLORS.border}40` : 'none',
-              gap: 12,
-            }}
-          >
-            <CardRankBadge rank={i + 1} />
-
+          <>
             {/* Value */}
             <span
               style={{
                 fontFamily: 'JetBrains Mono, monospace',
-                fontSize,
+                fontSize: valueSize,
                 fontWeight: 700,
                 color: isFirst ? CARD_COLORS.accent : CARD_COLORS.text,
-                width: isInsta ? 90 : 70,
-                textAlign: 'center',
+                flexShrink: 0,
               }}
             >
               {renderValue(r)}
             </span>
 
-            {/* Winner */}
+            {/* Winner comp + logo */}
             <div
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: 8,
+                gap: teamGap,
                 flex: 1,
+                justifyContent: 'flex-end',
                 overflow: 'hidden',
               }}
             >
-              {r.winnerName && <CardTeamIcon name={r.winnerName} fullName={r.winnerFullName} size={iconSize} />}
+              <ChampIcons comp={winnerComp} size={champSize} format={format} side={winnerSide} reverse />
+              <div style={{ width: iconSize, height: iconSize, flexShrink: 0 }}>
+                {r.winnerName && <CardTeamIcon name={r.winnerName} fullName={r.winnerFullName} size={iconSize} />}
+              </div>
+            </div>
+
+            {/* VS + date stacked */}
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+              }}
+            >
               <span
                 style={{
                   fontFamily: 'Inter, sans-serif',
-                  fontSize,
-                  fontWeight: 600,
-                  color: CARD_COLORS.text,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
+                  fontSize: vsSize,
+                  fontWeight: 700,
+                  color: CARD_COLORS.textMuted,
+                  lineHeight: 1.2,
                 }}
               >
-                {r.winnerName || '\u2014'}
+                vs
+              </span>
+              <span
+                style={{
+                  fontFamily: 'JetBrains Mono, monospace',
+                  fontSize: dateSize,
+                  color: CARD_COLORS.textMuted,
+                  lineHeight: 1.1,
+                  marginTop: sz(format, 4, 2, 3),
+                }}
+              >
+                {r.gameDate
+                  ? new Date(r.gameDate).toLocaleDateString('fr-FR', {
+                      day: '2-digit',
+                      month: '2-digit',
+                      year: '2-digit',
+                    })
+                  : ''}
               </span>
             </div>
 
-            {/* Loser */}
+            {/* Loser logo + comp */}
             <div
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: 8,
+                gap: teamGap,
                 flex: 1,
                 overflow: 'hidden',
               }}
             >
-              {r.loserName && <CardTeamIcon name={r.loserName} fullName={r.loserFullName} size={iconSize} />}
-              <span
-                style={{
-                  fontFamily: 'Inter, sans-serif',
-                  fontSize: fontSize - 1,
-                  color: CARD_COLORS.textSecondary,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {r.loserName || '\u2014'}
-              </span>
+              <div style={{ width: iconSize, height: iconSize, flexShrink: 0 }}>
+                {r.loserName && <CardTeamIcon name={r.loserName} fullName={r.loserFullName} size={iconSize} />}
+              </div>
+              <ChampIcons comp={loserComp} size={champSize} format={format} side={loserSide} />
             </div>
-
-            {/* Date */}
-            <span
-              style={{
-                fontFamily: 'JetBrains Mono, monospace',
-                fontSize: fontSize - 2,
-                color: CARD_COLORS.textMuted,
-                textAlign: 'right',
-                width: 60,
-              }}
-            >
-              {r.gameDate
-                ? new Date(r.gameDate).toLocaleDateString('fr-FR', {
-                    day: '2-digit',
-                    month: '2-digit',
-                    year: '2-digit',
-                  })
-                : ''}
-            </span>
-          </div>
+          </>
         )
-      })}
-    </div>
+      }}
+    />
   )
 }

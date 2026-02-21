@@ -247,14 +247,16 @@ class GridClient:
         endpoint: str,
         query: str,
         variables: dict[str, Any] | None = None,
+        max_retries: int = 5,
     ) -> dict[str, Any]:
         """
-        Execute a GraphQL query.
+        Execute a GraphQL query with rate limit retry.
 
         Args:
             endpoint: GraphQL endpoint URL
             query: GraphQL query string
             variables: Query variables
+            max_retries: Max retries for rate limit errors
 
         Returns:
             GraphQL response data
@@ -266,15 +268,31 @@ class GridClient:
         if variables:
             payload["variables"] = variables
 
-        response = await self.post(endpoint, json=payload)
-        data = response.json()
+        for attempt in range(max_retries):
+            response = await self.post(endpoint, json=payload)
+            data = response.json()
 
-        if "errors" in data:
-            errors = data["errors"]
-            error_msgs = [e.get("message", str(e)) for e in errors]
-            raise GridClientError(f"GraphQL errors: {'; '.join(error_msgs)}")
+            if "errors" in data:
+                errors = data["errors"]
+                error_msgs = [e.get("message", str(e)) for e in errors]
+                joined = "; ".join(error_msgs)
 
-        return data.get("data", {})
+                # Retry on rate limit errors with exponential backoff
+                if "rate limit" in joined.lower() and attempt < max_retries - 1:
+                    wait_time = min(60, 2 ** (attempt + 1))
+                    logger.warning(
+                        "GraphQL rate limited, retrying",
+                        wait_time=wait_time,
+                        attempt=attempt + 1,
+                    )
+                    await asyncio.sleep(wait_time)
+                    continue
+
+                raise GridClientError(f"GraphQL errors: {joined}")
+
+            return data.get("data", {})
+
+        raise GridRateLimitError("Max retries exceeded for GraphQL rate limiting")
 
     async def graphql_central(
         self,

@@ -1,4 +1,4 @@
-import { timingSafeEqual } from 'node:crypto'
+import { createHash, timingSafeEqual } from 'node:crypto'
 import type { HttpContext } from '@adonisjs/core/http'
 import db from '@adonisjs/lucid/services/db'
 import env from '#start/env'
@@ -19,7 +19,7 @@ export default class ProLeagueStatsController {
       })
     }
 
-    if (!password || typeof password !== 'string') {
+    if (!password || typeof password !== 'string' || password.length > 1000) {
       return ctx.response.forbidden({ valid: false })
     }
 
@@ -53,6 +53,7 @@ export default class ProLeagueStatsController {
 
     const cacheKey = `pro:stats:records:l=${[...parsedLeagueIds].sort().join(',') || 'all'}:y=${[...parsedYears].sort().join(',') || 'all'}:t=${[...parsedTeamIds].sort().join(',') || 'all'}:p=${[...parsedPlayerIds].sort().join(',') || 'all'}:tn=${[...parsedTournamentIds].sort().join(',') || 'all'}:ti=${parsedTier ?? 'all'}:po=${parsedIsPlayoffs ?? 'all'}:r=${parsedRole || 'all'}:ex=${parsedIncludeExcluded ? 1 : 0}`
 
+    try {
     const result = await cacheService.getOrSet(cacheKey, CACHE_TTL.LONG, async () => {
       const resolvedLeagueIds = await this.resolveLeagueIds(parsedLeagueIds)
 
@@ -198,6 +199,7 @@ export default class ProLeagueStatsController {
         LEFT JOIN pro_leagues pl ON tr.pro_league_id = pl.league_id
         LEFT JOIN teams bt ON g.blue_team_id = bt.team_id
         LEFT JOIN teams rt ON g.red_team_id = rt.team_id
+        LEFT JOIN pro_drafts d ON d.game_id = g.game_id
         WHERE g.status IN ('completed', 'processed') ${teamFilterSql}${teamGameFilterSql}
       `
       const teamGameBindings = [...teamBindings, ...teamGameFilterBindings]
@@ -590,7 +592,10 @@ export default class ProLeagueStatsController {
                  CASE WHEN g.winner_team_id = g.blue_team_id THEN bt.current_name ELSE rt.current_name END as winner_full_name,
                  CASE WHEN g.winner_team_id = g.blue_team_id THEN COALESCE(rt.short_name, rt.current_name) ELSE COALESCE(bt.short_name, bt.current_name) END as loser_name,
                  CASE WHEN g.winner_team_id = g.blue_team_id THEN rt.current_name ELSE bt.current_name END as loser_full_name,
-                 tr.name as tournament_name, COALESCE(g.started_at, m.started_at) as game_date
+                 tr.name as tournament_name, COALESCE(g.started_at, m.started_at) as game_date,
+                 d.team1_pick_1, d.team1_pick_2, d.team1_pick_3, d.team1_pick_4, d.team1_pick_5,
+                 d.team2_pick_1, d.team2_pick_2, d.team2_pick_3, d.team2_pick_4, d.team2_pick_5,
+                 (g.winner_team_id = g.blue_team_id) as winner_is_blue
           ${teamGameJoins} AND g.winner_team_id IS NOT NULL AND g.duration > 0
           ORDER BY g.duration ASC
           LIMIT 50
@@ -605,7 +610,10 @@ export default class ProLeagueStatsController {
                  CASE WHEN g.winner_team_id = g.blue_team_id THEN bt.current_name ELSE rt.current_name END as winner_full_name,
                  CASE WHEN g.winner_team_id = g.blue_team_id THEN COALESCE(rt.short_name, rt.current_name) ELSE COALESCE(bt.short_name, bt.current_name) END as loser_name,
                  CASE WHEN g.winner_team_id = g.blue_team_id THEN rt.current_name ELSE bt.current_name END as loser_full_name,
-                 tr.name as tournament_name, COALESCE(g.started_at, m.started_at) as game_date
+                 tr.name as tournament_name, COALESCE(g.started_at, m.started_at) as game_date,
+                 d.team1_pick_1, d.team1_pick_2, d.team1_pick_3, d.team1_pick_4, d.team1_pick_5,
+                 d.team2_pick_1, d.team2_pick_2, d.team2_pick_3, d.team2_pick_4, d.team2_pick_5,
+                 (g.winner_team_id = g.blue_team_id) as winner_is_blue
           ${teamGameJoins} AND g.duration > 0
           ORDER BY g.duration DESC
           LIMIT 50
@@ -619,7 +627,10 @@ export default class ProLeagueStatsController {
                  COALESCE(opp.short_name, opp.current_name) as loser_name,
                  opp.current_name as loser_full_name,
                  tr.name as tournament_name, COALESCE(g.started_at, m.started_at) as game_date,
-                 (g.winner_team_id = ts.team_id) as win
+                 (g.winner_team_id = ts.team_id) as win,
+                 d.team1_pick_1, d.team1_pick_2, d.team1_pick_3, d.team1_pick_4, d.team1_pick_5,
+                 d.team2_pick_1, d.team2_pick_2, d.team2_pick_3, d.team2_pick_4, d.team2_pick_5,
+                 (ts.team_id = g.blue_team_id) as winner_is_blue
           FROM pro_team_stats ts
           JOIN pro_games g ON ts.game_id = g.game_id
           JOIN pro_matches m ON g.match_id = m.match_id
@@ -628,6 +639,7 @@ export default class ProLeagueStatsController {
           JOIN teams fbt ON ts.team_id = fbt.team_id
           LEFT JOIN pro_team_stats ts_opp ON ts_opp.game_id = ts.game_id AND ts_opp.team_id != ts.team_id
           LEFT JOIN teams opp ON ts_opp.team_id = opp.team_id
+          LEFT JOIN pro_drafts d ON d.game_id = g.game_id
           WHERE ts.first_blood = true
             AND ts.first_blood_time IS NOT NULL
             AND ts.first_blood_time > 0
@@ -645,7 +657,10 @@ export default class ProLeagueStatsController {
                  COALESCE(opp.short_name, opp.current_name) as loser_name,
                  opp.current_name as loser_full_name,
                  tr.name as tournament_name, COALESCE(g.started_at, m.started_at) as game_date,
-                 (g.winner_team_id = ts.team_id) as win
+                 (g.winner_team_id = ts.team_id) as win,
+                 d.team1_pick_1, d.team1_pick_2, d.team1_pick_3, d.team1_pick_4, d.team1_pick_5,
+                 d.team2_pick_1, d.team2_pick_2, d.team2_pick_3, d.team2_pick_4, d.team2_pick_5,
+                 (ts.team_id = g.blue_team_id) as winner_is_blue
           FROM pro_team_stats ts
           JOIN pro_games g ON ts.game_id = g.game_id
           JOIN pro_matches m ON g.match_id = m.match_id
@@ -654,6 +669,7 @@ export default class ProLeagueStatsController {
           JOIN teams fbt ON ts.team_id = fbt.team_id
           LEFT JOIN pro_team_stats ts_opp ON ts_opp.game_id = ts.game_id AND ts_opp.team_id != ts.team_id
           LEFT JOIN teams opp ON ts_opp.team_id = opp.team_id
+          LEFT JOIN pro_drafts d ON d.game_id = g.game_id
           WHERE ts.first_blood = true
             AND ts.first_blood_time IS NOT NULL
             AND ts.first_blood_time > 0
@@ -709,7 +725,10 @@ export default class ProLeagueStatsController {
                  COALESCE(opp.short_name, opp.current_name) as loser_name,
                  opp.current_name as loser_full_name,
                  tr.name as tournament_name, COALESCE(g.started_at, m.started_at) as game_date,
-                 ts.win as win
+                 ts.win as win,
+                 d.team1_pick_1, d.team1_pick_2, d.team1_pick_3, d.team1_pick_4, d.team1_pick_5,
+                 d.team2_pick_1, d.team2_pick_2, d.team2_pick_3, d.team2_pick_4, d.team2_pick_5,
+                 (ts.team_id = g.blue_team_id) as winner_is_blue
           FROM pro_team_stats ts
           JOIN pro_games g ON ts.game_id = g.game_id
           JOIN pro_matches m ON g.match_id = m.match_id
@@ -718,6 +737,7 @@ export default class ProLeagueStatsController {
           JOIN teams fbt ON ts.team_id = fbt.team_id
           LEFT JOIN pro_team_stats ts_opp ON ts_opp.game_id = ts.game_id AND ts_opp.team_id != ts.team_id
           LEFT JOIN teams opp ON ts_opp.team_id = opp.team_id
+          LEFT JOIN pro_drafts d ON d.game_id = g.game_id
           WHERE ts.kills > 0
             AND g.status IN ('completed', 'processed')
             ${teamFilterSql}${teamIdStreakSql}
@@ -736,7 +756,10 @@ export default class ProLeagueStatsController {
                    THEN COALESCE(rt.short_name, rt.current_name) ELSE COALESCE(bt.short_name, bt.current_name) END as loser_name,
                  CASE WHEN COALESCE(g.blue_kills, 0) >= COALESCE(g.red_kills, 0)
                    THEN rt.current_name ELSE bt.current_name END as loser_full_name,
-                 tr.name as tournament_name, COALESCE(g.started_at, m.started_at) as game_date
+                 tr.name as tournament_name, COALESCE(g.started_at, m.started_at) as game_date,
+                 d.team1_pick_1, d.team1_pick_2, d.team1_pick_3, d.team1_pick_4, d.team1_pick_5,
+                 d.team2_pick_1, d.team2_pick_2, d.team2_pick_3, d.team2_pick_4, d.team2_pick_5,
+                 (COALESCE(g.blue_kills, 0) >= COALESCE(g.red_kills, 0)) as winner_is_blue
           ${teamGameJoins}
           ORDER BY value DESC
           LIMIT 50
@@ -750,7 +773,10 @@ export default class ProLeagueStatsController {
                  COALESCE(opp.short_name, opp.current_name) as loser_name,
                  opp.current_name as loser_full_name,
                  tr.name as tournament_name, COALESCE(g.started_at, m.started_at) as game_date,
-                 ts.win as win
+                 ts.win as win,
+                 d.team1_pick_1, d.team1_pick_2, d.team1_pick_3, d.team1_pick_4, d.team1_pick_5,
+                 d.team2_pick_1, d.team2_pick_2, d.team2_pick_3, d.team2_pick_4, d.team2_pick_5,
+                 (ts.team_id = g.blue_team_id) as winner_is_blue
           FROM pro_team_stats ts
           JOIN pro_games g ON ts.game_id = g.game_id
           JOIN pro_matches m ON g.match_id = m.match_id
@@ -759,6 +785,7 @@ export default class ProLeagueStatsController {
           JOIN teams fbt ON ts.team_id = fbt.team_id
           LEFT JOIN pro_team_stats ts_opp ON ts_opp.game_id = ts.game_id AND ts_opp.team_id != ts.team_id
           LEFT JOIN teams opp ON ts_opp.team_id = opp.team_id
+          LEFT JOIN pro_drafts d ON d.game_id = g.game_id
           WHERE ts.first_tower = true
             AND ts.first_tower_time IS NOT NULL
             AND ts.first_tower_time > 0
@@ -776,7 +803,10 @@ export default class ProLeagueStatsController {
                  COALESCE(opp.short_name, opp.current_name) as loser_name,
                  opp.current_name as loser_full_name,
                  tr.name as tournament_name, COALESCE(g.started_at, m.started_at) as game_date,
-                 ts.win as win
+                 ts.win as win,
+                 d.team1_pick_1, d.team1_pick_2, d.team1_pick_3, d.team1_pick_4, d.team1_pick_5,
+                 d.team2_pick_1, d.team2_pick_2, d.team2_pick_3, d.team2_pick_4, d.team2_pick_5,
+                 (ts.team_id = g.blue_team_id) as winner_is_blue
           FROM pro_team_stats ts
           JOIN pro_games g ON ts.game_id = g.game_id
           JOIN pro_matches m ON g.match_id = m.match_id
@@ -785,6 +815,7 @@ export default class ProLeagueStatsController {
           JOIN teams fbt ON ts.team_id = fbt.team_id
           LEFT JOIN pro_team_stats ts_opp ON ts_opp.game_id = ts.game_id AND ts_opp.team_id != ts.team_id
           LEFT JOIN teams opp ON ts_opp.team_id = opp.team_id
+          LEFT JOIN pro_drafts d ON d.game_id = g.game_id
           WHERE ts.first_dragon = true
             AND ts.first_dragon_time IS NOT NULL
             AND ts.first_dragon_time > 0
@@ -802,7 +833,10 @@ export default class ProLeagueStatsController {
                  COALESCE(opp.short_name, opp.current_name) as loser_name,
                  opp.current_name as loser_full_name,
                  tr.name as tournament_name, COALESCE(g.started_at, m.started_at) as game_date,
-                 ts.win as win
+                 ts.win as win,
+                 d.team1_pick_1, d.team1_pick_2, d.team1_pick_3, d.team1_pick_4, d.team1_pick_5,
+                 d.team2_pick_1, d.team2_pick_2, d.team2_pick_3, d.team2_pick_4, d.team2_pick_5,
+                 (ts.team_id = g.blue_team_id) as winner_is_blue
           FROM pro_team_stats ts
           JOIN pro_games g ON ts.game_id = g.game_id
           JOIN pro_matches m ON g.match_id = m.match_id
@@ -811,6 +845,7 @@ export default class ProLeagueStatsController {
           JOIN teams fbt ON ts.team_id = fbt.team_id
           LEFT JOIN pro_team_stats ts_opp ON ts_opp.game_id = ts.game_id AND ts_opp.team_id != ts.team_id
           LEFT JOIN teams opp ON ts_opp.team_id = opp.team_id
+          LEFT JOIN pro_drafts d ON d.game_id = g.game_id
           WHERE ts.first_herald = true
             AND ts.first_herald_time IS NOT NULL
             AND ts.first_herald_time > 0
@@ -828,7 +863,10 @@ export default class ProLeagueStatsController {
                  COALESCE(opp.short_name, opp.current_name) as loser_name,
                  opp.current_name as loser_full_name,
                  tr.name as tournament_name, COALESCE(g.started_at, m.started_at) as game_date,
-                 ts.win as win
+                 ts.win as win,
+                 d.team1_pick_1, d.team1_pick_2, d.team1_pick_3, d.team1_pick_4, d.team1_pick_5,
+                 d.team2_pick_1, d.team2_pick_2, d.team2_pick_3, d.team2_pick_4, d.team2_pick_5,
+                 (ts.team_id = g.blue_team_id) as winner_is_blue
           FROM pro_team_stats ts
           JOIN pro_games g ON ts.game_id = g.game_id
           JOIN pro_matches m ON g.match_id = m.match_id
@@ -837,6 +875,7 @@ export default class ProLeagueStatsController {
           JOIN teams fbt ON ts.team_id = fbt.team_id
           LEFT JOIN pro_team_stats ts_opp ON ts_opp.game_id = ts.game_id AND ts_opp.team_id != ts.team_id
           LEFT JOIN teams opp ON ts_opp.team_id = opp.team_id
+          LEFT JOIN pro_drafts d ON d.game_id = g.game_id
           WHERE ts.first_baron = true
             AND ts.first_baron_time IS NOT NULL
             AND ts.first_baron_time > 0
@@ -854,7 +893,10 @@ export default class ProLeagueStatsController {
                  COALESCE(opp.short_name, opp.current_name) as loser_name,
                  opp.current_name as loser_full_name,
                  tr.name as tournament_name, COALESCE(g.started_at, m.started_at) as game_date,
-                 ts.win as win
+                 ts.win as win,
+                 d.team1_pick_1, d.team1_pick_2, d.team1_pick_3, d.team1_pick_4, d.team1_pick_5,
+                 d.team2_pick_1, d.team2_pick_2, d.team2_pick_3, d.team2_pick_4, d.team2_pick_5,
+                 (ts.team_id = g.blue_team_id) as winner_is_blue
           FROM pro_team_stats ts
           JOIN pro_games g ON ts.game_id = g.game_id
           JOIN pro_matches m ON g.match_id = m.match_id
@@ -863,6 +905,7 @@ export default class ProLeagueStatsController {
           JOIN teams fbt ON ts.team_id = fbt.team_id
           LEFT JOIN pro_team_stats ts_opp ON ts_opp.game_id = ts.game_id AND ts_opp.team_id != ts.team_id
           LEFT JOIN teams opp ON ts_opp.team_id = opp.team_id
+          LEFT JOIN pro_drafts d ON d.game_id = g.game_id
           WHERE ts.dragons > 0
             AND g.status IN ('completed', 'processed')
             ${teamFilterSql}${teamIdStreakSql}
@@ -878,7 +921,10 @@ export default class ProLeagueStatsController {
                  COALESCE(opp.short_name, opp.current_name) as loser_name,
                  opp.current_name as loser_full_name,
                  tr.name as tournament_name, COALESCE(g.started_at, m.started_at) as game_date,
-                 ts.win as win
+                 ts.win as win,
+                 d.team1_pick_1, d.team1_pick_2, d.team1_pick_3, d.team1_pick_4, d.team1_pick_5,
+                 d.team2_pick_1, d.team2_pick_2, d.team2_pick_3, d.team2_pick_4, d.team2_pick_5,
+                 (ts.team_id = g.blue_team_id) as winner_is_blue
           FROM pro_team_stats ts
           JOIN pro_games g ON ts.game_id = g.game_id
           JOIN pro_matches m ON g.match_id = m.match_id
@@ -887,6 +933,7 @@ export default class ProLeagueStatsController {
           JOIN teams fbt ON ts.team_id = fbt.team_id
           LEFT JOIN pro_team_stats ts_opp ON ts_opp.game_id = ts.game_id AND ts_opp.team_id != ts.team_id
           LEFT JOIN teams opp ON ts_opp.team_id = opp.team_id
+          LEFT JOIN pro_drafts d ON d.game_id = g.game_id
           WHERE ts.elder_dragons > 0
             AND g.status IN ('completed', 'processed')
             ${teamFilterSql}${teamIdStreakSql}
@@ -902,7 +949,10 @@ export default class ProLeagueStatsController {
                  COALESCE(opp.short_name, opp.current_name) as loser_name,
                  opp.current_name as loser_full_name,
                  tr.name as tournament_name, COALESCE(g.started_at, m.started_at) as game_date,
-                 ts.win as win
+                 ts.win as win,
+                 d.team1_pick_1, d.team1_pick_2, d.team1_pick_3, d.team1_pick_4, d.team1_pick_5,
+                 d.team2_pick_1, d.team2_pick_2, d.team2_pick_3, d.team2_pick_4, d.team2_pick_5,
+                 (ts.team_id = g.blue_team_id) as winner_is_blue
           FROM pro_team_stats ts
           JOIN pro_games g ON ts.game_id = g.game_id
           JOIN pro_matches m ON g.match_id = m.match_id
@@ -911,6 +961,7 @@ export default class ProLeagueStatsController {
           JOIN teams fbt ON ts.team_id = fbt.team_id
           LEFT JOIN pro_team_stats ts_opp ON ts_opp.game_id = ts.game_id AND ts_opp.team_id != ts.team_id
           LEFT JOIN teams opp ON ts_opp.team_id = opp.team_id
+          LEFT JOIN pro_drafts d ON d.game_id = g.game_id
           WHERE ts.barons > 0
             AND g.status IN ('completed', 'processed')
             ${teamFilterSql}${teamIdStreakSql}
@@ -1193,6 +1244,10 @@ export default class ProLeagueStatsController {
     })
 
     return ctx.response.ok(result)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error'
+      return ctx.response.internalServerError({ error: 'Failed to fetch records', message })
+    }
   }
 
   /**
@@ -2264,8 +2319,9 @@ export default class ProLeagueStatsController {
   // --- Query helpers ---
 
   private async queryBoRecords(format: string, order: 'ASC' | 'DESC', filterSql: string, filterBindings: unknown[], boTeamFilterSql = '', boTeamFilterBindings: unknown[] = []) {
-    const validFormats = ['bo1', 'bo3', 'bo5']
-    if (!validFormats.includes(format)) return { rows: [] }
+    const formatToWinScore: Record<string, number> = { bo1: 1, bo3: 2, bo5: 3 }
+    const winScore = formatToWinScore[format]
+    if (!winScore) return { rows: [] }
 
     return db.rawQuery(`
       WITH bo_games AS (
@@ -2278,7 +2334,9 @@ export default class ProLeagueStatsController {
         JOIN pro_matches m ON g.match_id = m.match_id
         JOIN pro_tournaments tr ON m.tournament_id = tr.tournament_id
         LEFT JOIN pro_leagues pl ON tr.pro_league_id = pl.league_id
-        WHERE g.status IN ('completed', 'processed') AND m.format = ? AND g.duration > 0
+        WHERE g.status IN ('completed', 'processed')
+          AND GREATEST(COALESCE(m.team1_score, 0), COALESCE(m.team2_score, 0)) = ?
+          AND g.duration > 0
           ${filterSql}${boTeamFilterSql}
         GROUP BY m.match_id, m.format, m.team1_score, m.team2_score, tr.name
       ),
@@ -2314,7 +2372,7 @@ export default class ProLeagueStatsController {
       FROM bo_with_teams
       ORDER BY total_duration ${order}
       LIMIT 50
-    `, [format, ...filterBindings, ...boTeamFilterBindings])
+    `, [winScore, ...filterBindings, ...boTeamFilterBindings])
   }
 
   private async queryGameStreaks(isWin: boolean, filterSql: string, filterBindings: unknown[], teamIdFilterSql = '', teamIdFilterBindings: unknown[] = []) {
@@ -2516,10 +2574,8 @@ export default class ProLeagueStatsController {
   }
 
   private secureCompare(a: string, b: string): boolean {
-    if (a.length !== b.length) {
-      return false
-    }
-    return timingSafeEqual(Buffer.from(a), Buffer.from(b))
+    const hash = (s: string) => createHash('sha256').update(s).digest()
+    return timingSafeEqual(hash(a), hash(b))
   }
 
   private formatPlayerRecords(rows: Record<string, unknown>[]) {
@@ -2543,17 +2599,25 @@ export default class ProLeagueStatsController {
   }
 
   private formatTeamRecords(rows: Record<string, unknown>[]) {
-    return rows.map((row) => ({
-      value: Number(row.value),
-      winnerName: row.winner_name,
-      winnerFullName: row.winner_full_name ?? null,
-      loserName: row.loser_name,
-      loserFullName: row.loser_full_name ?? null,
-      tournamentName: row.tournament_name,
-      gameDate: row.game_date,
-      win: row.win ?? null,
-      gameNumber: row.game_number != null ? Number(row.game_number) : null,
-    }))
+    return rows.map((row) => {
+      const bluePicks = [row.team1_pick_1, row.team1_pick_2, row.team1_pick_3, row.team1_pick_4, row.team1_pick_5].filter((v) => v != null).map(Number)
+      const redPicks = [row.team2_pick_1, row.team2_pick_2, row.team2_pick_3, row.team2_pick_4, row.team2_pick_5].filter((v) => v != null).map(Number)
+      const winnerIsBlue = row.winner_is_blue === true || row.winner_is_blue === 't'
+      return {
+        value: Number(row.value),
+        winnerName: row.winner_name,
+        winnerFullName: row.winner_full_name ?? null,
+        loserName: row.loser_name,
+        loserFullName: row.loser_full_name ?? null,
+        tournamentName: row.tournament_name,
+        gameDate: row.game_date,
+        win: row.win ?? null,
+        gameNumber: row.game_number != null ? Number(row.game_number) : null,
+        winnerComp: winnerIsBlue ? bluePicks : redPicks,
+        loserComp: winnerIsBlue ? redPicks : bluePicks,
+        winnerSide: bluePicks.length > 0 || redPicks.length > 0 ? (winnerIsBlue ? 'blue' : 'red') : null,
+      }
+    })
   }
 
   private formatBoRecords(rows: Record<string, unknown>[]) {

@@ -497,9 +497,10 @@ export default function PlayerLeaderboardSection({ filters }: PlayerLeaderboardS
                             tickLine={false}
                             interval={0}
                             height={chart.showLogos ? 55 : 35}
-                            tick={(props: { x: number; y: number; payload: { value: string } }) => {
-                              const { x, y, payload } = props
-                              const entry = chart.data[Number(payload.value)]
+                            tick={(props: { x: string | number; y: string | number; payload: { value: string } }) => {
+                              const x = Number(props.x)
+                              const y = Number(props.y)
+                              const entry = chart.data[Number(props.payload.value)]
                               if (!entry) return <g />
                               const logoSlug = chart.showLogos && entry.teamShortName ? sanitizeSlug(entry.teamShortName) : null
                               return (
@@ -564,7 +565,7 @@ export default function PlayerLeaderboardSection({ filters }: PlayerLeaderboardS
                               fill="var(--text-secondary)"
                               fontSize={8}
                               fontFamily="var(--font-mono)"
-                              formatter={(v: number) => `${v}%`}
+                              formatter={(v) => `${v}%`}
                             />
                           </Bar>
                         </BarChart>
@@ -965,9 +966,10 @@ export default function PlayerLeaderboardSection({ filters }: PlayerLeaderboardS
                       tickLine={false}
                       interval={0}
                       height={chart.showLogos ? 55 : 35}
-                      tick={(props: { x: number; y: number; payload: { value: string } }) => {
-                        const { x, y, payload } = props
-                        const entry = chart.data[Number(payload.value)]
+                      tick={(props: { x: string | number; y: string | number; payload: { value: string } }) => {
+                        const x = Number(props.x)
+                        const y = Number(props.y)
+                        const entry = chart.data[Number(props.payload.value)]
                         if (!entry) return <g />
                         const logoSlug = chart.showLogos && entry.teamShortName ? sanitizeSlug(entry.teamShortName) : null
                         return (
@@ -1036,7 +1038,7 @@ export default function PlayerLeaderboardSection({ filters }: PlayerLeaderboardS
                         fill="var(--text-secondary)"
                         fontSize={8}
                         fontFamily="var(--font-mono)"
-                        formatter={(v: number) => `${v > 0 ? '+' : ''}${v}`}
+                        formatter={(v) => `${Number(v) > 0 ? '+' : ''}${v}`}
                       />
                     </Bar>
                   </BarChart>
