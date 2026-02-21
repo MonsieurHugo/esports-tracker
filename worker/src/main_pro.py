@@ -98,6 +98,10 @@ class ProWorker:
         # Start minimal health check server
         await self._start_health_server()
 
+        # Run initial discovery before starting the scheduler
+        logger.info("Running initial discovery sync...")
+        await self._discovery_loop()
+
         # Schedule both loops
         self.scheduler.add_job(
             self._live_poll_loop,
