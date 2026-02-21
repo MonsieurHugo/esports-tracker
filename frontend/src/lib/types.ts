@@ -1095,3 +1095,27 @@ export interface ProTeamLeaderboardEntry {
   avgWardsDestroyed: number
   avgControlWards: number
 }
+
+export interface ProMatchOverviewItem {
+  id: number
+  externalId: string
+  team1Name: string
+  team1Tag: string
+  team2Name: string
+  team2Tag: string
+  team1Score: number
+  team2Score: number
+  format: string
+  status: string
+  scheduledAt: string | null
+  startedAt: string | null
+  endedAt: string | null
+  tournamentName: string | null
+  leagueShortName: string | null
+}
+
+export interface ProMatchesOverview {
+  live: ProMatchOverviewItem[]
+  recent: ProMatchOverviewItem[]
+  upcoming: ProMatchOverviewItem[]
+}

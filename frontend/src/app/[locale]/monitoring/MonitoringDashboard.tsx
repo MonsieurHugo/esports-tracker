@@ -15,6 +15,7 @@ import { useWorkerMonitoring } from '@/hooks/useWorkerMonitoring'
 import CollapsibleSection from '@/components/monitoring/CollapsibleSection'
 import { Skeleton } from '@/components/ui/Skeleton'
 import type { WorkerMetricsHourly, WorkerDailyStats, WorkerLog } from '@/lib/types'
+import ProMatchOverview from '@/components/monitoring/ProMatchOverview'
 
 function formatUptime(seconds: number): string {
   const hours = Math.floor(seconds / 3600)
@@ -595,6 +596,9 @@ export default function MonitoringDashboard() {
               )}
             </div>
           )}
+
+          {/* Matches overview */}
+          <ProMatchOverview data={pro.matchOverview} isLoading={pro.matchOverviewLoading} />
         </CollapsibleSection>
       </div>
     </div>

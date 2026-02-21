@@ -144,6 +144,7 @@ router
         router.get('/games/:id', [ProDataController, 'game'])
         router.get('/games/:id/events', [ProDataController, 'gameEvents'])
         router.get('/games-by-match/:matchId', [ProDataController, 'gamesByMatch'])
+        router.get('/matches-overview', [ProDataController, 'matchesOverview'])
         // Data quality & health
         router.get('/data-quality', [ProStatsController, 'dataQuality'])
         router.get('/data-quality-flags', [ProStatsController, 'dataQualityFlags'])

@@ -63,3 +63,21 @@ export interface LeagueRow {
   tier: number | null
   is_followed: boolean
 }
+
+export interface MatchOverviewRow {
+  match_id: number
+  external_id: string
+  team1_name: string | null
+  team1_tag: string | null
+  team2_name: string | null
+  team2_tag: string | null
+  team1_score: number
+  team2_score: number
+  format: string
+  status: string
+  scheduled_at: Date | null
+  started_at: Date | null
+  ended_at: Date | null
+  tournament_name: string | null
+  league_short_name: string | null
+}

@@ -10,6 +10,7 @@ import type {
   WorkerMetricsHourly,
   WorkerDailyStats,
   WorkerLog,
+  ProMatchesOverview,
 } from '@/lib/types'
 
 interface ProHealth {
@@ -40,6 +41,8 @@ interface SoloQData {
 interface ProData {
   stats: ProMonitoringStats | null
   health: ProHealth | null
+  matchOverview: ProMatchesOverview | null
+  matchOverviewLoading: boolean
   isLoading: boolean
   isOnline: boolean | null
 }
@@ -73,6 +76,8 @@ export function useWorkerMonitoring(): UseWorkerMonitoringReturn {
   const [proHealth, setProHealth] = useState<ProHealth | null>(null)
   const [proLoading, setProLoading] = useState(true)
   const [proOnline, setProOnline] = useState<boolean | null>(null)
+  const [matchOverview, setMatchOverview] = useState<ProMatchesOverview | null>(null)
+  const [matchOverviewLoading, setMatchOverviewLoading] = useState(true)
 
   // Charts state
   const [hourlyMetrics, setHourlyMetrics] = useState<WorkerMetricsHourly[]>([])
@@ -128,6 +133,17 @@ export function useWorkerMonitoring(): UseWorkerMonitoringReturn {
     }
   }, [])
 
+  const fetchMatchOverview = useCallback(async () => {
+    try {
+      const data = await api.get<ProMatchesOverview>('/pro/monitoring/matches-overview')
+      setMatchOverview(data)
+    } catch (error) {
+      logError('Failed to fetch match overview', error)
+    } finally {
+      setMatchOverviewLoading(false)
+    }
+  }, [])
+
   // Charts fetcher (heavier, not called on auto-refresh)
   const fetchChartsData = useCallback(async () => {
     setChartsLoading(true)
@@ -153,8 +169,9 @@ export function useWorkerMonitoring(): UseWorkerMonitoringReturn {
     fetchCoveragePercent()
     fetchProStats()
     checkProHealth()
+    fetchMatchOverview()
     setLastUpdate(new Date())
-  }, [fetchSoloqStatus, fetchCoveragePercent, fetchProStats, checkProHealth])
+  }, [fetchSoloqStatus, fetchCoveragePercent, fetchProStats, checkProHealth, fetchMatchOverview])
 
   // Fetch everything including charts (used on mount + manual refresh)
   const fetchEverything = useCallback(() => {
@@ -211,6 +228,8 @@ export function useWorkerMonitoring(): UseWorkerMonitoringReturn {
     pro: {
       stats: proStats,
       health: proHealth,
+      matchOverview,
+      matchOverviewLoading,
       isLoading: proLoading,
       isOnline: proOnline,
     },

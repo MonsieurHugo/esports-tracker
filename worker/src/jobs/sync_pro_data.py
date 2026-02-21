@@ -185,11 +185,35 @@ class SyncProDataJob:
 
             for series in series_list:
                 try:
-                    # Skip future/unstarted series
+                    # Timezone-aware comparison
                     start = series.start_time
                     if start and start.tzinfo is None:
                         start = start.replace(tzinfo=timezone.utc)
                     if start and start > now:
+                        # Store future series as "scheduled" (lightweight, no get_series_state call)
+                        tournament_db_id = await self._resolve_tournament_lazy(series.tournament_id)
+
+                        # Upsert teams if known from the Series dataclass
+                        if series.team1_id and series.team1_name:
+                            await self.db.upsert_pro_team(external_id=series.team1_id, name=series.team1_name)
+                        if series.team2_id and series.team2_name:
+                            await self.db.upsert_pro_team(external_id=series.team2_id, name=series.team2_name)
+
+                        format_str = _normalize_format(series.format, 0, 0, 0)[0] if series.format else "bo3"
+
+                        await self.db.upsert_pro_match(
+                            external_id=series.id,
+                            tournament_id=tournament_db_id,
+                            team1_external_id=series.team1_id,
+                            team2_external_id=series.team2_id,
+                            team1_score=0,
+                            team2_score=0,
+                            format=format_str,
+                            status="scheduled",
+                            scheduled_at=start,
+                            started_at=None,
+                            ended_at=None,
+                        )
                         self._series_skipped += 1
                         continue
 
@@ -261,6 +285,27 @@ class SyncProDataJob:
                     if start and start.tzinfo is None:
                         start = start.replace(tzinfo=timezone.utc)
                     if start and start > now:
+                        # Store future series as "scheduled"
+                        if series.team1_id and series.team1_name:
+                            await self.db.upsert_pro_team(external_id=series.team1_id, name=series.team1_name)
+                        if series.team2_id and series.team2_name:
+                            await self.db.upsert_pro_team(external_id=series.team2_id, name=series.team2_name)
+
+                        format_str = _normalize_format(series.format, 0, 0, 0)[0] if series.format else "bo3"
+
+                        await self.db.upsert_pro_match(
+                            external_id=series.id,
+                            tournament_id=tournament_db_id,
+                            team1_external_id=series.team1_id,
+                            team2_external_id=series.team2_id,
+                            team1_score=0,
+                            team2_score=0,
+                            format=format_str,
+                            status="scheduled",
+                            scheduled_at=start,
+                            started_at=None,
+                            ended_at=None,
+                        )
                         self._series_skipped += 1
                         continue
                     series.tournament_id = tid

@@ -2,7 +2,7 @@ import type { HttpContext } from '@adonisjs/core/http'
 import db from '@adonisjs/lucid/services/db'
 import { sanitizeLikeInput } from '#utils/validation'
 import { cacheService, CACHE_TTL } from '#services/cache_service'
-import type { TournamentRow, MatchRow, PlayerStatsRow, DraftActionRow } from '#types/pro_monitoring'
+import type { TournamentRow, MatchRow, PlayerStatsRow, DraftActionRow, MatchOverviewRow } from '#types/pro_monitoring'
 
 export default class ProDataController {
   /**
@@ -881,5 +881,75 @@ export default class ProDataController {
     }) // end of cacheService.getOrSet
 
     return ctx.response.ok(cachedResponse)
+  }
+
+  /**
+   * GET /api/v1/pro/monitoring/matches-overview
+   * Lightweight overview of live, recent, and upcoming matches
+   */
+  async matchesOverview(ctx: HttpContext) {
+    const buildQuery = () =>
+      db
+        .from('pro_matches as m')
+        .leftJoin('pro_tournaments as t', 'm.tournament_id', 't.tournament_id')
+        .leftJoin('pro_leagues as l', 't.pro_league_id', 'l.league_id')
+        .leftJoin('pro_entity_mappings as em1', (join) => {
+          join.on('em1.source_id', 'm.team1_external_id').andOnVal('em1.entity_type', 'team')
+        })
+        .leftJoin('teams as t1', 't1.team_id', 'em1.entity_id')
+        .leftJoin('pro_entity_mappings as em2', (join) => {
+          join.on('em2.source_id', 'm.team2_external_id').andOnVal('em2.entity_type', 'team')
+        })
+        .leftJoin('teams as t2', 't2.team_id', 'em2.entity_id')
+        .select(
+          'm.match_id',
+          'm.external_id',
+          't1.current_name as team1_name',
+          db.raw('COALESCE(t1.short_name, t1.current_name) as team1_tag'),
+          't2.current_name as team2_name',
+          db.raw('COALESCE(t2.short_name, t2.current_name) as team2_tag'),
+          'm.team1_score',
+          'm.team2_score',
+          'm.format',
+          'm.status',
+          'm.scheduled_at',
+          'm.started_at',
+          'm.ended_at',
+          't.name as tournament_name',
+          'l.short_name as league_short_name'
+        )
+
+    const [live, recent, upcoming] = await Promise.all([
+      buildQuery().where('m.status', 'live').orderBy('m.started_at', 'desc').limit(10),
+      buildQuery()
+        .whereIn('m.status', ['completed', 'processed'])
+        .orderByRaw('COALESCE(m.ended_at, m.started_at) DESC')
+        .limit(10),
+      buildQuery().where('m.status', 'scheduled').orderBy('m.scheduled_at', 'asc').limit(10),
+    ])
+
+    const mapRow = (row: MatchOverviewRow) => ({
+      id: row.match_id,
+      externalId: row.external_id,
+      team1Name: row.team1_name || 'TBD',
+      team1Tag: row.team1_tag || row.team1_name || 'TBD',
+      team2Name: row.team2_name || 'TBD',
+      team2Tag: row.team2_tag || row.team2_name || 'TBD',
+      team1Score: row.team1_score,
+      team2Score: row.team2_score,
+      format: row.format,
+      status: row.status,
+      scheduledAt: row.scheduled_at,
+      startedAt: row.started_at,
+      endedAt: row.ended_at,
+      tournamentName: row.tournament_name,
+      leagueShortName: row.league_short_name,
+    })
+
+    return ctx.response.ok({
+      live: live.map(mapRow),
+      recent: recent.map(mapRow),
+      upcoming: upcoming.map(mapRow),
+    })
   }
 }
