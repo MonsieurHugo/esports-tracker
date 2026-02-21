@@ -73,3 +73,22 @@ deploy/generated/
 cookies.txt
 *.cookies
 *.session
+
+# Debug / one-off scripts (worker root)
+worker/*.json
+worker/aggregate_*.py
+worker/analyze_*.py
+worker/check_*.py
+worker/explore_*.py
+worker/fix_*.py
+worker/inspect_*.py
+worker/investigate_*.py
+worker/reprocess_*.py
+worker/run_migration_*.py
+worker/test_*.py
+
+# Debug / temp files (project root)
+ssh_test.txt
+db_check.txt
+vps_*.txt
+botlane_*
