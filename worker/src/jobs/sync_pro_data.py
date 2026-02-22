@@ -450,6 +450,8 @@ class SyncProDataJob:
             teams=f"{series.team1_name} vs {series.team2_name}",
         )
 
+        match_id = None
+
         try:
             # Check if already processed or merged (skip early)
             if await self.db.is_pro_match_processed(series.id):
@@ -720,52 +722,51 @@ class SyncProDataJob:
                 )
             self._series_processed += 1
 
-        except DataIntegrityError as e:
-            logger.error(
-                "Data integrity failure",
+        except (DataIntegrityError, GridClientError) as e:
+            reason = e.reason if isinstance(e, DataIntegrityError) else str(e)
+            context = e.context if isinstance(e, DataIntegrityError) else {"series_id": series.id}
+
+            logger.warning(
+                "Data quality issue — flagging match, no data generated",
                 series_id=series.id,
-                reason=e.reason,
+                reason=reason,
             )
-            # Guarantee row exists before marking failed
-            await self.db.upsert_pro_match(
+
+            # Guarantee match row exists before flagging
+            if match_id is None:
+                match_id = await self.db.upsert_pro_match(
+                    external_id=series.id,
+                    tournament_id=tournament_db_id,
+                    team1_external_id=series.team1_id,
+                    team2_external_id=series.team2_id,
+                    team1_score=0,
+                    team2_score=0,
+                    format=None,
+                    status="live",
+                    scheduled_at=series.start_time,
+                    started_at=series.start_time,
+                )
+
+            # Clean up any games already inserted for this match in this cycle
+            # (DELETE cascades to pro_player_stats, pro_draft_actions, pro_game_events, pro_team_stats)
+            await self.db.execute(
+                "DELETE FROM pro_games WHERE match_id = $1",
+                match_id,
+            )
+
+            # Flag the match with the reason
+            await self.db.create_data_quality_flag(
+                flag_type="chronobreak_detected" if "Chronobreak" in reason else "processing_failed",
+                severity="error",
+                entity_type="match",
+                entity_id=match_id,
                 external_id=series.id,
-                tournament_id=tournament_db_id,
-                team1_external_id=series.team1_id,
-                team2_external_id=series.team2_id,
-                team1_score=0,
-                team2_score=0,
-                format=None,
-                status="live",
-                scheduled_at=series.start_time,
-                started_at=series.start_time,
+                context=context,
             )
-            await self.db.mark_pro_match_failed(series.id, e.reason, e.context)
-            self._errors += 1
-        except GridClientError as e:
-            logger.error(
-                "Failed to process series",
-                series_id=series.id,
-                error=str(e),
-            )
-            # Guarantee row exists before marking failed
-            await self.db.upsert_pro_match(
-                external_id=series.id,
-                tournament_id=tournament_db_id,
-                team1_external_id=series.team1_id,
-                team2_external_id=series.team2_id,
-                team1_score=0,
-                team2_score=0,
-                format=None,
-                status="live",
-                scheduled_at=series.start_time,
-                started_at=series.start_time,
-            )
-            await self.db.mark_pro_match_failed(
-                series.id,
-                f"GRID API error: {e}",
-                {"series_id": series.id},
-            )
-            self._errors += 1
+
+            # Mark as processed — no retry (data won't get better)
+            await self.db.mark_pro_match_processed(match_id)
+            self._series_processed += 1
 
     @staticmethod
     def _has_game_end(events: list[dict]) -> bool:
@@ -855,16 +856,14 @@ class SyncProDataJob:
             details = await self.files.get_details(series_id, grid_game_number)
 
             if not events and not (summary and summary.get("participants")):
-                logger.error(
-                    "No events AND no summary for game - SKIPPING",
-                    series_id=series_id,
-                    game_number=game_number,
-                    game_id=game_external_id,
+                raise DataIntegrityError(
+                    "No data sources for game",
+                    {"series_id": series_id, "game_number": game_number, "game_id": game_external_id},
                 )
-                raise GridClientError(f"No data for game {game_number}")
 
             # Chronobreak detection: if events are truncated (no game_end),
-            # scan subsequent game sequences for a summary with matching champions
+            # scan subsequent game sequences for a summary with matching champions.
+            # A chronobreak means the game data is unreliable — raise to flag the match.
             if events and not self._has_game_end(events) and all_series_games:
                 logger.warning(
                     "Events truncated (no game_end), scanning for chronobreak fragment",
@@ -872,8 +871,7 @@ class SyncProDataJob:
                     game_number=grid_game_number,
                     game_id=game_external_id,
                 )
-                sorted_games = sorted(all_series_games, key=lambda g: g.sequence_number)
-                for candidate in sorted_games:
+                for candidate in sorted(all_series_games, key=lambda g: g.sequence_number):
                     if candidate.sequence_number <= grid_game_number:
                         continue
                     if not candidate.finished and not candidate.started:
@@ -883,19 +881,12 @@ class SyncProDataJob:
                             series_id, candidate.sequence_number
                         )
                         if candidate_summary and self._match_participants(events, candidate_summary):
-                            candidate_details = await self.files.get_details(
-                                series_id, candidate.sequence_number
-                            )
-                            summary = candidate_summary
-                            details = candidate_details
                             self._consumed_fragment_ids.add(candidate.id)
-                            logger.info(
-                                "Chronobreak detected: using summary from fragment",
-                                primary_seq=grid_game_number,
-                                fragment_seq=candidate.sequence_number,
-                                fragment_id=candidate.id,
+                            raise DataIntegrityError(
+                                "Chronobreak detected",
+                                {"series_id": series_id, "game_number": game_number,
+                                 "fragment_seq": candidate.sequence_number, "fragment_id": candidate.id},
                             )
-                            break
                     except GridClientError:
                         continue
 
@@ -910,13 +901,21 @@ class SyncProDataJob:
             if missing_sources:
                 await self.db.create_data_quality_flag(
                     flag_type="file_not_found", severity="warning" if len(missing_sources) < 3 else "error",
-                    entity_type="game", external_id=game_external_id,
-                    context={"series_id": series_id, "game_number": game_number, "missing": missing_sources},
+                    entity_type="game", external_id=series_id,
+                    context={"game_external_id": game_external_id, "game_number": game_number, "missing": missing_sources},
                 )
 
             # Unified parser: handles all combinations of available sources
             parser = EventsParser(events or [], summary, details)
             parsed = parser.parse()
+
+            # A finished game must have a winner — if not, it's a remake or corrupted data
+            if not parsed.game.winner_team_side:
+                raise DataIntegrityError(
+                    "No winner determined for game (likely remake)",
+                    {"series_id": series_id, "game_number": game_number,
+                     "game_id": game_external_id, "duration": parsed.game.duration},
+                )
 
             # Insert data in a transaction
             async with self.db.transaction() as conn:
@@ -924,6 +923,7 @@ class SyncProDataJob:
                     conn=conn,
                     parsed=parsed,
                     game_external_id=game_external_id,
+                    series_id=series_id,
                     match_id=match_id,
                     tournament_db_id=tournament_db_id,
                     game_number=game_number,
@@ -1043,6 +1043,7 @@ class SyncProDataJob:
         conn,
         parsed: ParsedGameData,
         game_external_id: str,
+        series_id: str,
         match_id: int,
         tournament_db_id: int | None,
         game_number: int,
@@ -1112,7 +1113,7 @@ class SyncProDataJob:
                     "flag_type": "side_defaulted",
                     "severity": "warning",
                     "entity_type": "game",
-                    "external_id": game_external_id,
+                    "external_id": series_id,
                     "context": {
                         "game_external_id": game_external_id,
                         "source": "team1_side_fallback",
@@ -1126,7 +1127,7 @@ class SyncProDataJob:
                     "flag_type": "side_defaulted",
                     "severity": "warning",
                     "entity_type": "game",
-                    "external_id": game_external_id,
+                    "external_id": series_id,
                     "context": {
                         "game_external_id": game_external_id,
                         "source": "team1_side_fallback",
@@ -1337,7 +1338,8 @@ class SyncProDataJob:
             for f in parsed.data_quality_flags:
                 f.setdefault("entity_type", "game")
                 f.setdefault("entity_id", game_id)
-                f.setdefault("external_id", game_external_id)
+                f.setdefault("external_id", series_id)
+                f["context"] = {**f.get("context", {}), "game_external_id": game_external_id}
             await self.db.batch_create_data_quality_flags(parsed.data_quality_flags)
 
         return game_id
