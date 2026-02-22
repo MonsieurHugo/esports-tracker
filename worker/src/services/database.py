@@ -11,6 +11,8 @@ from typing import Any
 import asyncpg
 import structlog
 
+from src.exceptions import DataIntegrityError
+
 logger = structlog.get_logger(__name__)
 
 
@@ -1513,7 +1515,7 @@ class DatabaseService:
         team1_score: int = 0,
         team2_score: int = 0,
         winner_team_id: int | None = None,
-        format: str = "bo3",
+        format: str | None = None,
         status: str = "completed",
         scheduled_at: datetime | None = None,
         started_at: datetime | None = None,
@@ -1556,10 +1558,11 @@ class DatabaseService:
                 team2_external_id = COALESCE(EXCLUDED.team2_external_id, pro_matches.team2_external_id),
                 team1_score = EXCLUDED.team1_score,
                 team2_score = EXCLUDED.team2_score,
-                format = EXCLUDED.format,
-                -- Don't overwrite 'processed' status
+                format = COALESCE(EXCLUDED.format, pro_matches.format),
+                -- Don't overwrite 'processed' or 'failed' status
                 status = CASE
                     WHEN pro_matches.status = 'processed' THEN 'processed'
+                    WHEN pro_matches.status = 'failed' THEN 'failed'
                     ELSE EXCLUDED.status
                 END,
                 scheduled_at = COALESCE(EXCLUDED.scheduled_at, pro_matches.scheduled_at),
@@ -1732,10 +1735,95 @@ class DatabaseService:
         await self.execute(
             """
             UPDATE pro_matches
-            SET status = 'processed', updated_at = NOW()
+            SET status = 'processed',
+                ended_at = COALESCE(ended_at, NOW()),
+                updated_at = NOW()
             WHERE match_id = $1
             """,
             match_id,
+        )
+
+    async def mark_pro_match_failed(
+        self,
+        external_id: str,
+        reason: str,
+        context: dict | None = None,
+    ) -> None:
+        """Mark a pro match as failed with reason.
+
+        Sets status='failed', increments failure_count, and creates a
+        data_quality_flag of type 'processing_failed'.
+        """
+        match_id = await self.fetchval(
+            """
+            UPDATE pro_matches
+            SET status = 'failed',
+                failure_reason = $2,
+                failure_count = COALESCE(failure_count, 0) + 1,
+                failed_at = NOW(),
+                updated_at = NOW()
+            WHERE external_id = $1
+              AND status NOT IN ('processed')
+            RETURNING match_id
+            """,
+            external_id,
+            reason,
+        )
+        if match_id:
+            await self.create_data_quality_flag(
+                flag_type="processing_failed",
+                severity="error",
+                entity_type="match",
+                entity_id=match_id,
+                external_id=external_id,
+                context={"reason": reason, **(context or {})},
+            )
+
+    async def get_failed_pro_matches(
+        self,
+        max_retries: int = 5,
+        min_age_minutes: int = 30,
+    ) -> list[asyncpg.Record]:
+        """Get failed matches eligible for retry.
+
+        Returns matches where:
+        - status = 'failed'
+        - failure_count < max_retries
+        - failed_at is at least min_age_minutes ago
+        """
+        return await self.fetch(
+            """
+            SELECT external_id, match_id, tournament_id, failure_count,
+                   failure_reason, team1_external_id, team2_external_id,
+                   format, scheduled_at, started_at
+            FROM pro_matches
+            WHERE status = 'failed'
+              AND COALESCE(failure_count, 0) < $1
+              AND failed_at <= NOW() - ($2 || ' minutes')::interval
+            ORDER BY failed_at ASC
+            LIMIT 20
+            """,
+            max_retries,
+            str(min_age_minutes),
+        )
+
+    async def reset_failed_pro_match(self, external_id: str) -> None:
+        """Reset a failed match so it can be re-processed.
+
+        Sets status back to 'live' and clears failure fields, allowing
+        _process_series to pick it up again via is_pro_match_processed check.
+        """
+        await self.execute(
+            """
+            UPDATE pro_matches
+            SET status = 'live',
+                failure_reason = NULL,
+                failed_at = NULL,
+                updated_at = NOW()
+            WHERE external_id = $1
+              AND status = 'failed'
+            """,
+            external_id,
         )
 
     # ==========================================
@@ -1782,6 +1870,7 @@ class DatabaseService:
         ended_at: datetime | None = None,
         timeline_data: dict | None = None,
         metadata: dict | None = None,
+        connection: asyncpg.Connection | None = None,
     ) -> int:
         """
         Upsert a pro game.
@@ -1789,8 +1878,7 @@ class DatabaseService:
         Returns:
             Game ID
         """
-        result = await self.fetchval(
-            """
+        query = """
             INSERT INTO pro_games (
                 external_id, match_id, game_number, blue_team_id, red_team_id,
                 winner_team_id, duration, status, patch,
@@ -1855,7 +1943,8 @@ class DatabaseService:
                 metadata = COALESCE(EXCLUDED.metadata, pro_games.metadata),
                 updated_at = NOW()
             RETURNING game_id
-            """,
+            """
+        args = (
             external_id,
             match_id,
             game_number,
@@ -1895,6 +1984,10 @@ class DatabaseService:
             json.dumps(timeline_data) if timeline_data else None,
             json.dumps(metadata) if metadata else None,
         )
+        if connection:
+            result = await connection.fetchval(query, *args)
+        else:
+            result = await self.fetchval(query, *args)
         return result
 
     async def pro_game_exists(self, external_id: str) -> bool:
@@ -1994,6 +2087,12 @@ class DatabaseService:
         if not tournament_id:
             return
 
+        if blue_team_id is None or red_team_id is None:
+            raise DataIntegrityError(
+                "team_id is None in upsert_pro_team_game_stats",
+                {"game_id": game_id, "blue_team_id": blue_team_id, "red_team_id": red_team_id},
+            )
+
         # Extract objectives detail from timeline
         obj = self._extract_objectives_detail(objectives_timeline) if objectives_timeline else {}
 
@@ -2013,8 +2112,6 @@ class DatabaseService:
         for (side, team_id, kills, deaths, towers, dragons, barons, heralds,
              grubs, plates, gold15, kills15, opp_gold15,
              total_gold, vis_score, wards_pl, wards_destr, ctrl_wards) in rows:
-            if not team_id:
-                continue
 
             gold_diff_at_15 = (
                 (gold15 - opp_gold15)
@@ -2437,9 +2534,14 @@ class DatabaseService:
         side_map = {"blue": "team1", "red": "team2"}
 
         for a in actions:
+            if a.get("action_order") is None or a.get("action_type") is None:
+                raise DataIntegrityError(
+                    "Draft action missing action_order or action_type",
+                    {"game_id": game_id, "action": a},
+                )
             game_ids.append(game_id)
-            action_orders.append(a.get("action_order", 0))
-            action_types.append(a.get("action_type", "pick"))
+            action_orders.append(a["action_order"])
+            action_types.append(a["action_type"])
 
             # Convert team_side if needed
             raw_side = a.get("team_side", "team1")
@@ -2792,14 +2894,22 @@ class DatabaseService:
         return [row["external_id"] for row in rows]
 
     async def get_active_pro_matches(self) -> list[asyncpg.Record]:
-        """Get matches that need live polling (live or completed but not fully processed)."""
+        """Get matches that need live polling (live, completed, or scheduled past start time)."""
         return await self.fetch(
             """
-            SELECT match_id, external_id, tournament_id, format, status, started_at
+            SELECT match_id, external_id, tournament_id, format, status,
+                   started_at, scheduled_at,
+                   team1_external_id, team2_external_id
             FROM pro_matches
             WHERE status IN ('live', 'completed')
-            ORDER BY CASE status WHEN 'live' THEN 0 ELSE 1 END,
+               OR (status = 'scheduled' AND scheduled_at <= NOW())
+            ORDER BY CASE status
+                        WHEN 'live' THEN 0
+                        WHEN 'scheduled' THEN 1
+                        ELSE 2
+                     END,
                      started_at DESC NULLS LAST
+            LIMIT 50
             """
         )
 
@@ -2854,7 +2964,7 @@ class DatabaseService:
         """Insert multiple data quality flags at once."""
         if not flags:
             return
-        async with self.connection() as conn:
+        async with self._pool.acquire() as conn:
             await conn.executemany(
                 """
                 INSERT INTO data_quality_flags (flag_type, severity, entity_type, entity_id, external_id, context)

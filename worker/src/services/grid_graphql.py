@@ -12,6 +12,7 @@ from typing import Any
 
 import structlog
 
+from src.exceptions import DataIntegrityError
 from src.services.grid_client import GridClient, GridClientError
 
 logger = structlog.get_logger(__name__)
@@ -63,6 +64,16 @@ class Series:
 
 
 @dataclass
+class GameTeamInfo:
+    """Per-game team info from GRID Live Data Feed (side + won)."""
+
+    id: str
+    name: str
+    side: str  # "Blue" or "Red"
+    won: bool = False
+
+
+@dataclass
 class GameState:
     """Game state information from GRID Live Data Feed."""
 
@@ -70,6 +81,7 @@ class GameState:
     sequence_number: int
     finished: bool = False
     started: bool = False
+    teams: list[GameTeamInfo] = field(default_factory=list)
 
 
 @dataclass
@@ -201,12 +213,13 @@ class GridGraphQL:
         while has_next:
             iteration += 1
             if iteration > self.MAX_PAGINATION_ITERATIONS:
-                logger.warning(
-                    "Pagination limit reached for tournaments",
-                    max_iterations=self.MAX_PAGINATION_ITERATIONS,
-                    items_fetched=len(tournaments),
+                raise DataIntegrityError(
+                    "Pagination limit reached for tournaments — data may be truncated",
+                    {
+                        "max_iterations": self.MAX_PAGINATION_ITERATIONS,
+                        "items_fetched": len(tournaments),
+                    },
                 )
-                break
             variables: dict[str, Any] = {
                 "first": self.MAX_PAGE_SIZE,
                 "filter": filter_obj if filter_obj else None,
@@ -268,30 +281,25 @@ class GridGraphQL:
         }
         """
 
-        try:
-            data = await self.client.graphql_central(query, {"id": tournament_id})
-            node = data.get("tournament")
+        data = await self.client.graphql_central(query, {"id": tournament_id})
+        node = data.get("tournament")
 
-            if not node:
-                return None
-
-            parent = node.get("parent")
-            titles = node.get("titles", [])
-
-            return Tournament(
-                id=node.get("id", ""),
-                name=node.get("name", ""),
-                name_short=node.get("nameShortened"),
-                start_date=self._parse_date(node.get("startDate")),
-                end_date=self._parse_date(node.get("endDate")),
-                parent_id=parent.get("id") if parent else None,
-                parent_name=parent.get("name") if parent else None,
-                titles=[t.get("id") for t in titles if t.get("id")],
-            )
-
-        except GridClientError as e:
-            logger.error("Failed to fetch tournament", tournament_id=tournament_id, error=str(e))
+        if not node:
             return None
+
+        parent = node.get("parent")
+        titles = node.get("titles", [])
+
+        return Tournament(
+            id=node.get("id", ""),
+            name=node.get("name", ""),
+            name_short=node.get("nameShortened"),
+            start_date=self._parse_date(node.get("startDate")),
+            end_date=self._parse_date(node.get("endDate")),
+            parent_id=parent.get("id") if parent else None,
+            parent_name=parent.get("name") if parent else None,
+            titles=[t.get("id") for t in titles if t.get("id")],
+        )
 
     # ==========================================
     # Series (allSeries)
@@ -381,12 +389,13 @@ class GridGraphQL:
         while has_next:
             iteration += 1
             if iteration > self.MAX_PAGINATION_ITERATIONS:
-                logger.warning(
-                    "Pagination limit reached for series",
-                    max_iterations=self.MAX_PAGINATION_ITERATIONS,
-                    items_fetched=len(series_list),
+                raise DataIntegrityError(
+                    "Pagination limit reached for series — data may be truncated",
+                    {
+                        "max_iterations": self.MAX_PAGINATION_ITERATIONS,
+                        "items_fetched": len(series_list),
+                    },
                 )
-                break
             variables: dict[str, Any] = {
                 "first": self.MAX_PAGE_SIZE,
                 "filter": filter_obj if filter_obj else None,
@@ -467,6 +476,71 @@ class GridGraphQL:
             types=["ESPORTS"],
         )
 
+    async def get_series_by_id(self, series_id: str) -> Series | None:
+        """
+        Get a single series by ID from the Central API (for scores/teams).
+
+        Args:
+            series_id: GRID series ID
+
+        Returns:
+            Series object or None if not found
+        """
+        query = """
+        query GetSeries($id: ID!) {
+            series(id: $id) {
+                id
+                startTimeScheduled
+                format {
+                    nameShortened
+                }
+                tournament {
+                    id
+                    name
+                }
+                teams {
+                    baseInfo {
+                        id
+                        name
+                    }
+                    scoreAdvantage
+                }
+            }
+        }
+        """
+
+        try:
+            data = await self.client.graphql_central(query, {"id": series_id})
+            node = data.get("series")
+            if not node:
+                return None
+
+            tournament = node.get("tournament", {})
+            teams = node.get("teams", [])
+            format_info = node.get("format", {})
+
+            team1 = teams[0] if len(teams) > 0 else {}
+            team2 = teams[1] if len(teams) > 1 else {}
+            team1_base = team1.get("baseInfo", {})
+            team2_base = team2.get("baseInfo", {})
+
+            return Series(
+                id=node.get("id", ""),
+                tournament_id=tournament.get("id", ""),
+                tournament_name=tournament.get("name"),
+                start_time=self._parse_datetime(node.get("startTimeScheduled")),
+                format=format_info.get("nameShortened") if format_info else None,
+                team1_id=team1_base.get("id"),
+                team1_name=team1_base.get("name"),
+                team2_id=team2_base.get("id"),
+                team2_name=team2_base.get("name"),
+                team1_score=team1.get("scoreAdvantage", 0),
+                team2_score=team2.get("scoreAdvantage", 0),
+            )
+        except GridClientError as e:
+            logger.error("Failed to fetch series by ID", series_id=series_id, error=str(e))
+            return None
+
     # ==========================================
     # Live Data Feed API
     # ==========================================
@@ -508,6 +582,12 @@ class GridGraphQL:
                     sequenceNumber
                     started
                     finished
+                    teams {
+                        id
+                        name
+                        side
+                        won
+                    }
                 }
             }
         }
@@ -541,12 +621,22 @@ class GridGraphQL:
             # Parse games
             games = []
             for g in state_data.get("games", []):
+                game_teams = [
+                    GameTeamInfo(
+                        id=gt.get("id", ""),
+                        name=gt.get("name", ""),
+                        side=gt.get("side", ""),
+                        won=gt.get("won", False),
+                    )
+                    for gt in g.get("teams", [])
+                ]
                 games.append(
                     GameState(
                         id=g.get("id", ""),
                         sequence_number=g.get("sequenceNumber", 0),
                         started=g.get("started", False),
                         finished=g.get("finished", False),
+                        teams=game_teams,
                     )
                 )
 

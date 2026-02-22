@@ -10,6 +10,7 @@ from typing import Any
 
 import structlog
 
+from src.exceptions import DataIntegrityError
 from src.services.grid_client import GridClient, GridClientError
 
 logger = structlog.get_logger(__name__)
@@ -28,7 +29,7 @@ class GridFiles:
         self.client = client
         self.base_url = client.FILE_DOWNLOAD_BASE
 
-    async def get_summary(self, series_id: str, game_sequence: int) -> dict[str, Any]:
+    async def get_summary(self, series_id: str, game_sequence: int) -> dict[str, Any] | None:
         """
         Download game summary file.
 
@@ -39,7 +40,7 @@ class GridFiles:
             game_sequence: Game number within series (1-indexed)
 
         Returns:
-            Summary data dictionary
+            Summary data dictionary, or None if not found (404)
 
         Raises:
             GridClientError: On download failure
@@ -57,10 +58,10 @@ class GridFiles:
                     series_id=series_id,
                     game_sequence=game_sequence,
                 )
-                return {}
+                return None
             raise
 
-    async def get_details(self, series_id: str, game_sequence: int) -> dict[str, Any]:
+    async def get_details(self, series_id: str, game_sequence: int) -> dict[str, Any] | None:
         """
         Download game details file.
 
@@ -71,7 +72,7 @@ class GridFiles:
             game_sequence: Game number within series (1-indexed)
 
         Returns:
-            Details data dictionary
+            Details data dictionary, or None if not found (404)
 
         Raises:
             GridClientError: On download failure
@@ -89,7 +90,7 @@ class GridFiles:
                     series_id=series_id,
                     game_sequence=game_sequence,
                 )
-                return {}
+                return None
             raise
 
     async def get_events_raw(self, series_id: str, game_sequence: int) -> bytes:
@@ -149,6 +150,7 @@ class GridFiles:
 
         # Parse JSONL (one JSON object per line)
         events = []
+        parse_errors = 0
         lines = content.decode("utf-8").strip().split("\n")
 
         for line_num, line in enumerate(lines, 1):
@@ -158,6 +160,7 @@ class GridFiles:
                 event = json.loads(line)
                 events.append(event)
             except json.JSONDecodeError as e:
+                parse_errors += 1
                 logger.warning(
                     "Failed to parse event line",
                     series_id=series_id,
@@ -166,11 +169,24 @@ class GridFiles:
                     error=str(e),
                 )
 
+        # Raise if too many corrupted lines or nothing was parsed
+        if parse_errors > 5:
+            raise DataIntegrityError(
+                f"Too many JSONL parse errors ({parse_errors})",
+                {"series_id": series_id, "game_sequence": game_sequence, "parse_errors": parse_errors},
+            )
+        if not events and len(lines) > 0:
+            raise DataIntegrityError(
+                "No events parsed from JSONL file",
+                {"series_id": series_id, "game_sequence": game_sequence, "total_lines": len(lines), "parse_errors": parse_errors},
+            )
+
         logger.info(
             "Downloaded events",
             series_id=series_id,
             game_sequence=game_sequence,
             event_count=len(events),
+            parse_errors=parse_errors,
         )
         return events
 

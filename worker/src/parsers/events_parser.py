@@ -22,6 +22,7 @@ from typing import Any
 
 import structlog
 
+from src.exceptions import DataIntegrityError
 from src.utils.champion_mapping import get_champion_id as resolve_champion_id
 
 logger = structlog.get_logger(__name__)
@@ -419,6 +420,11 @@ class EventsParser:
                     # Name – strip team tag prefix (e.g. "BKR Boda" -> "Boda")
                     riot_id = p.get("riotId", {})
                     raw_name = riot_id.get("displayName") or p.get("summonerName") or ""
+                    if not raw_name:
+                        raise DataIntegrityError(
+                            f"No displayName or summonerName for participant {pid}",
+                            {"participant_id": pid},
+                        )
                     self._participant_id_to_raw_name[pid] = raw_name
                     parts = raw_name.split(" ", 1)
                     name = parts[1] if len(parts) > 1 else raw_name
@@ -445,9 +451,9 @@ class EventsParser:
                     if role:
                         self._participant_id_to_role[pid] = self.ROLE_MAP.get(role.lower(), role)
 
-                    # Runes/Perks
+                    # Runes/Perks (only if team mapping exists, since _ensure_player_stats requires it)
                     perks = p.get("perks", [])
-                    if perks and len(perks) > 0:
+                    if perks and len(perks) > 0 and pid in self._participant_id_to_team:
                         # Initialize player stats with runes
                         self._ensure_player_stats(pid)
                         self._player_stats[pid].runes = {
@@ -1858,24 +1864,25 @@ class EventsParser:
     # ─── Utility methods ────────────────────────────────────────────────
 
     def _ensure_player_stats(self, participant_id: int) -> ProPlayerStats:
-        """Ensure player stats exist for a participant ID."""
-        if participant_id not in self._player_stats:
-            name = self._participant_id_to_name.get(participant_id, f"Player_{participant_id}")
-            team_id = self._participant_id_to_team.get(participant_id, 0)
-            team_side = "blue" if team_id == self.BLUE_TEAM_ID else "red"
+        """Ensure player stats exist for a participant ID.
 
+        Raises DataIntegrityError if the participant has no name or no team mapping.
+        """
+        if participant_id not in self._player_stats:
             if participant_id not in self._participant_id_to_name:
-                self._data_quality_flags.append({
-                    "flag_type": "player_name_unknown",
-                    "severity": "warning",
-                    "context": {"participant_id": participant_id, "defaulted_name": name},
-                })
+                raise DataIntegrityError(
+                    f"No name mapping for participant {participant_id}",
+                    {"participant_id": participant_id},
+                )
             if participant_id not in self._participant_id_to_team:
-                self._data_quality_flags.append({
-                    "flag_type": "player_side_inferred",
-                    "severity": "warning",
-                    "context": {"participant_id": participant_id, "defaulted_team_id": team_id, "inferred_side": team_side},
-                })
+                raise DataIntegrityError(
+                    f"No team mapping for participant {participant_id}",
+                    {"participant_id": participant_id},
+                )
+
+            name = self._participant_id_to_name[participant_id]
+            team_id = self._participant_id_to_team[participant_id]
+            team_side = "blue" if team_id == self.BLUE_TEAM_ID else "red"
 
             self._player_stats[participant_id] = ProPlayerStats(
                 player_name=name,
@@ -1949,6 +1956,18 @@ class EventsParser:
             champion_name = ban.get("championName")
             if champion_id == 0 and champion_name:
                 champion_id = resolve_champion_id(champion_name) or 0
+
+            # Skip unresolvable bans instead of storing id=0
+            if champion_id == 0:
+                self._data_quality_flags.append({
+                    "flag_type": "ban_champion_unresolved",
+                    "severity": "warning",
+                    "context": {
+                        "champion_name": champion_name,
+                        "pick_turn": ban.get("pickTurn", 0),
+                    },
+                })
+                continue
 
             pick_turn = ban.get("pickTurn", 0)
             team_id = ban.get("teamID")

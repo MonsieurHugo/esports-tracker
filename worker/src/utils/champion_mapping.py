@@ -60,8 +60,9 @@ def load_champion_mapping() -> None:
                 }
             logger.info("Loaded champion mapping from DDragon", count=len(data["champions"]))
         except Exception as e:
-            logger.warning("Failed to load DDragon data, champion resolution unavailable", error=str(e))
-            return
+            raise RuntimeError(
+                f"Failed to load champion mapping from both local file and DDragon: {e}"
+            ) from e
 
     if data:
         for cid_str, champ in data.get("champions", {}).items():
