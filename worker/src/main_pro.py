@@ -8,6 +8,7 @@ Discovery-only sync architecture for pro esports data from GRID API:
 
 import argparse
 import asyncio
+import logging
 import signal
 import structlog
 from aiohttp import web
@@ -233,6 +234,9 @@ class ProWorker:
 async def main():
     """Main entry point."""
     args = parse_args()
+
+    # Configure stdlib logging so structlog output actually reaches stderr
+    logging.basicConfig(format="%(message)s", stream=__import__("sys").stderr, level=logging.DEBUG)
 
     structlog.configure(
         processors=[
