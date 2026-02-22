@@ -37,7 +37,7 @@ export default class ProLeagueStatsController {
    * All-time records across leagues
    */
   async records(ctx: HttpContext) {
-    const { leagueId, year, role, years, leagueIds, teamIds, playerIds, tournamentIds, tier, isPlayoffs, includeExcluded } = ctx.request.qs()
+    const { leagueId, year, role, years, leagueIds, teamIds, playerIds, tournamentIds, tier, isPlayoffs, includeExcluded, result } = ctx.request.qs()
     const validRoles = ['Top', 'Jungle', 'Mid', 'ADC', 'Support']
     const parsedRole = role && validRoles.includes(role) ? role : null
 
@@ -50,8 +50,9 @@ export default class ProLeagueStatsController {
     const parsedTier = tier && Number.isFinite(Number(tier)) ? Number(tier) : null
     const parsedIsPlayoffs = isPlayoffs === 'true' ? true : isPlayoffs === 'false' ? false : null
     const parsedIncludeExcluded = includeExcluded === 'true'
+    const parsedResult = result === 'wins' ? 'wins' : result === 'losses' ? 'losses' : null
 
-    const cacheKey = `pro:stats:records:l=${[...parsedLeagueIds].sort().join(',') || 'all'}:y=${[...parsedYears].sort().join(',') || 'all'}:t=${[...parsedTeamIds].sort().join(',') || 'all'}:p=${[...parsedPlayerIds].sort().join(',') || 'all'}:tn=${[...parsedTournamentIds].sort().join(',') || 'all'}:ti=${parsedTier ?? 'all'}:po=${parsedIsPlayoffs ?? 'all'}:r=${parsedRole || 'all'}:ex=${parsedIncludeExcluded ? 1 : 0}`
+    const cacheKey = `pro:stats:records:l=${[...parsedLeagueIds].sort().join(',') || 'all'}:y=${[...parsedYears].sort().join(',') || 'all'}:t=${[...parsedTeamIds].sort().join(',') || 'all'}:p=${[...parsedPlayerIds].sort().join(',') || 'all'}:tn=${[...parsedTournamentIds].sort().join(',') || 'all'}:ti=${parsedTier ?? 'all'}:po=${parsedIsPlayoffs ?? 'all'}:r=${parsedRole || 'all'}:ex=${parsedIncludeExcluded ? 1 : 0}:res=${parsedResult || 'all'}`
 
     try {
     const result = await cacheService.getOrSet(cacheKey, CACHE_TTL.LONG, async () => {
@@ -109,6 +110,11 @@ export default class ProLeagueStatsController {
         playerClauses.push(`AND ps.player_id IN (${parsedPlayerIds.map(() => '?').join(',')})`)
         playerBindings.push(...parsedPlayerIds)
       }
+      if (parsedResult === 'wins') {
+        playerClauses.push('AND g.winner_team_id = ps.team_id')
+      } else if (parsedResult === 'losses') {
+        playerClauses.push('AND g.winner_team_id != ps.team_id')
+      }
 
       const playerFilterSql = playerClauses.join(' ')
       const teamFilterSql = teamClauses.join(' ')
@@ -149,6 +155,11 @@ export default class ProLeagueStatsController {
         const ph = parsedPlayerIds.map(() => '?').join(',')
         questGapClauses.push(`AND (ps1.player_id IN (${ph}) OR ps2.player_id IN (${ph}))`)
         questGapBindings.push(...parsedPlayerIds, ...parsedPlayerIds)
+      }
+      if (parsedResult === 'wins') {
+        questGapClauses.push('AND g.winner_team_id = ps1.team_id')
+      } else if (parsedResult === 'losses') {
+        questGapClauses.push('AND g.winner_team_id != ps1.team_id')
       }
       const questGapFilterSql = questGapClauses.join(' ')
 
@@ -2046,6 +2057,32 @@ export default class ProLeagueStatsController {
       const needsLeagueJoin = parsedTier !== null
       const leagueJoinSql = needsLeagueJoin ? 'LEFT JOIN pro_leagues pl ON t.pro_league_id = pl.league_id' : ''
 
+      // Build filter for game-number queries (uses t.tournament_id instead of cs.tournament_id)
+      const gnFilterClauses: string[] = []
+      const gnFilterBindings: unknown[] = []
+      if (resolvedLeagueIds.length > 0) {
+        gnFilterClauses.push(`AND t.pro_league_id IN (${resolvedLeagueIds.map(() => '?').join(',')})`)
+        gnFilterBindings.push(...resolvedLeagueIds)
+      }
+      if (parsedYears.length > 0) {
+        gnFilterClauses.push(`AND t.year IN (${parsedYears.map(() => '?').join(',')})`)
+        gnFilterBindings.push(...parsedYears)
+      }
+      if (parsedTournamentIds.length > 0) {
+        gnFilterClauses.push(`AND t.tournament_id IN (${parsedTournamentIds.map(() => '?').join(',')})`)
+        gnFilterBindings.push(...parsedTournamentIds)
+      }
+      if (parsedTier !== null) {
+        gnFilterClauses.push('AND pl.tier = ?')
+        gnFilterBindings.push(parsedTier)
+      }
+      if (parsedIsPlayoffs !== null) {
+        gnFilterClauses.push('AND t.is_playoffs = ?')
+        gnFilterBindings.push(parsedIsPlayoffs)
+      }
+      const gnFilterSql = gnFilterClauses.join(' ')
+      const gnLeagueJoinSql = needsLeagueJoin ? 'LEFT JOIN pro_leagues pl ON t.pro_league_id = pl.league_id' : ''
+
       const totalGamesResult = await db.rawQuery(`
         SELECT COUNT(DISTINCT g.game_id) as total
         FROM pro_games g
@@ -2080,6 +2117,35 @@ export default class ProLeagueStatsController {
         ORDER BY SUM(cs.picks) DESC
       `, [...filterBindings])
 
+      // Picks + wins by game_number
+      const gnPicksResult = await db.rawQuery(`
+        SELECT ps.champion_id, g.game_number,
+          COUNT(*)::int as picks,
+          COUNT(*) FILTER (WHERE g.winner_team_id = ps.team_id)::int as wins
+        FROM pro_player_stats ps
+        JOIN pro_games g ON ps.game_id = g.game_id
+        JOIN pro_matches m ON g.match_id = m.match_id
+        JOIN pro_tournaments t ON m.tournament_id = t.tournament_id
+        ${gnLeagueJoinSql}
+        WHERE g.status IN ('completed', 'processed')
+          AND ps.champion_id IS NOT NULL
+          ${gnFilterSql}
+        GROUP BY ps.champion_id, g.game_number
+      `, [...gnFilterBindings])
+
+      // Build lookup: championId -> { gameNumber -> { picks, wins } }
+      const gnMap = new Map<number, Record<string, { picks: number; wins: number }>>()
+      for (const row of gnPicksResult.rows as Array<Record<string, unknown>>) {
+        const champId = Number(row.champion_id)
+        const gn = String(row.game_number)
+        if (!gnMap.has(champId)) gnMap.set(champId, {})
+        const entry = gnMap.get(champId)!
+        entry[gn] = {
+          picks: Number(row.picks),
+          wins: Number(row.wins),
+        }
+      }
+
       return {
         totalGames,
         data: dataResult.rows.map((row: Record<string, unknown>) => ({
@@ -2104,6 +2170,7 @@ export default class ProLeagueStatsController {
             ADC: { picks: Number(row.adc_picks), wins: 0 },
             Support: { picks: Number(row.support_picks), wins: 0 },
           },
+          byGameNumber: gnMap.get(Number(row.champion_id)) ?? {},
         })),
       }
     })

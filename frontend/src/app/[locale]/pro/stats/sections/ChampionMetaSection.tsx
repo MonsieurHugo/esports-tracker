@@ -6,8 +6,6 @@ import api from '@/lib/api'
 import { logError } from '@/lib/logger'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { getChampionIconUrl, getChampionName } from '@/lib/champions'
-import type { ProStatsFilters } from '../hooks/useProStatsFilters'
-
 interface ChampionStat {
   championId: number
   picks: number
@@ -18,6 +16,7 @@ interface ChampionStat {
   blueSide: { picks: number; wins: number }
   redSide: { picks: number; wins: number }
   byRole: Record<string, { picks: number; wins: number }>
+  byGameNumber: Record<string, { picks: number; wins: number }>
 }
 
 interface ChampionStatsResponse {
@@ -25,20 +24,18 @@ interface ChampionStatsResponse {
   data: ChampionStat[]
 }
 
-interface ChampionMetaSectionProps {
-  filters: ProStatsFilters
-}
-
-type SortColumn = 'picks' | 'bans' | 'winRate' | 'presence'
+type SortColumn = 'picks' | 'winRate' | 'g1wr' | 'g2wr' | 'g3wr' | 'g4wr' | 'g5wr'
 type SortDirection = 'asc' | 'desc'
 
-export default function ChampionMetaSection({ filters }: ChampionMetaSectionProps) {
+const GAME_NUMBERS = ['1', '2', '3', '4', '5'] as const
+
+const DEFAULT_PARAMS: Record<string, string> = { years: '2026' }
+
+export default function ChampionMetaSection() {
   const [data, setData] = useState<ChampionStatsResponse | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [sortColumn, setSortColumn] = useState<SortColumn>('picks')
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc')
-
-  const buildParams = filters.buildParams
 
   useEffect(() => {
     const controller = new AbortController()
@@ -46,7 +43,7 @@ export default function ChampionMetaSection({ filters }: ChampionMetaSectionProp
       try {
         setIsLoading(true)
         const params: Record<string, string | number> = {
-          ...buildParams(),
+          ...DEFAULT_PARAMS,
         }
 
         const response = await api.get<ChampionStatsResponse>(
@@ -63,36 +60,30 @@ export default function ChampionMetaSection({ filters }: ChampionMetaSectionProp
     }
     run()
     return () => controller.abort()
-  }, [buildParams])
+  }, [])
 
   const enrichedData = useMemo(() => {
     if (!data?.data) return []
-    const totalGames = data.totalGames || 1
-    const role = filters.role
 
     return data.data
       .map((champ) => {
-        if (role && champ.byRole[role]) {
-          const roleStats = champ.byRole[role]
-          return {
-            ...champ,
-            picks: roleStats.picks,
-            wins: roleStats.wins,
-            winRate: roleStats.picks > 0 ? (roleStats.wins / roleStats.picks) * 100 : 0,
-            presence: ((roleStats.picks + champ.bans) / totalGames) * 100,
-          }
-        }
         const winRate = champ.picks > 0 ? (champ.wins / champ.picks) * 100 : 0
-        const presence = ((champ.picks + champ.bans) / totalGames) * 100
-        return { ...champ, winRate, presence }
+        const gnWr: Record<string, number> = {}
+        for (const gn of GAME_NUMBERS) {
+          const g = champ.byGameNumber?.[gn]
+          gnWr[`g${gn}wr`] = g && g.picks > 0 ? (g.wins / g.picks) * 100 : -1
+        }
+        return { ...champ, winRate, ...gnWr }
       })
-      .filter((champ) => (role ? champ.picks > 0 : true))
-  }, [data, filters.role])
+  }, [data])
 
   const sortedData = useMemo(() => {
     return [...enrichedData].sort((a, b) => {
-      const aVal = a[sortColumn] ?? 0
-      const bVal = b[sortColumn] ?? 0
+      const aVal = (a as Record<string, number>)[sortColumn] ?? 0
+      const bVal = (b as Record<string, number>)[sortColumn] ?? 0
+      // Push -1 (no data) to the bottom regardless of sort direction
+      if (aVal === -1 && bVal !== -1) return 1
+      if (bVal === -1 && aVal !== -1) return -1
       return sortDirection === 'desc' ? bVal - aVal : aVal - bVal
     })
   }, [enrichedData, sortColumn, sortDirection])
@@ -106,9 +97,9 @@ export default function ChampionMetaSection({ filters }: ChampionMetaSectionProp
     }
   }
 
-  const SortableHeader = ({ column, label }: { column: SortColumn; label: string }) => (
+  const SortableHeader = ({ column, label, className }: { column: SortColumn; label: string; className?: string }) => (
     <th
-      className="px-2 py-2 font-medium cursor-pointer hover:text-(--text-primary) transition-colors"
+      className={`px-2 py-2 font-medium cursor-pointer hover:text-(--text-primary) transition-colors ${className ?? ''}`}
       onClick={() => handleSort(column)}
     >
       <div className="flex items-center gap-0.5">
@@ -127,6 +118,20 @@ export default function ChampionMetaSection({ filters }: ChampionMetaSectionProp
     if (winRate >= 55) return 'text-green-400'
     if (winRate < 45) return 'text-red-400'
     return 'text-(--text-primary)'
+  }
+
+  const renderGameCell = (champ: ChampionStat, gn: string) => {
+    const g = champ.byGameNumber?.[gn]
+    if (!g || g.picks === 0) return <span className="text-(--text-muted)">-</span>
+    const wr = (g.wins / g.picks) * 100
+    return (
+      <div className="flex flex-col items-start leading-tight">
+        <span className="text-(--text-secondary)">{g.picks}</span>
+        <span className={`text-[10px] font-bold ${getWinRateColor(wr, g.picks)}`}>
+          {wr.toFixed(0)}%
+        </span>
+      </div>
+    )
   }
 
   return (
@@ -150,67 +155,52 @@ export default function ChampionMetaSection({ filters }: ChampionMetaSectionProp
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-(--text-muted) text-xs border-b border-[var(--border)]">
-                  <th className="px-2 py-2 font-medium">Champion</th>
-                  <SortableHeader column="picks" label="Picks" />
-                  <SortableHeader column="bans" label="Bans" />
-                  <SortableHeader column="presence" label="Presence" />
+                  <th className="px-2 py-2 font-medium sticky left-0 bg-[var(--bg-card)] z-10">Champion</th>
+                  <SortableHeader column="picks" label="Games" />
                   <SortableHeader column="winRate" label="WR" />
-                  <th className="px-2 py-2 font-medium">Blue WR</th>
-                  <th className="px-2 py-2 font-medium">Red WR</th>
+                  <SortableHeader column="g1wr" label="G1" />
+                  <SortableHeader column="g2wr" label="G2" />
+                  <SortableHeader column="g3wr" label="G3" />
+                  <SortableHeader column="g4wr" label="G4" />
+                  <SortableHeader column="g5wr" label="G5" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--border)]">
-                {sortedData.map((champ) => {
-                  const blueWr = champ.blueSide.picks > 0
-                    ? ((champ.blueSide.wins / champ.blueSide.picks) * 100).toFixed(0)
-                    : '-'
-                  const redWr = champ.redSide.picks > 0
-                    ? ((champ.redSide.wins / champ.redSide.picks) * 100).toFixed(0)
-                    : '-'
-
-                  return (
-                    <tr key={champ.championId} className="hover:bg-[var(--bg-hover)] transition-colors text-xs">
-                      <td className="px-2 py-1.5">
-                        <div className="flex items-center gap-1.5">
-                          <Image
-                            src={getChampionIconUrl(champ.championId)}
-                            alt={getChampionName(champ.championId)}
-                            width={24}
-                            height={24}
-                            className="w-6 h-6 rounded"
-                            unoptimized
-                          />
-                          <span className="font-medium text-(--text-primary)">
-                            {getChampionName(champ.championId)}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-2 py-1.5 font-mono text-(--text-secondary)">
-                        {champ.picks}
-                      </td>
-                      <td className="px-2 py-1.5 font-mono text-(--text-secondary)">
-                        {champ.bans}
-                      </td>
-                      <td className="px-2 py-1.5 font-mono text-(--text-secondary)">
-                        {champ.presence.toFixed(0)}%
-                      </td>
-                      <td className="px-2 py-1.5">
-                        <span className={`font-mono font-bold ${getWinRateColor(champ.winRate, champ.picks)}`}>
-                          {champ.picks > 0 ? `${champ.winRate.toFixed(0)}%` : '-'}
+                {sortedData.map((champ) => (
+                  <tr key={champ.championId} className="hover:bg-[var(--bg-hover)] transition-colors text-xs">
+                    <td className="px-2 py-1.5 sticky left-0 bg-[var(--bg-card)] z-10">
+                      <div className="flex items-center gap-1.5">
+                        <Image
+                          src={getChampionIconUrl(champ.championId)}
+                          alt={getChampionName(champ.championId)}
+                          width={24}
+                          height={24}
+                          className="w-6 h-6 rounded"
+                          unoptimized
+                        />
+                        <span className="font-medium text-(--text-primary)">
+                          {getChampionName(champ.championId)}
                         </span>
+                      </div>
+                    </td>
+                    <td className="px-2 py-1.5 font-mono text-(--text-secondary)">
+                      {champ.picks}
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <span className={`font-mono font-bold ${getWinRateColor(champ.winRate, champ.picks)}`}>
+                        {champ.picks > 0 ? `${champ.winRate.toFixed(0)}%` : '-'}
+                      </span>
+                    </td>
+                    {GAME_NUMBERS.map((gn) => (
+                      <td key={gn} className="px-2 py-1.5 font-mono">
+                        {renderGameCell(champ, gn)}
                       </td>
-                      <td className="px-2 py-1.5 font-mono text-(--text-muted)">
-                        {blueWr}{blueWr !== '-' ? '%' : ''}
-                      </td>
-                      <td className="px-2 py-1.5 font-mono text-(--text-muted)">
-                        {redWr}{redWr !== '-' ? '%' : ''}
-                      </td>
-                    </tr>
-                  )
-                })}
+                    ))}
+                  </tr>
+                ))}
                 {enrichedData.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-(--text-muted)">
+                    <td colSpan={8} className="px-4 py-8 text-center text-(--text-muted)">
                       Aucune donnee champion trouvee.
                     </td>
                   </tr>
