@@ -13,11 +13,12 @@ from typing import Any
 import structlog
 
 from src.config import settings
+from src.exceptions import DataIntegrityError
 from src.parsers.events_parser import EventsParser, ParsedGameData
 from src.services.database import DatabaseService
 from src.services.grid_client import GridClient, GridClientError
 from src.services.grid_files import GridFiles
-from src.services.grid_graphql import GridGraphQL, Series, SeriesState, SeriesTeamState, Tournament
+from src.services.grid_graphql import GameState, GameTeamInfo, GridGraphQL, Series, SeriesState, SeriesTeamState, Tournament
 
 logger = structlog.get_logger(__name__)
 
@@ -30,43 +31,21 @@ _FORMAT_MAP = {
 }
 
 
-def _normalize_format(
-    raw: str | None,
-    team1_score: int = 0,
-    team2_score: int = 0,
-    num_games: int = 0,
-) -> tuple[str, dict | None]:
+def _normalize_format(raw: str | None) -> str:
     """Normalize GRID format (e.g. 'best-of-3') to DB format ('bo3').
 
-    Returns (format, flag_or_none). When format is inferred, a data quality
-    flag dict is returned so the caller can persist it.
+    Raises DataIntegrityError if the raw format is None or unknown.
     """
-    if raw:
-        return _FORMAT_MAP.get(raw.lower(), raw.lower()), None
+    if not raw:
+        raise DataIntegrityError("Match format missing from GRID", {"raw": raw})
 
-    ctx = {"raw": raw, "team1_score": team1_score, "team2_score": team2_score, "num_games": num_games}
-
-    # --- Infer from scores (most reliable) ---
-    _SCORE_TO_FORMAT = {1: "bo1", 2: "bo3", 3: "bo5"}
-    win_score = max(team1_score or 0, team2_score or 0)
-    if win_score in _SCORE_TO_FORMAT:
-        inferred = _SCORE_TO_FORMAT[win_score]
-        logger.warning("Format missing from GRID, inferred from scores", inferred_format=inferred, **ctx)
-        return inferred, {"flag_type": "format_inferred", "severity": "warning", "context": {**ctx, "source": "scores", "inferred": inferred}}
-
-    # --- Infer from game count (fallback) ---
-    if num_games >= 4:
-        logger.warning("Format missing from GRID, inferred bo5 from game count", **ctx)
-        return "bo5", {"flag_type": "format_inferred", "severity": "warning", "context": {**ctx, "source": "game_count", "inferred": "bo5"}}
-    if num_games >= 2:
-        logger.warning("Format missing from GRID, inferred bo3 from game count", **ctx)
-        return "bo3", {"flag_type": "format_inferred", "severity": "warning", "context": {**ctx, "source": "game_count", "inferred": "bo3"}}
-    if num_games == 1:
-        logger.warning("Format missing from GRID, inferred bo1 from game count", **ctx)
-        return "bo1", {"flag_type": "format_inferred", "severity": "warning", "context": {**ctx, "source": "game_count", "inferred": "bo1"}}
-
-    logger.warning("Format missing from GRID and cannot infer, defaulting to bo3", **ctx)
-    return "bo3", {"flag_type": "format_inferred", "severity": "error", "context": {**ctx, "source": "default", "inferred": "bo3"}}
+    normalized = _FORMAT_MAP.get(raw.lower(), raw.lower())
+    if normalized not in ("bo1", "bo2", "bo3", "bo5"):
+        raise DataIntegrityError(
+            f"Unknown match format from GRID: {raw!r}",
+            {"raw": raw, "normalized": normalized},
+        )
+    return normalized
 
 
 class SyncProDataJob:
@@ -184,6 +163,7 @@ class SyncProDataJob:
             logger.info("Discovery found series", count=len(series_list))
 
             for series in series_list:
+                tournament_db_id = None
                 try:
                     # Timezone-aware comparison
                     start = series.start_time
@@ -199,7 +179,10 @@ class SyncProDataJob:
                         if series.team2_id and series.team2_name:
                             await self.db.upsert_pro_team(external_id=series.team2_id, name=series.team2_name)
 
-                        format_str = _normalize_format(series.format, 0, 0, 0)[0] if series.format else "bo3"
+                        try:
+                            format_str = _normalize_format(series.format) if series.format else None
+                        except DataIntegrityError:
+                            format_str = None  # Unknown format for scheduled match — will resolve at processing time
 
                         await self.db.upsert_pro_match(
                             external_id=series.id,
@@ -227,9 +210,54 @@ class SyncProDataJob:
 
                     await self._process_series(series, tournament_db_id=tournament_db_id)
 
+                except DataIntegrityError as e:
+                    logger.error(
+                        "Data integrity failure in discovery",
+                        series_id=series.id,
+                        reason=e.reason,
+                    )
+                    # Ensure the match exists in DB before marking failed
+                    await self.db.upsert_pro_match(
+                        external_id=series.id,
+                        tournament_id=tournament_db_id,
+                        team1_external_id=series.team1_id,
+                        team2_external_id=series.team2_id,
+                        team1_score=0,
+                        team2_score=0,
+                        format=None,
+                        status="live",
+                        scheduled_at=series.start_time,
+                        started_at=series.start_time,
+                    )
+                    await self.db.mark_pro_match_failed(series.id, e.reason, e.context)
+                    self._errors += 1
+                except GridClientError as e:
+                    logger.error(
+                        "GRID API error in discovery",
+                        series_id=series.id,
+                        error=str(e),
+                    )
+                    await self.db.upsert_pro_match(
+                        external_id=series.id,
+                        tournament_id=tournament_db_id,
+                        team1_external_id=series.team1_id,
+                        team2_external_id=series.team2_id,
+                        team1_score=0,
+                        team2_score=0,
+                        format=None,
+                        status="live",
+                        scheduled_at=series.start_time,
+                        started_at=series.start_time,
+                    )
+                    await self.db.mark_pro_match_failed(
+                        series.id,
+                        f"GRID API error: {e}",
+                        {"series_id": series.id},
+                    )
+                    self._errors += 1
                 except Exception as e:
                     logger.error(
-                        "Failed to process series in discovery",
+                        "Unexpected error in discovery",
                         series_id=series.id,
                         error=str(e),
                     )
@@ -291,7 +319,10 @@ class SyncProDataJob:
                         if series.team2_id and series.team2_name:
                             await self.db.upsert_pro_team(external_id=series.team2_id, name=series.team2_name)
 
-                        format_str = _normalize_format(series.format, 0, 0, 0)[0] if series.format else "bo3"
+                        try:
+                            format_str = _normalize_format(series.format) if series.format else None
+                        except DataIntegrityError:
+                            format_str = None  # Unknown format for scheduled match — will resolve at processing time
 
                         await self.db.upsert_pro_match(
                             external_id=series.id,
@@ -321,69 +352,6 @@ class SyncProDataJob:
             raise
 
         return self._stats_dict()
-
-    async def run_live_poll(self) -> dict[str, int]:
-        """Poll active matches (live/completed) for updates.
-
-        This is the fast path — only re-processes matches that are known to be
-        in progress or recently completed but not yet fully processed.
-        No tournament discovery, no GraphQL tournament queries.
-
-        Returns:
-            Stats dictionary with counts
-        """
-        logger.info("Starting live poll")
-
-        # Reset stats for this poll cycle
-        self._series_processed = 0
-        self._series_skipped = 0
-        self._games_processed = 0
-        self._games_skipped = 0
-        self._errors = 0
-        self._duplicates_replaced = 0
-        self._consumed_fragment_ids.clear()
-
-        try:
-            active_matches = await self.db.get_active_pro_matches()
-            if not active_matches:
-                logger.debug("No active matches to poll")
-                return {
-                    "series_processed": 0,
-                    "games_processed": 0,
-                    "errors": 0,
-                }
-
-            logger.info("Polling active matches", count=len(active_matches))
-
-            for match in active_matches:
-                # Build a minimal Series object for _process_series
-                series = Series(
-                    id=match["external_id"],
-                    tournament_id="",  # Not needed — tournament_db_id is passed directly
-                    start_time=match["started_at"],
-                    format=match["format"],
-                )
-                await self._process_series(series, tournament_db_id=match["tournament_id"])
-
-            logger.info(
-                "Live poll completed",
-                series=self._series_processed,
-                series_skipped=self._series_skipped,
-                games=self._games_processed,
-                games_skipped=self._games_skipped,
-                errors=self._errors,
-            )
-
-        except Exception as e:
-            logger.error("Live poll failed", error=str(e), traceback=traceback.format_exc())
-            self._errors += 1
-
-        return {
-            "series_processed": self._series_processed,
-            "games_processed": self._games_processed,
-            "games_skipped": self._games_skipped,
-            "errors": self._errors,
-        }
 
     async def _resolve_tournament_lazy(self, grid_tournament_id: str) -> int | None:
         """Resolve tournament DB ID, fetching from GRID if needed.
@@ -496,7 +464,14 @@ class SyncProDataJob:
             # Get series state FIRST (for status, teams, and games)
             state = await self.graphql.get_series_state(series.id)
             if not state:
-                logger.warning("Could not get series state", series_id=series.id)
+                # No state available — skip silently, will retry next discovery cycle
+                self._series_skipped += 1
+                return
+
+            if not state.finished:
+                # Series not finished — skip, will be picked up in next cycle
+                logger.debug("Series not finished, skipping", series_id=series.id)
+                self._series_skipped += 1
                 return
 
             # Note: We process invalid/cancelled matches too (status will be "cancelled")
@@ -522,47 +497,46 @@ class SyncProDataJob:
             team1_external_id = None
             team2_external_id = None
 
-            if len(state.teams) >= 1:
-                team1 = state.teams[0]
-                team1_external_id = team1.id
-                team1_name = team1.name or "Unknown"
-                team1_db_id = await self.db.upsert_pro_team(
-                    external_id=team1.id,
-                    name=team1_name,
+            if len(state.teams) < 2:
+                raise DataIntegrityError(
+                    f"Series has {len(state.teams)} teams, expected 2",
+                    {"series_id": series.id, "teams_count": len(state.teams)},
                 )
-                if not team1.name:
-                    await self.db.create_data_quality_flag(
-                        flag_type="team_name_defaulted", severity="warning",
-                        entity_type="team", entity_id=team1_db_id, external_id=team1.id,
-                        context={"defaulted_to": "Unknown", "series_id": series.id},
-                    )
 
-            if len(state.teams) >= 2:
-                team2 = state.teams[1]
-                team2_external_id = team2.id
-                team2_name = team2.name or "Unknown"
-                team2_db_id = await self.db.upsert_pro_team(
-                    external_id=team2.id,
-                    name=team2_name,
+            team1 = state.teams[0]
+            team1_external_id = team1.id
+            if not team1.name:
+                raise DataIntegrityError(
+                    "Team 1 name is empty",
+                    {"series_id": series.id, "team_id": team1.id},
                 )
-                if not team2.name:
-                    await self.db.create_data_quality_flag(
-                        flag_type="team_name_defaulted", severity="warning",
-                        entity_type="team", entity_id=team2_db_id, external_id=team2.id,
-                        context={"defaulted_to": "Unknown", "series_id": series.id},
-                    )
+            team1_db_id = await self.db.upsert_pro_team(
+                external_id=team1.id,
+                name=team1.name,
+            )
 
-            # Get scores and winner from SeriesState
-            team1_score = state.teams[0].score if len(state.teams) >= 1 else 0
-            team2_score = state.teams[1].score if len(state.teams) >= 2 else 0
+            team2 = state.teams[1]
+            team2_external_id = team2.id
+            if not team2.name:
+                raise DataIntegrityError(
+                    "Team 2 name is empty",
+                    {"series_id": series.id, "team_id": team2.id},
+                )
+            team2_db_id = await self.db.upsert_pro_team(
+                external_id=team2.id,
+                name=team2.name,
+            )
+
+            # Get scores from SeriesState (we already verified 2 teams above)
+            team1_score = state.teams[0].score
+            team2_score = state.teams[1].score
 
             # Calculate status from SeriesState
             status = self._calculate_match_status(state)
 
             # Duplicate detection: check if another series already covers this match
             series_started_at = state.started_at or series.start_time
-            num_games = len(state.games)
-            series_format, format_flag = _normalize_format(state.format or series.format, team1_score, team2_score, num_games)
+            series_format = _normalize_format(state.format or series.format)
             duplicate = await self.db.find_duplicate_pro_match(
                 external_id=series.id,
                 tournament_id=tournament_db_id,
@@ -607,28 +581,25 @@ class SyncProDataJob:
                 merge_games = [g for g in state.games if g.finished or g.started]
                 games_added = 0
                 if merge_games:
-                    team1_state = state.teams[0] if len(state.teams) >= 1 else None
-                    team2_state = state.teams[1] if len(state.teams) >= 2 else None
+                    team1_state = state.teams[0]
+                    team2_state = state.teams[1]
 
                     # Process sequentially for chronobreak fragment tracking
                     for game_state in sorted(merge_games, key=lambda g: g.sequence_number):
-                        try:
-                            await self._process_game(
-                                series_id=series.id,
-                                game_state=game_state,
-                                match_id=primary_match_id,
-                                tournament_db_id=tournament_db_id,
-                                team1_db_id=team1_db_id,
-                                team2_db_id=team2_db_id,
-                                team1_state=team1_state,
-                                team2_state=team2_state,
-                                game_number_offset=max_game_num,
-                                all_series_games=state.games,
-                            )
-                            games_added += 1
-                        except Exception as e:
-                            logger.error("Game processing failed during merge", error=str(e))
-                            self._errors += 1
+                        await self._process_game(
+                            series_id=series.id,
+                            game_state=game_state,
+                            match_id=primary_match_id,
+                            tournament_db_id=tournament_db_id,
+                            team1_db_id=team1_db_id,
+                            team2_db_id=team2_db_id,
+                            team1_state=team1_state,
+                            team2_state=team2_state,
+                            game_number_offset=max_game_num,
+                            all_series_games=state.games,
+                            game_teams=game_state.teams,
+                        )
+                        games_added += 1
 
                 # Re-number all games in the match by started_at so that
                 # games merged from a cancelled series get the correct order.
@@ -662,12 +633,12 @@ class SyncProDataJob:
                     else:
                         final_score_1, final_score_2 = team1_score, team2_score
                     await self.db.execute(
-                        "UPDATE pro_matches SET team1_score = $1, team2_score = $2, status = 'processed', updated_at = NOW() WHERE match_id = $3",
+                        "UPDATE pro_matches SET team1_score = $1, team2_score = $2, status = 'processed', ended_at = COALESCE(ended_at, NOW()), updated_at = NOW() WHERE match_id = $3",
                         final_score_1, final_score_2, primary_match_id,
                     )
                 else:
                     await self.db.execute(
-                        "UPDATE pro_matches SET status = 'processed', updated_at = NOW() WHERE match_id = $1",
+                        "UPDATE pro_matches SET status = 'processed', ended_at = COALESCE(ended_at, NOW()), updated_at = NOW() WHERE match_id = $1",
                         primary_match_id,
                     )
 
@@ -680,6 +651,11 @@ class SyncProDataJob:
                 self._series_processed += 1
                 return  # Skip normal processing below
 
+            # Compute ended_at from started_at + duration when series is finished
+            series_ended_at = None
+            if state.finished and state.started_at and state.duration:
+                series_ended_at = state.started_at + timedelta(seconds=state.duration)
+
             # Upsert match (series)
             match_id = await self.db.upsert_pro_match(
                 external_id=series.id,
@@ -691,18 +667,11 @@ class SyncProDataJob:
                 format=series_format,
                 status=status,
                 started_at=state.started_at or series.start_time,
+                ended_at=series_ended_at,
             )
-
-            # Persist data quality flags
-            if format_flag:
-                format_flag["entity_type"] = "match"
-                format_flag["entity_id"] = match_id
-                format_flag["external_id"] = series.id
-                await self.db.create_data_quality_flag(**format_flag)
 
             # Process finished games (even if series is still live)
             finished_games = [g for g in state.games if g.finished]
-            all_games_successful = True
 
             # Debug: log all games from API
             logger.info(
@@ -718,34 +687,30 @@ class SyncProDataJob:
 
             if finished_games:
                 # Get team states for roster matching
-                team1_state = state.teams[0] if len(state.teams) >= 1 else None
-                team2_state = state.teams[1] if len(state.teams) >= 2 else None
+                team1_state = state.teams[0]
+                team2_state = state.teams[1]
 
                 # Process games sequentially (required for chronobreak fragment tracking:
                 # seq 1 must mark seq 2 as consumed before seq 2 starts processing)
                 for game_state in sorted(finished_games, key=lambda g: g.sequence_number):
-                    try:
-                        await self._process_game(
-                            series_id=series.id,
-                            game_state=game_state,
-                            match_id=match_id,
-                            tournament_db_id=tournament_db_id,
-                            team1_db_id=team1_db_id,
-                            team2_db_id=team2_db_id,
-                            team1_state=team1_state,
-                            team2_state=team2_state,
-                            all_series_games=state.games,
-                        )
-                    except Exception as e:
-                        logger.error("Game processing failed", error=str(e))
-                        self._errors += 1
-                        all_games_successful = False
+                    await self._process_game(
+                        series_id=series.id,
+                        game_state=game_state,
+                        match_id=match_id,
+                        tournament_db_id=tournament_db_id,
+                        team1_db_id=team1_db_id,
+                        team2_db_id=team2_db_id,
+                        team1_state=team1_state,
+                        team2_state=team2_state,
+                        all_series_games=state.games,
+                        game_teams=game_state.teams,
+                    )
 
             # Mark series as processed ONLY if:
             # - Series is finished (all games played)
             # - All games were processed successfully
             # - OR match was forfeited (no games to process)
-            if state.finished and all_games_successful and (finished_games or state.forfeited):
+            if state.finished and (finished_games or state.forfeited):
                 await self.db.mark_pro_match_processed(match_id)
                 logger.info(
                     "Series fully processed",
@@ -753,22 +718,52 @@ class SyncProDataJob:
                     games=len(finished_games),
                     forfeited=state.forfeited,
                 )
-            elif not state.finished:
-                logger.debug(
-                    "Series still in progress",
-                    series_id=series.id,
-                    status=status,
-                    games_finished=len(finished_games),
-                    games_total=len(state.games),
-                )
-
             self._series_processed += 1
 
+        except DataIntegrityError as e:
+            logger.error(
+                "Data integrity failure",
+                series_id=series.id,
+                reason=e.reason,
+            )
+            # Guarantee row exists before marking failed
+            await self.db.upsert_pro_match(
+                external_id=series.id,
+                tournament_id=tournament_db_id,
+                team1_external_id=series.team1_id,
+                team2_external_id=series.team2_id,
+                team1_score=0,
+                team2_score=0,
+                format=None,
+                status="live",
+                scheduled_at=series.start_time,
+                started_at=series.start_time,
+            )
+            await self.db.mark_pro_match_failed(series.id, e.reason, e.context)
+            self._errors += 1
         except GridClientError as e:
             logger.error(
                 "Failed to process series",
                 series_id=series.id,
                 error=str(e),
+            )
+            # Guarantee row exists before marking failed
+            await self.db.upsert_pro_match(
+                external_id=series.id,
+                tournament_id=tournament_db_id,
+                team1_external_id=series.team1_id,
+                team2_external_id=series.team2_id,
+                team1_score=0,
+                team2_score=0,
+                format=None,
+                status="live",
+                scheduled_at=series.start_time,
+                started_at=series.start_time,
+            )
+            await self.db.mark_pro_match_failed(
+                series.id,
+                f"GRID API error: {e}",
+                {"series_id": series.id},
             )
             self._errors += 1
 
@@ -807,6 +802,7 @@ class SyncProDataJob:
         team2_state: SeriesTeamState | None = None,
         game_number_offset: int = 0,
         all_series_games: list | None = None,
+        game_teams: list[GameTeamInfo] | None = None,
     ) -> None:
         """Process a single game."""
         game_external_id = game_state.id
@@ -935,6 +931,7 @@ class SyncProDataJob:
                     team2_db_id=team2_db_id,
                     team1_state=team1_state,
                     team2_state=team2_state,
+                    game_teams=game_teams,
                 )
 
             # Mark game as processed
@@ -1053,56 +1050,99 @@ class SyncProDataJob:
         team2_db_id: int | None,
         team1_state: SeriesTeamState | None = None,
         team2_state: SeriesTeamState | None = None,
+        game_teams: list[GameTeamInfo] | None = None,
     ) -> int:
         """Insert parsed game data into database. Returns game_id."""
         game = parsed.game
 
-        # Resolve team sides using GRID roster matching
-        blue_team_db_id, red_team_db_id = self._resolve_team_sides(
-            team1_db_id, team2_db_id,
-            team1_state, team2_state,
-            parsed.participant_names_by_side,
-        )
+        blue_team_db_id = None
+        red_team_db_id = None
+
+        # PRIORITY 1: GameTeamState.side (source of truth from GRID Live Data Feed)
+        if game_teams:
+            for gt in game_teams:
+                # Resolve the DB ID for this GRID team
+                db_id = None
+                if team1_state and gt.id == team1_state.id:
+                    db_id = team1_db_id
+                elif team2_state and gt.id == team2_state.id:
+                    db_id = team2_db_id
+                else:
+                    db_id = await self.db.find_by_source_id("team", gt.id)
+                if db_id is None:
+                    continue
+                if gt.side.lower() == "blue":
+                    blue_team_db_id = db_id
+                elif gt.side.lower() == "red":
+                    red_team_db_id = db_id
+
+            if blue_team_db_id is not None and red_team_db_id is not None:
+                logger.info(
+                    "GameTeamState.side resolved team sides",
+                    game_external_id=game_external_id,
+                    blue_team_db_id=blue_team_db_id,
+                    red_team_db_id=red_team_db_id,
+                )
+            elif blue_team_db_id is not None or red_team_db_id is not None:
+                logger.warning(
+                    "GameTeamState.side partially resolved (one side missing)",
+                    game_external_id=game_external_id,
+                    blue_team_db_id=blue_team_db_id,
+                    red_team_db_id=red_team_db_id,
+                )
+
+        # PRIORITY 2: Roster matching (fallback when game_teams didn't fully resolve)
+        if blue_team_db_id is None or red_team_db_id is None:
+            resolved_blue, resolved_red = self._resolve_team_sides(
+                team1_db_id, team2_db_id,
+                team1_state, team2_state,
+                parsed.participant_names_by_side,
+            )
+            if blue_team_db_id is None:
+                blue_team_db_id = resolved_blue
+            if red_team_db_id is None:
+                red_team_db_id = resolved_red
 
         # Fallback to existing team1_side if roster matching failed
         if blue_team_db_id is None:
-            side_flag_ctx = {
-                "game_external_id": game_external_id,
-                "team1_side": game.team1_side,
-            }
-            if team1_state and team2_state:
-                logger.warning(
-                    "Roster matching failed, falling back to team1_side",
-                    game_external_id=game_external_id,
-                    team1_side=game.team1_side,
-                    team1_players=[p.get("name") for p in team1_state.players],
-                    blue_participants=parsed.participant_names_by_side.get("blue", []),
-                )
-                side_flag_ctx["source"] = "team1_side_fallback"
             if game.team1_side == "blue":
                 blue_team_db_id = team1_db_id
                 red_team_db_id = team2_db_id
-                side_flag_ctx["resolution"] = "team1_side=blue"
+                parsed.data_quality_flags.append({
+                    "flag_type": "side_defaulted",
+                    "severity": "warning",
+                    "entity_type": "game",
+                    "external_id": game_external_id,
+                    "context": {
+                        "game_external_id": game_external_id,
+                        "source": "team1_side_fallback",
+                        "resolution": "team1_side=blue",
+                    },
+                })
             elif game.team1_side == "red":
                 blue_team_db_id = team2_db_id
                 red_team_db_id = team1_db_id
-                side_flag_ctx["resolution"] = "team1_side=red"
+                parsed.data_quality_flags.append({
+                    "flag_type": "side_defaulted",
+                    "severity": "warning",
+                    "entity_type": "game",
+                    "external_id": game_external_id,
+                    "context": {
+                        "game_external_id": game_external_id,
+                        "source": "team1_side_fallback",
+                        "resolution": "team1_side=red",
+                    },
+                })
             else:
-                logger.error(
-                    "Cannot determine team sides, defaulting team1=blue",
-                    game_external_id=game_external_id,
+                raise DataIntegrityError(
+                    "Cannot determine team sides",
+                    {
+                        "game_external_id": game_external_id,
+                        "team1_side": game.team1_side,
+                        "blue_participants": parsed.participant_names_by_side.get("blue", []),
+                        "red_participants": parsed.participant_names_by_side.get("red", []),
+                    },
                 )
-                blue_team_db_id = team1_db_id
-                red_team_db_id = team2_db_id
-                side_flag_ctx["source"] = "hard_default"
-                side_flag_ctx["resolution"] = "team1=blue (guessed)"
-            parsed.data_quality_flags.append({
-                "flag_type": "side_defaulted",
-                "severity": "error" if "hard_default" in side_flag_ctx.get("source", "") else "warning",
-                "entity_type": "game",
-                "external_id": game_external_id,
-                "context": side_flag_ctx,
-            })
 
         # Determine winner team ID based on winner_team_side
         winner_team_db_id = None
@@ -1111,7 +1151,7 @@ class SyncProDataJob:
         elif game.winner_team_side == "red":
             winner_team_db_id = red_team_db_id
 
-        # Upsert game
+        # Upsert game (inside transaction so it rolls back with player stats on failure)
         game_id = await self.db.upsert_pro_game(
             external_id=game_external_id,
             match_id=match_id,
@@ -1149,6 +1189,7 @@ class SyncProDataJob:
             objectives_timeline=game.objectives_timeline or None,
             started_at=datetime.fromisoformat(game.started_at) if game.started_at else None,
             ended_at=datetime.fromisoformat(game.ended_at) if game.ended_at else None,
+            connection=conn,
         )
 
         # Aggregate gold and vision per team from player stats

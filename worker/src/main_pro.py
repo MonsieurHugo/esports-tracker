@@ -1,9 +1,9 @@
 """
 Pro Worker Main Entry Point
 
-Two-tier sync architecture for pro esports data from GRID API:
-- Live poll (~45s): re-checks active matches (live/completed) for fast updates
-- Discovery sync (~30min): series-first discovery of recent matches via get_all_series
+Discovery-only sync architecture for pro esports data from GRID API:
+- Discovery sync (~15min): series-first discovery of finished matches via get_all_series
+- Only processes series that are fully finished (no live processing)
 """
 
 import argparse
@@ -41,7 +41,7 @@ def parse_args() -> argparse.Namespace:
 
 
 class ProWorker:
-    """Pro data synchronization worker with two-tier sync."""
+    """Pro data synchronization worker with discovery-only sync."""
 
     def __init__(self):
         self.db = DatabaseService(settings.database_url)
@@ -78,11 +78,10 @@ class ProWorker:
         logger.info("Pro worker setup complete")
 
     async def start(self) -> None:
-        """Start the worker with two-tier sync."""
+        """Start the worker with discovery-only sync."""
         logger.info(
-            "Starting pro worker (two-tier)",
+            "Starting pro worker (discovery-only)",
             year=settings.pro_tournament_year,
-            live_poll_seconds=settings.pro_live_poll_interval_seconds,
             discovery_interval_minutes=settings.pro_discovery_interval_minutes,
             discovery_window_hours=settings.pro_discovery_window_hours,
         )
@@ -102,14 +101,7 @@ class ProWorker:
         logger.info("Running initial discovery sync...")
         await self._discovery_loop()
 
-        # Schedule both loops
-        self.scheduler.add_job(
-            self._live_poll_loop,
-            trigger=IntervalTrigger(seconds=settings.pro_live_poll_interval_seconds),
-            id="live_poll",
-            name="Live Poll",
-            replace_existing=True,
-        )
+        # Schedule discovery loop only (no live poll — we only process finished series)
         self.scheduler.add_job(
             self._discovery_loop,
             trigger=IntervalTrigger(minutes=settings.pro_discovery_interval_minutes),
@@ -120,69 +112,16 @@ class ProWorker:
         self.scheduler.start()
         logger.info(
             "Scheduler started",
-            live_poll_interval=f"{settings.pro_live_poll_interval_seconds}s",
             discovery_interval=f"{settings.pro_discovery_interval_minutes}min",
         )
 
         # Wait for shutdown signal
         await self._shutdown_event.wait()
 
-    async def _live_poll_loop(self) -> None:
-        """Fast poll: re-check active matches for updates (~45s cycle)."""
-        if not self._running:
-            return
-
-        # Skip if another sync is already running (mutual exclusion)
-        if self._sync_lock.locked():
-            logger.debug("Skipping live poll (sync in progress)")
-            return
-
-        async with self._sync_lock:
-            try:
-                await self.db.update_pro_worker_task("Live poll")
-                stats = await self.sync_job.run_live_poll()
-
-                games_processed = stats.get("games_processed", 0)
-                if games_processed > 0:
-                    # Update session counters
-                    await self.db.increment_pro_worker_stats(
-                        matches=stats.get("series_processed", 0),
-                        games=games_processed,
-                        errors=stats.get("errors", 0),
-                    )
-
-                    # Run lightweight aggregation only if games were processed
-                    try:
-                        await self.db.update_pro_worker_task("Aggregating stats (live)")
-                        agg_stats = await self.aggregate_job.run(days_back=1)
-                        logger.info("Live aggregation completed", **agg_stats)
-                    except Exception as e:
-                        logger.error("Live aggregation failed", error=str(e))
-
-            except Exception as e:
-                logger.error("Live poll failed", error=str(e))
-                try:
-                    await self.db.set_pro_worker_error(str(e))
-                    await self.db.increment_pro_worker_stats(errors=1)
-                except Exception:
-                    pass
-
-            # Mark idle
-            try:
-                await self.db.update_pro_worker_task(None)
-            except Exception:
-                pass
-
     async def _discovery_loop(self) -> None:
-        """Discovery sync: find recent series via get_all_series (~30min cycle)."""
+        """Discovery sync: find recent finished series via get_all_series."""
         if not self._running:
             return
-
-        # Wait briefly for any concurrent live poll to finish.
-        # Both intervals are synchronized (30min = 40×45s) so they always fire
-        # at the same instant; this sleep lets the live poll complete first.
-        if self._sync_lock.locked():
-            await asyncio.sleep(5)
 
         if self._sync_lock.locked():
             logger.warning("Sync in progress, deferring discovery")
@@ -209,7 +148,7 @@ class ProWorker:
                 except Exception:
                     pass
 
-        # Aggregate after releasing lock so live polls can resume during aggregation
+        # Aggregate after releasing lock
         try:
             await self.db.update_pro_worker_task("Aggregating stats (discovery)")
             agg_stats = await self.aggregate_job.run(days_back=1)
