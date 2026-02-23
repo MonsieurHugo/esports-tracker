@@ -154,7 +154,7 @@ services:
       - "traefik.http.routers.frontend.middlewares=www-redirect"
 
   # ============================================
-  # WORKER (Build locally)
+  # WORKER SoloQ (Build locally)
   # ============================================
   worker:
     build:
@@ -163,6 +163,7 @@ services:
     container_name: esports-worker
     restart: unless-stopped
     environment:
+      PYTHONUNBUFFERED: 1
       DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_DATABASE}
       REDIS_URL: redis://:${REDIS_PASSWORD:-}@redis:6379
       RIOT_API_KEY: ${RIOT_API_KEY}
@@ -170,6 +171,26 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+    networks:
+      - esports-network
+
+  # ============================================
+  # WORKER Pro (Build locally - GRID API)
+  # ============================================
+  worker-pro:
+    build:
+      context: ./worker
+      dockerfile: Dockerfile
+    container_name: esports-worker-pro
+    restart: unless-stopped
+    command: python -m src.main_pro
+    environment:
+      PYTHONUNBUFFERED: 1
+      DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_DATABASE}
+      GRID_API_KEY: ${GRID_API_KEY}
+    depends_on:
+      postgres:
         condition: service_healthy
     networks:
       - esports-network
