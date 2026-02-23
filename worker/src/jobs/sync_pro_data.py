@@ -536,122 +536,7 @@ class SyncProDataJob:
             # Calculate status from SeriesState
             status = self._calculate_match_status(state)
 
-            # Duplicate detection: check if another series already covers this match
-            series_started_at = state.started_at or series.start_time
             series_format = _normalize_format(state.format or series.format)
-            duplicate = await self.db.find_duplicate_pro_match(
-                external_id=series.id,
-                tournament_id=tournament_db_id,
-                team1_external_id=team1_external_id,
-                team2_external_id=team2_external_id,
-                started_at=series_started_at,
-                format=series_format,
-            )
-            if duplicate:
-                primary_match_id = duplicate["match_id"]
-                primary_external_id = duplicate["external_id"]
-
-                await self.db.create_data_quality_flag(
-                    flag_type="duplicate_merged", severity="warning",
-                    entity_type="match", entity_id=primary_match_id, external_id=series.id,
-                    context={
-                        "new_series_id": series.id,
-                        "primary_external_id": primary_external_id,
-                        "primary_match_id": primary_match_id,
-                        "primary_status": duplicate["status"],
-                        "time_window": "3h" if duplicate["status"] != "cancelled" else "1d",
-                    },
-                )
-
-                logger.warning(
-                    "Duplicate GRID series detected — merging directly into primary",
-                    new_series_id=series.id,
-                    existing_series_id=primary_external_id,
-                    existing_match_id=primary_match_id,
-                    existing_status=duplicate["status"],
-                )
-
-                # Find max game_number in primary match to offset new games
-                max_game_num = await self.db.fetchval(
-                    "SELECT COALESCE(MAX(game_number), 0) FROM pro_games WHERE match_id = $1",
-                    primary_match_id,
-                )
-
-                # Process games directly into the primary match (no temporary match needed)
-                # In merge path, accept started (not just finished) games — cancelled GRID
-                # series mark games as not-finished even when data files exist.
-                merge_games = [g for g in state.games if g.finished or g.started]
-                games_added = 0
-                if merge_games:
-                    team1_state = state.teams[0]
-                    team2_state = state.teams[1]
-
-                    # Process sequentially for chronobreak fragment tracking
-                    for game_state in sorted(merge_games, key=lambda g: g.sequence_number):
-                        await self._process_game(
-                            series_id=series.id,
-                            game_state=game_state,
-                            match_id=primary_match_id,
-                            tournament_db_id=tournament_db_id,
-                            team1_db_id=team1_db_id,
-                            team2_db_id=team2_db_id,
-                            team1_state=team1_state,
-                            team2_state=team2_state,
-                            game_number_offset=max_game_num,
-                            all_series_games=state.games,
-                            game_teams=game_state.teams,
-                        )
-                        games_added += 1
-
-                # Re-number all games in the match by started_at so that
-                # games merged from a cancelled series get the correct order.
-                if games_added > 0:
-                    await self.db.execute(
-                        """UPDATE pro_games g
-                           SET game_number = sub.rn
-                           FROM (
-                               SELECT game_id,
-                                      ROW_NUMBER() OVER (ORDER BY started_at NULLS LAST, game_id) AS rn
-                               FROM pro_games
-                               WHERE match_id = $1
-                           ) sub
-                           WHERE g.game_id = sub.game_id AND g.game_number != sub.rn""",
-                        primary_match_id,
-                    )
-
-                # Audit trail: record that this series was merged
-                await self.db.execute(
-                    """INSERT INTO pro_entity_mappings (entity_type, entity_id, source, source_id, created_at)
-                       VALUES ('match', $1, 'grid_merged', $2, NOW())
-                       ON CONFLICT (entity_type, source, source_id) DO NOTHING""",
-                    primary_match_id, series.id,
-                )
-
-                # Update primary match scores and status after merge
-                if state.valid and state.finished:
-                    primary_team1 = duplicate["team1_external_id"]
-                    if primary_team1 and primary_team1 == team2_external_id:
-                        final_score_1, final_score_2 = team2_score, team1_score
-                    else:
-                        final_score_1, final_score_2 = team1_score, team2_score
-                    await self.db.execute(
-                        "UPDATE pro_matches SET team1_score = $1, team2_score = $2, status = 'processed', ended_at = COALESCE(ended_at, NOW()), updated_at = NOW() WHERE match_id = $3",
-                        final_score_1, final_score_2, primary_match_id,
-                    )
-                else:
-                    await self.db.execute(
-                        "UPDATE pro_matches SET status = 'processed', ended_at = COALESCE(ended_at, NOW()), updated_at = NOW() WHERE match_id = $1",
-                        primary_match_id,
-                    )
-
-                logger.info(
-                    "Merged duplicate series",
-                    primary_match_id=primary_match_id,
-                    games_added=games_added,
-                )
-                self._duplicates_replaced += 1
-                self._series_processed += 1
-                return  # Skip normal processing below
 
             # Compute ended_at from started_at + duration when series is finished
             series_ended_at = None
@@ -671,6 +556,44 @@ class SyncProDataJob:
                 started_at=state.started_at or series.start_time,
                 ended_at=series_ended_at,
             )
+
+            # Flag cancelled series that have games played
+            if status == "cancelled" and len(state.games) > 0 and any(g.finished for g in state.games):
+                await self.db.create_data_quality_flag(
+                    flag_type="series_cancelled_with_games",
+                    severity="warning",
+                    entity_type="match",
+                    entity_id=match_id,
+                    external_id=series.id,
+                    context={
+                        "format": series_format,
+                        "games_played": len([g for g in state.games if g.finished]),
+                        "team1": state.teams[0].name,
+                        "team2": state.teams[1].name,
+                        "score": f"{team1_score}-{team2_score}",
+                    },
+                )
+
+            # Flag series where game count doesn't match the score
+            max_score = max(team1_score or 0, team2_score or 0)
+            total_finished = len([g for g in state.games if g.finished])
+            expected_games = (team1_score or 0) + (team2_score or 0)
+            if state.finished and max_score > 0 and total_finished < expected_games:
+                await self.db.create_data_quality_flag(
+                    flag_type="incomplete_series",
+                    severity="warning",
+                    entity_type="match",
+                    entity_id=match_id,
+                    external_id=series.id,
+                    context={
+                        "format": series_format,
+                        "games_in_series": total_finished,
+                        "expected_from_score": expected_games,
+                        "team1": state.teams[0].name,
+                        "team2": state.teams[1].name,
+                        "score": f"{team1_score}-{team2_score}",
+                    },
+                )
 
             # Process finished games (even if series is still live)
             finished_games = [g for g in state.games if g.finished]

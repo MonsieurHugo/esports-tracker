@@ -1616,53 +1616,6 @@ class DatabaseService:
         )
         return result or False
 
-    async def find_duplicate_pro_match(
-        self,
-        external_id: str,
-        tournament_id: int | None,
-        team1_external_id: str | None,
-        team2_external_id: str | None,
-        started_at: datetime | None,
-        format: str,
-    ) -> asyncpg.Record | None:
-        """Find an existing pro match that looks like a duplicate of a new GRID series.
-
-        Two detection levels:
-        - Cancelled matches: same tournament + same teams + started_at ±1 day
-        - Non-cancelled matches: same tournament + same teams + same format + started_at ±3 hours
-        """
-        if not tournament_id or not team1_external_id or not team2_external_id or not started_at:
-            return None
-
-        return await self.fetchrow(
-            """
-            SELECT match_id, external_id, status, started_at, format, team1_external_id
-            FROM pro_matches
-            WHERE external_id != $1
-              AND tournament_id = $2
-              AND (
-                (team1_external_id = $3 AND team2_external_id = $4)
-                OR (team1_external_id = $4 AND team2_external_id = $3)
-              )
-              AND started_at IS NOT NULL
-              AND (
-                (status = 'cancelled'
-                 AND started_at BETWEEN $5::timestamptz - INTERVAL '1 day' AND $5::timestamptz + INTERVAL '1 day')
-                OR
-                (status != 'cancelled'
-                 AND format = $6
-                 AND started_at BETWEEN $5::timestamptz - INTERVAL '3 hours' AND $5::timestamptz + INTERVAL '3 hours')
-              )
-            LIMIT 1
-            """,
-            external_id,
-            tournament_id,
-            team1_external_id,
-            team2_external_id,
-            started_at,
-            format,
-        )
-
     async def merge_duplicate_pro_match(
         self,
         primary_match_id: int,

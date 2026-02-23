@@ -236,6 +236,12 @@ class EventsParser:
         "UTILITY": "Support",
     }
 
+    # participantId-based role map (1-5 blue, 6-10 red — always in standard order)
+    PARTICIPANT_ID_ROLE_MAP = {
+        1: "Top", 2: "Jungle", 3: "Mid", 4: "ADC", 5: "Support",
+        6: "Top", 7: "Jungle", 8: "Mid", 9: "ADC", 10: "Support",
+    }
+
     # Riot team IDs
     BLUE_TEAM_ID = 100
     RED_TEAM_ID = 200
@@ -667,12 +673,10 @@ class EventsParser:
             if champion_name:
                 stats.champion_name = champion_name
 
-            # Role from summary teamPosition (will be overridden by role_selected in Phase 4)
-            position = p.get("teamPosition", "")
-            if position:
-                role = self.SUMMARY_ROLE_MAP.get(position)
-                if role and not stats.role:
-                    stats.role = role
+            # Role from participantId order (more reliable than teamPosition)
+            pid_role = self.PARTICIPANT_ID_ROLE_MAP.get(pid)
+            if pid_role and not stats.role:
+                stats.role = pid_role
 
         logger.debug(
             "Loaded primary data from summary",
@@ -715,11 +719,9 @@ class EventsParser:
             if champion_id or champion_name:
                 self._participant_id_to_champion[pid] = (champion_id or 0, champion_name)
 
-            position = p.get("teamPosition", "")
-            if position:
-                role = self.SUMMARY_ROLE_MAP.get(position)
-                if role:
-                    self._participant_id_to_role[pid] = role
+            pid_role = self.PARTICIPANT_ID_ROLE_MAP.get(pid)
+            if pid_role:
+                self._participant_id_to_role[pid] = pid_role
 
     # ─── Phase 3: PRIMARY from details ─────────────────────────────────
 

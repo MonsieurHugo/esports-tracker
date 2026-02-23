@@ -100,7 +100,7 @@ class Settings(BaseSettings):
     pro_live_poll_interval_seconds: int = 45  # Fast poll for live matches
     pro_full_sync_interval_hours: int = 6  # Legacy full sync interval (kept for one-shot compat)
     pro_discovery_interval_minutes: int = 30  # Series-first discovery cycle
-    pro_discovery_window_hours: int = 48  # How far back to look for new series
+    pro_discovery_window_hours: int = 1400  # Temporarily large to backfill all of 2026
     pro_api_port: int = 8000  # HTTP API port for pro worker
     pro_api_host: str = "0.0.0.0"  # HTTP API host
     # Leaguepedia sync settings
